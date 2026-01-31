@@ -61,6 +61,12 @@ export function useAgentOrchestrator(projectContext: ProjectContext) {
       console.log('[useAgentOrchestrator] Executing task...');
       const result = await executeAgentTask(task);
       console.log('[useAgentOrchestrator] Task result:', result.status);
+      console.log('[useAgentOrchestrator] Task output:', result.output);
+      console.log('[useAgentOrchestrator] Has proposals:', !!result.output?.proposals);
+      if (result.output?.proposals) {
+        console.log('[useAgentOrchestrator] Proposals count:', result.output.proposals.length);
+        console.log('[useAgentOrchestrator] Proposals data:', JSON.stringify(result.output.proposals, null, 2));
+      }
       setCurrentTask(result);
 
       // Update conversation history

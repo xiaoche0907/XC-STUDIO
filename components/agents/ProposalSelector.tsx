@@ -22,8 +22,8 @@ export const ProposalSelector: React.FC<ProposalSelectorProps> = ({
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2 text-sm text-white/60">
+    <div className="space-y-3 p-4 bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl border border-gray-200">
+      <div className="flex items-center gap-2 text-sm text-gray-600">
         <Sparkles className="w-4 h-4" />
         <span>Choose a design direction:</span>
       </div>
@@ -52,8 +52,8 @@ export const ProposalSelector: React.FC<ProposalSelectorProps> = ({
                 className={`
                   relative p-4 rounded-xl text-left transition-all
                   ${isSelected
-                    ? 'bg-gradient-to-br from-purple-500/20 to-blue-500/20 border-2 border-purple-500/50'
-                    : 'bg-white/5 border border-white/10 hover:bg-white/10'
+                    ? 'bg-gradient-to-br from-purple-500/20 to-blue-500/20 border-2 border-purple-500'
+                    : 'bg-white border border-gray-200 hover:border-purple-300 hover:shadow-md'
                   }
                   ${isExecuting ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                 `}
@@ -69,7 +69,7 @@ export const ProposalSelector: React.FC<ProposalSelectorProps> = ({
                 )}
 
                 {proposal.preview && (
-                  <div className="w-full h-32 mb-3 rounded-lg overflow-hidden bg-white/5">
+                  <div className="w-full h-32 mb-3 rounded-lg overflow-hidden bg-gray-100">
                     <img
                       src={proposal.preview}
                       alt={proposal.title}
@@ -78,10 +78,10 @@ export const ProposalSelector: React.FC<ProposalSelectorProps> = ({
                   </div>
                 )}
 
-                <h3 className="text-sm font-semibold text-white mb-1">
+                <h3 className="text-sm font-semibold text-gray-900 mb-1">
                   {proposal.title}
                 </h3>
-                <p className="text-xs text-white/60 line-clamp-2">
+                <p className="text-xs text-gray-600 line-clamp-2">
                   {proposal.description}
                 </p>
 
@@ -91,7 +91,7 @@ export const ProposalSelector: React.FC<ProposalSelectorProps> = ({
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                   >
-                    <div className="flex items-center gap-2 text-sm text-purple-400">
+                    <div className="flex items-center gap-2 text-sm text-purple-600">
                       <motion.div
                         animate={{ rotate: 360 }}
                         transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}

@@ -1805,6 +1805,17 @@ const Workspace: React.FC = () => {
                             )}
 
                             {/* Proposal Selector */}
+                            {(() => {
+                                console.log('[Workspace] Checking proposals:', {
+                                    hasCurrentTask: !!currentTask,
+                                    taskStatus: currentTask?.status,
+                                    hasOutput: !!currentTask?.output,
+                                    hasProposals: !!currentTask?.output?.proposals,
+                                    proposalsLength: currentTask?.output?.proposals?.length,
+                                    proposals: currentTask?.output?.proposals
+                                });
+                                return null;
+                            })()}
                             {currentTask?.output?.proposals && currentTask.output.proposals.length > 0 && (
                                 <div className="mt-4">
                                     <ProposalSelector
