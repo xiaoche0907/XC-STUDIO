@@ -1197,14 +1197,13 @@ const Workspace: React.FC = () => {
 
       try {
         const agentResult = await processMessage(textToSend, filesToSend);
-        if (agentResult?.output) {
+        if (agentResult?.output?.message) {
           setMessages(prev => [...prev, {
             id: (Date.now() + 1).toString(),
             role: 'model',
             text: agentResult.output.message,
-            timestamp: Date.now(),
-            agentTask: agentResult
-          } as any]);
+            timestamp: Date.now()
+          }]);
         }
       } catch (error) {
         setMessages(prev => [...prev, { id: (Date.now() + 2).toString(), role: 'model', text: `Error: ${error instanceof Error ? error.message : 'Unknown'}`, timestamp: Date.now() }]);
