@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ChevronDown, Minus, Plus, Share2, Maximize2, X, RotateCw, 
   ArrowUp, Paperclip, Lightbulb, Zap, Globe, Box, Sparkles,
@@ -14,7 +15,8 @@ import {
   ChevronUp, Loader2, ImagePlus, ChevronRight, CornerUpRight, Link2, Link as LinkIcon, Unlink,
   Minimize2, Play, Film, Clock, SquarePen, Folder, PanelRightClose,
   Eraser, Scissors, Shirt, Expand, Crop, MonitorUp, Highlighter,
-  Gift, Store, Layout, Copy, Info, MessageSquarePlus, File as FileIcon, CirclePlus
+  Gift, Store, Layout, Copy, Info, MessageSquarePlus, File as FileIcon, CirclePlus,
+  Scan, ZoomIn, Scaling
 } from 'lucide-react';
 import { createChatSession, sendMessage, generateImage, generateVideo, extractTextFromImage, analyzeImageRegion } from '../services/gemini';
 import { ChatMessage, Template, CanvasElement, ShapeType, Marker, Project } from '../types';
@@ -103,7 +105,7 @@ const Workspace: React.FC = () => {
   const location = useLocation();
   const { id } = useParams<{ id: string }>();
   
-  const [zoom, setZoom] = useState(100);
+  const [zoom, setZoom] = useState(30);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [elements, setElements] = useState<CanvasElement[]>([]);
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
@@ -153,6 +155,7 @@ const Workspace: React.FC = () => {
   const [detectedTexts, setDetectedTexts] = useState<string[]>([]);
   const [editedTexts, setEditedTexts] = useState<string[]>([]);
   const [isExtractingText, setIsExtractingText] = useState(false);
+  const [showFileListModal, setShowFileListModal] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const refImageInputRef = useRef<HTMLInputElement>(null);
@@ -284,7 +287,19 @@ const Workspace: React.FC = () => {
                   const reader = new FileReader();
                   reader.onload = (event) => {
                       const result = event.target?.result as string;
-                      addElement('image', result);
+                      const img = new Image();
+                      img.onload = () => {
+                          let w = img.width;
+                          let h = img.height;
+                          const maxDim = 800; // Increased default size
+                          if (w > maxDim || h > maxDim) {
+                              const ratio = w / h;
+                              if (w > h) { w = maxDim; h = maxDim / ratio; }
+                              else { h = maxDim; w = maxDim * ratio; }
+                          }
+                          addElement('image', result, { width: w, height: h });
+                      };
+                      img.src = result;
                   };
                   reader.readAsDataURL(blob);
               }
@@ -503,6 +518,17 @@ const Workspace: React.FC = () => {
     }
   };
 
+  // Handle Model Mode Switching
+  useEffect(() => {
+      // 'thinking' -> gemini-3-pro-preview
+      // 'fast' -> gemini-3-flash-preview
+      const modelName = modelMode === 'thinking' ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
+      
+      // Preserve history when switching models if possible, but basic recreation here
+      const historyContent: Content[] = messages.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+      chatSessionRef.current = createChatSession(modelName, historyContent);
+  }, [modelMode]);
+
   useEffect(() => {
     if (id) {
         const load = async () => {
@@ -536,15 +562,10 @@ const Workspace: React.FC = () => {
         setElements(prev => { const next = [...prev, newElement]; setHistory([{ elements: next, markers: [] }]); return next; });
     }
     if (!chatSessionRef.current) {
+        // Default to PRO_MODEL (thinking)
         chatSessionRef.current = createChatSession('gemini-3-pro-preview');
     }
   }, [id, location.state]);
-
-  useEffect(() => {
-      const modelName = modelMode === 'thinking' ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
-      const historyContent: Content[] = messages.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
-      chatSessionRef.current = createChatSession(modelName, historyContent);
-  }, [modelMode]);
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
@@ -559,6 +580,7 @@ const Workspace: React.FC = () => {
             setShowResPicker(false);
             setShowRatioPicker(false);
             setShowModelPicker(false);
+            setShowFileListModal(false);
         }
     };
     const handleWindowPaste = (e: ClipboardEvent) => {
@@ -569,7 +591,20 @@ const Workspace: React.FC = () => {
             if (file.type.startsWith('image/')) {
                 const reader = new FileReader();
                 reader.onload = (event) => {
-                    addElement('image', event.target?.result as string);
+                    const result = event.target?.result as string;
+                    const img = new Image();
+                    img.onload = () => {
+                        let w = img.width;
+                        let h = img.height;
+                        const maxDim = 800;
+                        if (w > maxDim || h > maxDim) {
+                            const ratio = w / h;
+                            if (w > h) { w = maxDim; h = maxDim / ratio; }
+                            else { h = maxDim; w = maxDim * ratio; }
+                        }
+                        addElement('image', result, { width: w, height: h });
+                    };
+                    img.src = result;
                 };
                 reader.readAsDataURL(file);
             }
@@ -577,9 +612,29 @@ const Workspace: React.FC = () => {
     };
     window.addEventListener('click', handleGlobalClick);
     window.addEventListener('paste', handleWindowPaste);
+
+    // Native wheel listener for non-passive behavior (Prevent Browser Zoom)
+    const onWheel = (e: WheelEvent) => {
+        if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -10 : 10;
+            setZoom(z => Math.max(10, Math.min(500, z + delta)));
+        } else {
+            // Also prevent swipe-to-nav etc if necessary, but allow normal scroll if not zooming?
+            // Actually users requested standard pan. 
+            // If they are NOT zooming, we use React panning state.
+            // But to be safe against touchpad gestures zooming the page:
+            if (e.ctrlKey) e.preventDefault();
+        }
+    };
+    
+    // Attach to window to catch all scrolls and prevent browser zoom
+    window.addEventListener('wheel', onWheel, { passive: false });
+
     return () => {
         window.removeEventListener('click', handleGlobalClick);
         window.removeEventListener('paste', handleWindowPaste);
+        window.removeEventListener('wheel', onWheel);
     };
   }, [elements, zoom, pan]);
 
@@ -617,7 +672,18 @@ const Workspace: React.FC = () => {
     return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
   }, [selectedElementId, history, historyStep, elements, markers]);
 
-  const addElement = (type: 'image' | 'video', url: string) => { const containerW = window.innerWidth - (showAssistant ? 400 : 0); const containerH = window.innerHeight; const centerX = (containerW / 2 - pan.x) / (zoom / 100); const centerY = (containerH / 2 - pan.y) / (zoom / 100); const newElement: CanvasElement = { id: Date.now().toString(), type, url, x: centerX - 200, y: centerY - 150, width: 400, height: 300, zIndex: elements.length + 1 }; const newElements = [...elements, newElement]; setElements(newElements); saveToHistory(newElements, markers); };
+  const addElement = (type: 'image' | 'video', url: string, dims?: { width: number, height: number }) => { 
+      const containerW = window.innerWidth - (showAssistant ? 400 : 0); 
+      const containerH = window.innerHeight; 
+      const centerX = (containerW / 2 - pan.x) / (zoom / 100); 
+      const centerY = (containerH / 2 - pan.y) / (zoom / 100); 
+      const width = dims?.width || 400;
+      const height = dims?.height || 300;
+      const newElement: CanvasElement = { id: Date.now().toString(), type, url, x: centerX - (width/2), y: centerY - (height/2), width, height, zIndex: elements.length + 1 }; 
+      const newElements = [...elements, newElement]; 
+      setElements(newElements); 
+      saveToHistory(newElements, markers); 
+  };
   
   const addShape = (shapeType: ShapeType) => {
       const containerW = window.innerWidth - (showAssistant ? 400 : 0);
@@ -723,7 +789,34 @@ const Workspace: React.FC = () => {
       } 
   };
   
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'video') => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (event) => { const result = event.target?.result as string; addElement(type, result); setShowInsertMenu(false); }; reader.readAsDataURL(file); };
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'video') => { 
+      const file = e.target.files?.[0]; 
+      if (!file) return; 
+      const reader = new FileReader(); 
+      reader.onload = (event) => { 
+          const result = event.target?.result as string; 
+          if (type === 'image') {
+              const img = new Image();
+              img.onload = () => {
+                  let w = img.width;
+                  let h = img.height;
+                  const maxDim = 800;
+                  if (w > maxDim || h > maxDim) {
+                      const ratio = w / h;
+                      if (w > h) { w = maxDim; h = maxDim / ratio; }
+                      else { h = maxDim; w = maxDim * ratio; }
+                  }
+                  addElement(type, result, { width: w, height: h }); 
+                  setShowInsertMenu(false); 
+              };
+              img.src = result;
+          } else {
+              addElement(type, result); 
+              setShowInsertMenu(false); 
+          }
+      }; 
+      reader.readAsDataURL(file); 
+  };
   const handleRefImageUpload = (e: React.ChangeEvent<HTMLInputElement>, elementId: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -762,7 +855,7 @@ const Workspace: React.FC = () => {
   };
   
   const handleContextMenu = (e: React.MouseEvent) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY }); };
-  const handleWheel = (e: React.WheelEvent) => { if (e.ctrlKey || e.metaKey) { const delta = e.deltaY > 0 ? -10 : 10; setZoom(z => Math.max(10, Math.min(200, z + delta))); } else { setPan(p => ({ x: p.x - e.deltaX, y: p.y - e.deltaY })); } };
+  // Wheel handled by native listener in useEffect
   const handleMouseDown = (e: React.MouseEvent) => { if (contextMenu) setContextMenu(null); if (activeTool === 'hand' || e.button === 1 || e.buttons === 4 || isSpacePressed) { setIsPanning(true); setDragStart({ x: e.clientX, y: e.clientY }); return; } if (e.target === containerRef.current) { setSelectedElementId(null); setEditingTextId(null); setIsPanning(true); setDragStart({ x: e.clientX, y: e.clientY }); setShowFontPicker(false); setShowModelPicker(false); setShowResPicker(false); setShowRatioPicker(false); } };
   
   const handleMouseMove = (e: React.MouseEvent) => {
@@ -803,7 +896,7 @@ const Workspace: React.FC = () => {
         const dx = e.clientX - dragStart.x;
         const dy = e.clientY - dragStart.y;
         setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
-        setDragStart({ x: e.clientX, y: e.clientX });
+        setDragStart({ x: e.clientX, y: e.clientY });
     } else if (isDraggingElement && selectedElementId) {
         const dx = (e.clientX - dragStart.x) / (zoom / 100);
         const dy = (e.clientY - dragStart.y) / (zoom / 100);
@@ -1042,114 +1135,117 @@ const Workspace: React.FC = () => {
     );
   };
 
-  const renderGenImageToolbar = () => {
+  const renderImageToolbar = () => {
     if (!selectedElementId) return null;
     const el = elements.find(e => e.id === selectedElementId);
-    if (!el || el.type !== 'gen-image') return null;
+    if (!el || (el.type !== 'gen-image' && el.type !== 'image')) return null;
+    
+    // Only show if it has a URL (actual image)
+    if (!el.url && el.type === 'gen-image') return null; // Let the generation placeholder handle itself or standard UI
+
     const screenX = el.x * (zoom / 100) + pan.x;
     const screenY = el.y * (zoom / 100) + pan.y;
     const screenWidth = el.width * (zoom / 100);
     const screenHeight = el.height * (zoom / 100);
 
-    if (el.url) {
-        const topToolbarTop = screenY - 50; 
-        const bottomButtonTop = screenY + screenHeight + 10;
-        const centerX = screenX + (screenWidth / 2);
-        
-        // Text Edit Modal logic
-        if (showTextEditModal) {
-            const modalLeft = screenX + screenWidth + 20;
-            const modalTop = screenY;
-            return (
-                <div 
-                    className="absolute bg-white rounded-xl shadow-xl border border-gray-200 p-4 z-[60] w-64 animate-in fade-in slide-in-from-left-2 duration-200 flex flex-col gap-2"
-                    style={{ left: modalLeft, top: modalTop }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                >
-                    <div className="flex items-center gap-2 text-gray-700 font-medium mb-1">
-                        <Type size={16} /> <span>编辑文字</span>
-                    </div>
-                    {isExtractingText ? (
-                        <div className="flex flex-col items-center justify-center py-8 text-gray-400 gap-2">
-                            <Loader2 size={24} className="animate-spin" />
-                            <span className="text-xs">识别文字中...</span>
-                        </div>
-                    ) : (
-                        <>
-                            <div className="max-h-64 overflow-y-auto flex flex-col gap-2 no-scrollbar">
-                                {detectedTexts.map((text, index) => (
-                                    <input 
-                                        key={index}
-                                        value={editedTexts[index]}
-                                        onChange={(e) => {
-                                            const newTexts = [...editedTexts];
-                                            newTexts[index] = e.target.value;
-                                            setEditedTexts(newTexts);
-                                        }}
-                                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
-                                    />
-                                ))}
-                                {detectedTexts.length === 0 && <div className="text-xs text-gray-400 text-center py-4">未检测到文字</div>}
-                            </div>
-                            <div className="flex gap-2 mt-2 pt-2 border-t border-gray-100">
-                                <button onClick={() => setShowTextEditModal(false)} className="flex-1 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 rounded-lg transition">取消</button>
-                                <button onClick={handleApplyTextEdits} className="flex-1 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-black rounded-lg transition flex items-center justify-center gap-1">
-                                    应用修改 <Zap size={10} className="text-yellow-400" /> 10
-                                </button>
-                            </div>
-                        </>
-                    )}
-                </div>
-            );
-        }
-
+    const topToolbarTop = screenY - 86;   
+    const bottomButtonTop = screenY + screenHeight + 16;
+    const centerX = screenX + (screenWidth / 2);
+    
+    // Text Edit Modal logic
+    if (showTextEditModal) {
+        const modalLeft = screenX + screenWidth + 20;
+        const modalTop = screenY;
         return (
-            <>
-                <button onClick={() => setPreviewUrl(el.url)} className="absolute top-2 right-2 p-1.5 bg-white/90 backdrop-blur rounded-lg shadow-sm text-xs font-medium text-gray-700 hover:bg-white hover:text-black transition flex items-center gap-1.5"><Maximize2 size={12} /> 放大查看</button>
-                <div className="absolute bg-white rounded-xl shadow-[0_4px_12px_rgba(0,0,0,0.08)] border border-gray-100 px-2 py-1.5 flex items-center gap-1 z-50 animate-in fade-in zoom-in-95 duration-200 -translate-x-1/2 whitespace-nowrap" style={{ left: centerX, top: topToolbarTop }} onMouseDown={(e) => e.stopPropagation()}>
-                    <button onClick={handleUpscale} className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium group relative" title="Upscale to 4K">
-                        <div className="relative w-3.5 h-3.5 border border-current rounded-[2px] flex items-center justify-center font-bold text-[8px]">HD</div> 放大
-                    </button>
-                    <div className="w-px h-4 bg-gray-200 mx-0.5"></div>
-                    <button onClick={handleRemoveBg} className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium">
-                        <div className="relative"><Eraser size={14} /><div className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 bg-white border border-gray-600 rounded-full"></div></div> 移除背景
-                    </button>
-                    <button className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium"><Shirt size={14} /> Mockup</button>
-                    <button className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium"><Eraser size={14} /> 擦除</button>
-                    <button className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium"><Layers size={14} /> 编辑元素</button>
-                    <button onClick={handleEditTextClick} className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium relative">
-                        <Type size={14} /> 编辑文字
-                    </button>
-                    <button className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium"><Expand size={14} /> 扩展</button>
-                    <button className="p-1.5 text-gray-400 hover:text-black hover:bg-gray-50 rounded-lg"><MoreHorizontal size={14} /></button>
-                    <div className="w-px h-4 bg-gray-200 mx-0.5"></div>
-                    <button onClick={handleDownload} className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg"><Download size={14} /></button>
+            <div 
+                className="absolute bg-white rounded-xl shadow-xl border border-gray-200 p-4 z-[60] w-64 animate-in fade-in slide-in-from-left-2 duration-200 flex flex-col gap-2"
+                style={{ left: modalLeft, top: modalTop }}
+                onMouseDown={(e) => e.stopPropagation()}
+            >
+                <div className="flex items-center gap-2 text-gray-700 font-medium mb-1">
+                    <Type size={16} /> <span>编辑文字</span>
                 </div>
-                {showFastEdit ? (
-                    <div className="absolute bg-white rounded-xl shadow-lg border border-gray-200 p-2 z-50 animate-in fade-in zoom-in-95 duration-200 -translate-x-1/2 w-64" style={{ left: centerX, top: bottomButtonTop }} onMouseDown={(e) => e.stopPropagation()}>
-                         <textarea autoFocus className="w-full text-sm text-gray-700 placeholder:text-gray-300 bg-transparent border-none outline-none resize-none h-16 mb-1 p-1" placeholder="Describe your edit here" value={fastEditPrompt} onChange={(e) => setFastEditPrompt(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleFastEditRun(); } e.stopPropagation(); }} />
-                         <div className="flex justify-end">
-                             <button onClick={handleFastEditRun} disabled={!fastEditPrompt || el.isGenerating} className="bg-gray-500 hover:bg-black text-white text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition disabled:opacity-50">
-                                {el.isGenerating ? <Loader2 size={12} className="animate-spin" /> : null}
-                                生成 {el.isGenerating ? '' : <span className="opacity-50 font-normal">↵</span>}
-                             </button>
-                         </div>
+                {isExtractingText ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-gray-400 gap-2">
+                        <Loader2 size={24} className="animate-spin" />
+                        <span className="text-xs">识别文字中...</span>
                     </div>
                 ) : (
-                    <div onClick={() => setShowFastEdit(true)} className="absolute bg-white rounded-xl shadow-sm border border-gray-200 px-3 py-1.5 z-50 animate-in fade-in duration-300 -translate-x-1/2 flex items-center gap-2 cursor-pointer hover:shadow-md transition" style={{ left: centerX, top: bottomButtonTop }} onMouseDown={(e) => e.stopPropagation()}>
-                        <span className="text-xs text-gray-700 font-medium">AI生成</span>
-                        <span className="text-[10px] text-gray-400 border border-gray-200 rounded px-1">Tab</span>
-                    </div>
+                    <>
+                        <div className="max-h-64 overflow-y-auto flex flex-col gap-2 no-scrollbar">
+                            {detectedTexts.map((text, index) => (
+                                <input 
+                                    key={index}
+                                    value={editedTexts[index]}
+                                    onChange={(e) => {
+                                        const newTexts = [...editedTexts];
+                                        newTexts[index] = e.target.value;
+                                        setEditedTexts(newTexts);
+                                    }}
+                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                                />
+                            ))}
+                            {detectedTexts.length === 0 && <div className="text-xs text-gray-400 text-center py-4">未检测到文字</div>}
+                        </div>
+                        <div className="flex gap-2 mt-2 pt-2 border-t border-gray-100">
+                            <button onClick={() => setShowTextEditModal(false)} className="flex-1 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 rounded-lg transition">取消</button>
+                            <button onClick={handleApplyTextEdits} className="flex-1 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-black rounded-lg transition flex items-center justify-center gap-1">
+                                应用修改 <Zap size={10} className="text-yellow-400" /> 10
+                            </button>
+                        </div>
+                    </>
                 )}
-            </>
+            </div>
         );
     }
+
+    return (
+        <>
+            <div className="absolute bg-white rounded-xl shadow-[0_4px_12px_rgba(0,0,0,0.08)] border border-gray-100 px-2 py-1.5 flex items-center gap-1 z-50 animate-in fade-in zoom-in-95 duration-200 -translate-x-1/2 whitespace-nowrap" style={{ left: centerX, top: topToolbarTop }} onMouseDown={(e) => e.stopPropagation()}>
+                <button onClick={handleUpscale} className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium group relative">
+                    <div className="relative w-3.5 h-3.5 border border-current rounded-[2px] flex items-center justify-center font-bold text-[8px]">HD</div> 放大
+                </button>
+                <div className="w-px h-4 bg-gray-200 mx-0.5"></div>
+                <button onClick={handleRemoveBg} className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium">
+                    <div className="relative"><Eraser size={14} /><div className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 bg-white border border-gray-600 rounded-full"></div></div> 移除背景
+                </button>
+                <button className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium"><Shirt size={14} /> Mockup</button>
+                <button className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium"><Eraser size={14} /> 擦除</button>
+                <button className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium"><Layers size={14} /> 编辑元素</button>
+                <button onClick={handleEditTextClick} className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium relative">
+                    <Type size={14} /> 编辑文字
+                    {el.type === 'gen-image' && <span className="absolute -top-1 -right-1 flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span></span>}
+                </button>
+                <button className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium"><Expand size={14} /> 扩展</button>
+                <button className="p-1.5 text-gray-400 hover:text-black hover:bg-gray-50 rounded-lg"><MoreHorizontal size={14} /></button>
+                <div className="w-px h-4 bg-gray-200 mx-0.5"></div>
+                <button onClick={handleDownload} className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg"><Download size={14} /></button>
+            </div>
+            
+            {showFastEdit ? (
+                <div className="absolute bg-white rounded-xl shadow-lg border border-gray-200 p-2 z-50 animate-in fade-in zoom-in-95 duration-200 -translate-x-1/2 w-64" style={{ left: centerX, top: bottomButtonTop }} onMouseDown={(e) => e.stopPropagation()}>
+                        <textarea autoFocus className="w-full text-sm text-gray-700 placeholder:text-gray-300 bg-transparent border-none outline-none resize-none h-16 mb-1 p-1" placeholder="Describe your edit here" value={fastEditPrompt} onChange={(e) => setFastEditPrompt(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleFastEditRun(); } e.stopPropagation(); }} />
+                        <div className="flex justify-end">
+                            <button onClick={handleFastEditRun} disabled={!fastEditPrompt || el.isGenerating} className="bg-gray-500 hover:bg-black text-white text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition disabled:opacity-50">
+                            {el.isGenerating ? <Loader2 size={12} className="animate-spin" /> : null}
+                            生成 {el.isGenerating ? '' : <span className="opacity-50 font-normal">↵</span>}
+                            </button>
+                        </div>
+                </div>
+            ) : (
+                <div onClick={() => setShowFastEdit(true)} className="absolute bg-white rounded-xl shadow-sm border border-gray-200 px-4 py-2 z-50 animate-in fade-in duration-300 -translate-x-1/2 flex items-center gap-2 cursor-pointer hover:shadow-md transition group" style={{ left: centerX, top: bottomButtonTop }} onMouseDown={(e) => e.stopPropagation()}>
+                    <span className="text-sm text-gray-700 font-medium group-hover:text-black">快捷编辑</span>
+                    <span className="text-xs text-gray-400 border border-gray-200 rounded px-1.5 py-0.5 ml-1">Tab</span>
+                </div>
+            )}
+        </>
+    );
   };
 
   const renderGenVideoToolbar = () => {
     if (!selectedElementId) return null;
     const el = elements.find(e => e.id === selectedElementId);
-    if (!el || el.type !== 'gen-video') return null;
+    if (!el || (el.type !== 'gen-video' && el.type !== 'video')) return null;
     const screenX = el.x * (zoom / 100) + pan.x;
     const screenY = el.y * (zoom / 100) + pan.y;
     const screenWidth = el.width * (zoom / 100);
@@ -1157,13 +1253,22 @@ const Workspace: React.FC = () => {
 
     if (el.url) {
          // Generated state
-         const topToolbarTop = screenY - 50;
+         const topToolbarTop = screenY - 60;
          const centerX = screenX + (screenWidth / 2);
          return (
-             <div className="absolute bg-white rounded-xl shadow-[0_4px_12px_rgba(0,0,0,0.08)] border border-gray-100 px-2 py-1.5 flex items-center gap-1 z-50 animate-in fade-in zoom-in-95 duration-200 -translate-x-1/2 whitespace-nowrap" style={{ left: centerX, top: topToolbarTop }} onMouseDown={(e) => e.stopPropagation()}>
-                 <a href={el.url} download="video.mp4" className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium decoration-0" onClick={(e) => e.stopPropagation()} target="_blank" rel="noreferrer"><Download size={14} /> 下载视频</a>
-                 <div className="w-px h-4 bg-gray-200 mx-0.5"></div>
-                 <button className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium"><Expand size={14} /> 扩展 (7s)</button>
+             <div className="absolute bg-white rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-gray-100/50 px-2 py-1.5 flex items-center gap-1 z-50 animate-in fade-in zoom-in-95 duration-200 -translate-x-1/2 whitespace-nowrap backdrop-blur-sm" style={{ left: centerX, top: topToolbarTop }} onMouseDown={(e) => e.stopPropagation()}>
+                 <button className="px-2.5 py-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors group">
+                    <div className="border-[1.5px] border-current rounded-[3px] px-0.5 text-[8px] font-bold opacity-70 group-hover:opacity-100 transition-opacity">HD</div> 
+                    放大
+                 </button>
+                 <button className="px-2.5 py-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-2 text-xs font-medium transition-colors group">
+                    <div className="relative"><Eraser size={14} className="opacity-70 group-hover:opacity-100 transition-opacity" /><div className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 bg-white border border-gray-600 rounded-full"></div></div> 
+                    移除背景
+                 </button>
+                 <div className="w-px h-4 bg-gray-200 mx-1"></div>
+                 <a href={el.url} download={`video-${el.id}.mp4`} className="p-1.5 text-gray-500 hover:text-black hover:bg-gray-50 rounded-lg transition-colors" target="_blank" rel="noreferrer">
+                    <Download size={16} strokeWidth={2} />
+                 </a>
              </div>
          );
     } else {
@@ -1250,215 +1355,317 @@ const Workspace: React.FC = () => {
             <img src={previewUrl} className="max-w-full max-h-full object-contain rounded-lg shadow-2xl cursor-default" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
-      {showLayersPanel && (
-        <div className={`absolute bottom-4 left-4 transition-all duration-300 z-50 flex flex-col ${isLayersCollapsed ? 'w-auto' : 'w-64 max-h-[60vh] bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden'}`}>
+      <AnimatePresence>
+        {showLayersPanel && (
+          <motion.div 
+            initial={{ opacity: 0, x: -20, y: 20 }}
+            animate={{ opacity: 1, x: 0, y: 0 }}
+            exit={{ opacity: 0, x: -20, y: 20 }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            className={`absolute bottom-4 left-4 z-50 flex flex-col ${isLayersCollapsed ? 'w-auto' : 'w-64 max-h-[60vh] bg-white/90 backdrop-blur-xl border border-white/20 rounded-xl shadow-2xl overflow-hidden'}`}
+          >
             {isLayersCollapsed ? (
-                <button onClick={() => setIsLayersCollapsed(false)} className="bg-white border border-gray-200 shadow-md rounded-xl px-4 py-2.5 flex items-center gap-2 hover:bg-gray-50 transition active:scale-95 group">
+                <button onClick={() => setIsLayersCollapsed(false)} className="bg-white/90 backdrop-blur-md border border-white/20 shadow-lg rounded-xl px-4 py-2.5 flex items-center gap-2 hover:scale-105 transition active:scale-95 group">
                     <History size={16} className="text-gray-600 group-hover:text-black" /><span className="text-sm font-medium text-gray-700 group-hover:text-black">Layers & History</span><ChevronRight size={16} className="text-gray-400 group-hover:text-black ml-1" />
                 </button>
             ) : (
                 <div className="flex flex-col h-full">
-                    <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10"><span className="font-semibold text-gray-900">历史记录</span><button onClick={() => setIsLayersCollapsed(true)} className="text-gray-400 hover:text-black transition"><ChevronDown size={16} /></button></div>
+                    <div className="p-4 border-b border-gray-100/50 flex justify-between items-center bg-transparent sticky top-0 z-10"><span className="font-semibold text-gray-900">历史记录</span><button onClick={() => setIsLayersCollapsed(true)} className="text-gray-400 hover:text-black transition"><ChevronDown size={16} /></button></div>
                     <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col p-2">
-                        <div className="h-32 bg-gray-50 rounded-lg flex flex-col items-center justify-center text-gray-400 text-xs border border-dashed border-gray-100 mb-4"><div className="mb-2"><ImageIcon size={32} className="opacity-10"/></div>暂无历史记录</div>
-                        <div className="border-t border-gray-100 pt-3">
+                        <div className="h-32 bg-gray-50/50 rounded-lg flex flex-col items-center justify-center text-gray-400 text-xs border border-dashed border-gray-200 mb-4"><div className="mb-2"><ImageIcon size={32} className="opacity-10"/></div>暂无历史记录</div>
+                        <div className="border-t border-gray-100/50 pt-3">
                             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-2">图层</h3>
                             <div className="space-y-1">
-                                <div onClick={addText} className="flex items-center gap-3 p-2 rounded-lg cursor-pointer text-sm text-gray-500 hover:bg-gray-50 hover:text-black transition group border border-dashed border-gray-200 hover:border-gray-300 justify-center mb-2"><Plus size={14} /> Add Layer</div>
+                                <motion.div whileHover={{ scale: 1.02 }} onClick={addText} className="flex items-center gap-3 p-2 rounded-lg cursor-pointer text-sm text-gray-500 hover:bg-black/5 hover:text-black transition group border border-dashed border-gray-200 hover:border-gray-300 justify-center mb-2"><Plus size={14} /> Add Layer</motion.div>
                                 {[...elements].reverse().map(el => (
-                                    <div key={el.id} onClick={(e) => handleElementMouseDown(e, el.id)} className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer text-sm transition group border border-transparent ${selectedElementId === el.id ? 'bg-gray-100 border-gray-200' : 'hover:bg-gray-50 hover:border-gray-100'}`}>
+                                    <motion.div layoutId={el.id} key={el.id} onClick={(e) => handleElementMouseDown(e, el.id)} className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer text-sm transition group border border-transparent ${selectedElementId === el.id ? 'bg-blue-50 border-blue-100' : 'hover:bg-black/5 hover:border-transparent'}`}>
                                         <div className="w-10 h-10 bg-white rounded-md border border-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0 shadow-sm">{el.type === 'text' && <span className="font-serif text-gray-500 text-lg">T</span>}{el.type === 'image' && <img src={el.url} className="w-full h-full object-cover" />}{(el.type === 'video' || el.type === 'gen-video') && <Video size={16} className="text-gray-500" />}{el.type === 'shape' && <Box size={16} className="text-gray-500"/>}{el.type === 'gen-image' && <ImagePlus size={16} className="text-blue-500"/>}</div>
                                         <div className="flex-1 min-w-0 flex flex-col justify-center"><div className="truncate text-gray-700 font-medium text-xs leading-tight mb-0.5">{el.type === 'text' ? (el.text || 'Text Layer') : (el.type === 'gen-image' ? 'Image Generator' : (el.type === 'gen-video' ? 'Video Generator' : (el.type === 'image' ? `Image ${el.id.slice(-4)}` : (el.type === 'shape' ? `${el.shapeType || 'Shape'}` : 'Element'))))}</div><div className="truncate text-gray-400 text-[10px]">{el.type === 'text' ? 'Text' : (el.type === 'gen-image' ? 'AI Model' : (el.type === 'gen-video' ? 'AI Video' : 'Graphic'))}</div></div>
-                                    </div>
+                                    </motion.div>
                                 ))}
                             </div>
                         </div>
                     </div>
-                    <div className="p-2 border-t border-gray-100"><button onClick={() => setIsLayersCollapsed(true)} className="w-full flex items-center justify-center p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-lg transition" title="Collapse Panel"><Minimize2 size={16} /></button></div>
+                    <div className="p-2 border-t border-gray-100/50"><button onClick={() => setIsLayersCollapsed(true)} className="w-full flex items-center justify-center p-2 text-gray-400 hover:text-black hover:bg-black/5 rounded-lg transition" title="Collapse Panel"><Minimize2 size={16} /></button></div>
                 </div>
             )}
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {showAssistant && (
-        <div className="absolute top-4 right-4 w-[400px] bottom-4 bg-white rounded-2xl shadow-xl border border-gray-200 z-40 flex flex-col overflow-hidden animate-in fade-in slide-in-from-right-4 duration-300">
-            {/* Header with Toolbar */}
-            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white z-10 shrink-0">
-                <div className="flex items-center gap-2">
-                   <div className="w-6 h-6 bg-black rounded-full flex items-center justify-center text-white font-bold text-[10px]">XC</div>
-                   <span className="font-bold text-sm text-gray-900">Xc-STUDIO</span>
-                </div>
-                <div className="flex items-center gap-1">
-                   <button className="p-1.5 text-gray-400 hover:text-black hover:bg-gray-50 rounded-lg transition" title="Comments"><CirclePlus size={16} strokeWidth={1.5} /></button>
-                   <button className="p-1.5 text-gray-400 hover:text-black hover:bg-gray-50 rounded-lg transition" title="History"><Clock size={16} strokeWidth={2} /></button>
-                   <button className="p-1.5 text-gray-400 hover:text-black hover:bg-gray-50 rounded-lg transition" title="Share"><Share2 size={16} strokeWidth={1.5} /></button>
-                   <button className="p-1.5 text-gray-400 hover:text-black hover:bg-gray-50 rounded-lg transition" title="Export"><FileIcon size={16} strokeWidth={1.5} /></button>
-                   <div className="w-px h-3 bg-gray-200 mx-1"></div>
-                   <button onClick={() => setShowAssistant(false)} className="p-1.5 text-gray-400 hover:text-black hover:bg-gray-50 rounded-lg transition" title="Collapse"><PanelRightClose size={16} strokeWidth={1.5} /></button>
-                </div>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto px-6 py-4 no-scrollbar relative">
-                {messages.length === 0 ? (
-                    <>
-                        <h3 className="text-xl font-bold text-gray-900 leading-tight mb-2">试试这些 Lovart Skills</h3>
-                        <p className="text-sm text-gray-500 mb-8 leading-relaxed">
-                            我们将行业最佳实践封装为Skills，只需输入简单的需求，即刻实现专业产出。
-                        </p>
-                        
-                        <div className="flex flex-col gap-6 w-full">
-                            <button onClick={() => setPrompt("Amazon Product Listing Kit")} className="flex items-center gap-3 text-left group transition">
-                                <Store size={20} className="text-pink-500" />
-                                <span className="text-gray-700 font-medium text-sm group-hover:text-black">Amazon Product Listing Kit</span>
+      <AnimatePresence>
+        {showAssistant && (
+            <motion.div 
+                initial={{ x: 400, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: 400, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                className="absolute top-4 right-4 w-[400px] bottom-4 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 z-40 flex flex-col overflow-hidden"
+            >
+                {/* Header with Toolbar */}
+                <div className="pl-5 pr-3 py-3.5 border-b border-gray-100 flex items-center justify-between bg-white/80 backdrop-blur-md z-20 shrink-0 select-none">
+                    <div className="flex items-center gap-2.5 opacity-90 hover:opacity-100 transition-opacity cursor-default">
+                        <div className="w-7 h-7 bg-black rounded-lg shadow-sm flex items-center justify-center text-white font-bold text-[10px] tracking-wider">XC</div>
+                        <span className="font-bold text-sm text-gray-800 tracking-tight">Xc-STUDIO</span>
+                    </div>
+                    <div className="flex items-center gap-0.5 relative">
+                        {/* 1. New Chat */}
+                        <button 
+                            onClick={() => { setMessages([]); setPrompt(''); }} 
+                            className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-all group relative" 
+                            title="New Chat"
+                        >
+                            <CirclePlus size={16} strokeWidth={1.5} />
+                        </button>
+
+                        {/* 2. History Popover */}
+                        <div className="relative">
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setShowHistoryPopover(!showHistoryPopover); }} 
+                                className={`w-8 h-8 flex items-center justify-center rounded-md transition-all ${showHistoryPopover ? 'text-gray-900 bg-gray-100' : 'text-gray-400 hover:text-gray-900 hover:bg-gray-100'}`} 
+                                title="History"
+                            >
+                                <Clock size={16} strokeWidth={2} />
                             </button>
-                            <button onClick={() => setPrompt("Logo & Brand Design")} className="flex items-center gap-3 text-left group transition">
-                                <Layout size={20} className="text-orange-400" />
-                                <span className="text-gray-700 font-medium text-sm group-hover:text-black">Logo & Brand Design</span>
-                            </button>
-                            <button onClick={() => setPrompt("Marketing Brochures")} className="flex items-center gap-3 text-left group transition">
-                                <FileText size={20} className="text-lime-500" />
-                                <span className="text-gray-700 font-medium text-sm group-hover:text-black">Marketing Brochures</span>
-                            </button>
-                            <button onClick={() => setPrompt("Social Media Visual Assets")} className="flex items-center gap-3 text-left group transition">
-                                <ImageIcon size={20} className="text-blue-500" />
-                                <span className="text-gray-700 font-medium text-sm group-hover:text-black">Social Media Visual Assets</span>
-                            </button>
-                            <button onClick={() => setPrompt("Narrative Storyboards")} className="flex items-center gap-3 text-left group transition">
-                                <Copy size={20} className="text-teal-500" />
-                                <span className="text-gray-700 font-medium text-sm group-hover:text-black">Narrative Storyboards</span>
-                            </button>
+                            {/* Popover Content */}
+                            {showHistoryPopover && (
+                                <div className="absolute top-full right-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-200 p-4 z-50 animate-in fade-in zoom-in-95 duration-200 history-popover-content text-left">
+                                    <h4 className="text-sm font-bold text-gray-900 mb-3">历史对话</h4>
+                                    <div className="relative mb-3">
+                                        <input 
+                                            placeholder="请输入搜索关键词" 
+                                            className="w-full bg-gray-50 border-none rounded-lg py-2 pl-3 pr-8 text-xs text-gray-700 outline-none focus:ring-1 focus:ring-gray-200 transition" 
+                                        />
+                                        <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <div className="p-2 py-3 bg-gray-100/80 rounded-lg text-sm text-gray-500 hover:bg-gray-100 cursor-pointer transition text-center font-medium">
+                                            新对话
+                                        </div>
+                                        {/* Mock History Items */}
+                                        {/* <div className="p-2 hover:bg-gray-50 rounded-lg cursor-pointer transition">
+                                            <div className="text-xs font-medium text-gray-700 truncate">Marketing Plan V1</div>
+                                            <div className="text-[10px] text-gray-400 text-right mt-1">2 mins ago</div>
+                                        </div> */}
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                    </>
-                ) : (
-                    <div className="space-y-4 pb-4">
-                        {messages.map(msg => (
-                            <div key={msg.id} className={`flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                                <div className={`max-w-[95%] rounded-2xl px-4 py-3 text-sm shadow-sm ${msg.role === 'user' ? 'bg-blue-50 text-gray-800 rounded-tr-none' : 'bg-gray-100 text-gray-800 rounded-tl-none'}`}>
-                                    {msg.text}
-                                    {msg.attachments && msg.attachments.length > 0 && (
-                                        <div className="mt-2 grid grid-cols-2 gap-2">
-                                            {msg.attachments.map((att, i) => (
-                                                <div key={i} className="relative group/att">
-                                                    <img src={att} className="rounded-lg border border-gray-200" />
-                                                    {msg.relatedMarkerId && (
-                                                         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 bg-[#3B82F6] rounded-full flex items-center justify-center text-white text-xs font-bold border-2 border-white shadow-sm">
-                                                             {msg.relatedMarkerId}
-                                                         </div>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
-                        {isTyping && (
-                            <div className="flex justify-start">
-                                <div className="bg-gray-50 rounded-2xl rounded-tl-none px-4 py-3 shadow-sm flex items-center gap-1.5">
-                                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                                </div>
-                            </div>
-                        )}
-                        <div ref={messagesEndRef} />
-                    </div>
-                )}
-            </div>
 
-            {/* Sticky Blue Banner */}
-            <div className="absolute bottom-[160px] left-4 right-4 bg-blue-100 text-blue-600 px-4 py-3 rounded-xl flex items-center justify-between text-xs font-medium z-10 cursor-pointer hover:bg-blue-200 transition">
-                <div className="flex items-center gap-2">
-                    <Gift size={16} />
-                    <span>升级会员，Nano Banana Pro 免费365天！</span>
-                </div>
-                <X size={14} className="text-blue-400 hover:text-blue-600" />
-            </div>
+                        {/* 3. Share */}
+                        <button className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-all" title="Share">
+                            <Share2 size={16} strokeWidth={1.5} />
+                        </button>
 
-            {/* Input Area */}
-            <div className="p-4 bg-white border-t border-gray-100 z-20">
-                <div className="bg-white rounded-[24px] border border-gray-200 shadow-sm hover:shadow-md transition-all duration-300 relative group focus-within:ring-1 focus-within:ring-blue-200 focus-within:border-blue-400 flex flex-col">
-                    
-                    {/* Text Input Area */}
-                    <div className="px-3 py-3 flex flex-wrap items-center gap-2 min-h-[48px]">
-                        {attachments.length > 0 && (
-                            <>
-                            {attachments.map((file, i) => {
-                                const markerId = (file as any).markerId;
-                                if (markerId) {
-                                    // Marker Chip Style
-                                    return (
-                                        <div key={i} className="flex items-center gap-1 bg-[#F3F4F6] rounded-full pl-1 pr-3 py-1 cursor-default relative group flex-shrink-0 animate-in fade-in zoom-in-95 duration-200">
-                                             <div className="w-6 h-6 bg-gray-900 rounded-full overflow-hidden border border-gray-200">
-                                                <img src={URL.createObjectURL(file)} className="w-full h-full object-cover"/>
-                                             </div>
-                                             <div className="w-4 h-4 bg-[#3B82F6] rounded-full flex items-center justify-center text-white text-[10px] font-bold shadow-sm -ml-2 border border-white z-10">{markerId}</div>
-                                             <span className="text-xs text-gray-700 font-medium ml-1">区域</span>
-                                             <ChevronDown size={12} className="text-gray-400 ml-1" />
-                                             <button onClick={() => removeAttachment(i)} className="absolute -top-1 -right-1 bg-black text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition shadow-sm z-20"><X size={8} /></button>
-                                         </div>
-                                    );
-                                } else {
-                                    return (
-                                        <div key={i} className="relative flex items-center gap-2 bg-[#F3F4F6] rounded-lg pl-1 pr-2 py-1 flex-shrink-0 animate-in fade-in zoom-in-95 duration-200">
-                                            <div className="w-6 h-6 bg-gray-200 rounded-md overflow-hidden flex items-center justify-center">
-                                                {file.type.startsWith('image/') ? <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" /> : <FileText size={12} className="text-gray-500" />}
+                        {/* 4. File List Popover */}
+                        <div className="relative">
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setShowFileListModal(!showFileListModal); }}
+                                className={`w-8 h-8 flex items-center justify-center rounded-md transition-all ${showFileListModal ? 'text-gray-900 bg-gray-100' : 'text-gray-400 hover:text-gray-900 hover:bg-gray-100'}`} 
+                                title="Files"
+                            >
+                                <FileIcon size={16} strokeWidth={1.5} />
+                            </button>
+                            {/* Popover Content (Inline) */}
+                            {showFileListModal && (
+                                <div className="absolute top-full right-0 mt-2 w-[320px] bg-white rounded-xl shadow-xl border border-gray-200 z-50 animate-in fade-in zoom-in-95 duration-200 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                                    {/* Header */}
+                                    <div className="px-4 py-3 flex items-center justify-between border-b border-gray-100 bg-gray-50/50">
+                                        <h3 className="font-bold text-gray-900 text-sm">已生成文件列表</h3>
+                                        {/* No close button needed for popover usually, clicking outside closes it (handled by global click listener), but can keep toggle */}
+                                    </div>
+                                    {/* Content - Empty State */}
+                                    <div className="h-[300px] flex flex-col items-center justify-center text-gray-400 gap-3 relative">
+                                        <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mb-1">
+                                            <div className="relative scale-75">
+                                                <div className="w-10 h-10 border-2 border-gray-200 rounded-lg transform rotate-[-6deg] bg-white"></div>
+                                                <div className="w-10 h-10 border-2 border-gray-300 rounded-lg bg-gray-100 absolute top-0 left-0"></div>
                                             </div>
-                                            <span className="text-xs text-gray-600 max-w-[60px] truncate">{file.name}</span>
-                                            <button onClick={() => removeAttachment(i)} className="bg-gray-300 text-gray-600 rounded-full p-0.5 hover:bg-gray-400 hover:text-white transition"><X size={8} /></button>
                                         </div>
-                                    );
-                                }
-                            })}
-                            </>
-                        )}
-                        <textarea 
-                            ref={textareaRef}
-                            value={prompt}
-                            onChange={(e) => setPrompt(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey) {
-                                    e.preventDefault();
-                                    handleSend();
-                                }
-                            }}
-                            placeholder="Type a message..."
-                            rows={1}
-                            className="flex-1 bg-transparent border-none outline-none text-sm resize-none text-gray-700 placeholder-gray-400 min-w-[120px]"
-                            style={{ height: 'auto', minHeight: '24px' }} 
-                            onInput={(e) => {
-                                const target = e.target as HTMLTextAreaElement;
-                                target.style.height = 'auto';
-                                target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
-                            }}
-                        />
-                    </div>
+                                        <span className="text-xs font-medium text-gray-400">暂无文件</span>
+                                        
+                                        {/* Decorative Sparkle (Subtler) */}
+                                        <div className="absolute top-1/2 right-8 pointer-events-none opacity-40">
+                                            <div className="w-16 h-16 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full blur-2xl opacity-20"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* Divider */}
+                        <div className="w-px h-4 bg-gray-200 mx-1.5 opacity-60"></div>
+                        
+                        {/* 5. Collapse */}
+                        <button onClick={() => setShowAssistant(false)} className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-all" title="Collapse">
+                            <PanelRightClose size={16} strokeWidth={1.5} />
+                        </button>
 
-                    <div className="p-1 px-2 flex items-center justify-between border-t border-transparent">
-                         <div className="flex items-center gap-1">
-                             <button onClick={() => fileInputRef.current?.click()} className="p-2 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition"><Paperclip size={18} /></button>
-                             <button onClick={() => setAgentMode(!agentMode)} className={`h-8 px-3 rounded-full border flex items-center gap-1.5 text-xs font-medium transition mx-1 ${agentMode ? 'bg-blue-50 border-[#3B82F6] text-[#3B82F6]' : 'bg-white border-blue-400 text-blue-500 hover:bg-blue-50'}`}><Sparkles size={12} /> Agent</button>
-                         </div>
-                         
-                         {/* Right Icons */}
-                         <div className="flex items-center gap-1">
-                             <div className="h-8 bg-gray-100 rounded-full flex items-center p-0.5 px-2 gap-2">
-                                 <button onClick={() => setModelMode('thinking')} className={`text-gray-500 hover:text-black transition`} title="Thinking Mode"><Lightbulb size={16} strokeWidth={2} /></button>
-                                 <div className="w-px h-3 bg-gray-300"></div>
-                                 <button onClick={() => setModelMode('fast')} className={`text-gray-500 hover:text-black transition`} title="Fast Mode"><Zap size={16} strokeWidth={2} /></button>
-                             </div>
-                             <button onClick={() => setWebEnabled(!webEnabled)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${webEnabled ? 'bg-gray-100 border-gray-300 text-black' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-gray-50 bg-white'}`}><Globe size={16} strokeWidth={1.5} /></button>
-                             <button onClick={() => setImageModelEnabled(!imageModelEnabled)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${imageModelEnabled ? 'bg-blue-50 border-[#3B82F6] text-[#3B82F6]' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-gray-50 bg-white'}`}><Box size={16} strokeWidth={2} /></button>
-                             <button onClick={() => handleSend()} disabled={!prompt.trim() && attachments.length === 0} className={`w-8 h-8 rounded-full flex items-center justify-center transition shadow-sm bg-gray-800 text-white hover:bg-black`}><ArrowUp size={16} strokeWidth={2.5} /></button>
-                         </div>
+                        {/* File List Modal (Global/Portal style but inline for now within this relative container context, usually would be portal but sticking to simple z-index overlay here) */}
+
                     </div>
                 </div>
-            </div>
-        </div>
-      )}
+                
+                <div className="flex-1 overflow-y-auto px-6 py-4 no-scrollbar relative">
+                    {messages.length === 0 ? (
+                        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+                            <h3 className="text-xl font-bold text-gray-900 leading-tight mb-2">试试这些 XC-STUDIO Skills</h3>
+                            <p className="text-sm text-gray-500 mb-8 leading-relaxed">
+                                我们将行业最佳实践封装为Skills，只需输入简单的需求，即刻实现专业产出。
+                            </p>
+                            
+                            <div className="flex flex-col gap-6 w-full">
+                                <button onClick={() => setPrompt("Amazon Product Listing Kit")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
+                                    <Store size={20} className="text-pink-500" />
+                                    <span className="text-gray-700 font-medium text-sm group-hover:text-black">Amazon Product Listing Kit</span>
+                                </button>
+                                <button onClick={() => setPrompt("Logo & Brand Design")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
+                                    <Layout size={20} className="text-orange-400" />
+                                    <span className="text-gray-700 font-medium text-sm group-hover:text-black">Logo & Brand Design</span>
+                                </button>
+                                <button onClick={() => setPrompt("Marketing Brochures")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
+                                    <FileText size={20} className="text-lime-500" />
+                                    <span className="text-gray-700 font-medium text-sm group-hover:text-black">Marketing Brochures</span>
+                                </button>
+                                <button onClick={() => setPrompt("Social Media Visual Assets")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
+                                    <ImageIcon size={20} className="text-blue-500" />
+                                    <span className="text-gray-700 font-medium text-sm group-hover:text-black">Social Media Visual Assets</span>
+                                </button>
+                                <button onClick={() => setPrompt("Narrative Storyboards")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
+                                    <Copy size={20} className="text-teal-500" />
+                                    <span className="text-gray-700 font-medium text-sm group-hover:text-black">Narrative Storyboards</span>
+                                </button>
+                            </div>
+                        </motion.div>
+                    ) : (
+                        <div className="space-y-4 pb-4">
+                            {messages.map(msg => (
+                                <motion.div 
+                                    initial={{ opacity: 0, y: 10 }} 
+                                    animate={{ opacity: 1, y: 0 }} 
+                                    key={msg.id} 
+                                    className={`flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
+                                >
+                                    <div className={`max-w-[95%] rounded-2xl px-4 py-3 text-sm shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-none'}`}>
+                                        {msg.text}
+                                        {msg.attachments && msg.attachments.length > 0 && (
+                                            <div className="mt-2 grid grid-cols-2 gap-2">
+                                                {msg.attachments.map((att, i) => (
+                                                    <div key={i} className="relative group/att">
+                                                        <img src={att} className="rounded-lg border border-gray-200" />
+                                                        {msg.relatedMarkerId && (
+                                                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 bg-[#3B82F6] rounded-full flex items-center justify-center text-white text-xs font-bold border-2 border-white shadow-sm">
+                                                                {msg.relatedMarkerId}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </motion.div>
+                            ))}
+                            {isTyping && (
+                                <div className="flex justify-start">
+                                    <div className="bg-white border border-gray-100 rounded-2xl rounded-tl-none px-4 py-3 shadow-sm flex items-center gap-1.5">
+                                        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                                        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                                        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                                    </div>
+                                </div>
+                            )}
+                            <div ref={messagesEndRef} />
+                        </div>
+                    )}
+                </div>
+
+
+
+                {/* Input Area */}
+                <div className="p-4 bg-white/50 backdrop-blur-sm border-t border-gray-100/50 z-20">
+                    <div className="bg-white rounded-[24px] border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 relative group focus-within:ring-2 focus-within:ring-black/5 focus-within:border-gray-300 flex flex-col">
+                        
+                        {/* Text Input Area */}
+                        <div className="px-3 py-3 flex flex-wrap items-center gap-2 min-h-[48px]">
+                            {attachments.length > 0 && (
+                                <>
+                                {attachments.map((file, i) => {
+                                    const markerId = (file as any).markerId;
+                                    if (markerId) {
+                                        // Marker Chip Style
+                                        return (
+                                            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} key={i} className="flex items-center gap-1 bg-[#F3F4F6] rounded-full pl-1 pr-3 py-1 cursor-default relative group flex-shrink-0">
+                                                <div className="w-6 h-6 bg-gray-900 rounded-full overflow-hidden border border-gray-200">
+                                                    <img src={URL.createObjectURL(file)} className="w-full h-full object-cover"/>
+                                                </div>
+                                                <div className="w-4 h-4 bg-[#3B82F6] rounded-full flex items-center justify-center text-white text-[10px] font-bold shadow-sm -ml-2 border border-white z-10">{markerId}</div>
+                                                <span className="text-xs text-gray-700 font-medium ml-1">区域</span>
+                                                <ChevronDown size={12} className="text-gray-400 ml-1" />
+                                                <button onClick={() => removeAttachment(i)} className="absolute -top-1 -right-1 bg-black text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition shadow-sm z-20"><X size={8} /></button>
+                                            </motion.div>
+                                        );
+                                    } else {
+                                        return (
+                                            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} key={i} className="relative flex items-center gap-2 bg-[#F3F4F6] rounded-lg pl-1 pr-2 py-1 flex-shrink-0">
+                                                <div className="w-6 h-6 bg-gray-200 rounded-md overflow-hidden flex items-center justify-center">
+                                                    {file.type.startsWith('image/') ? <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" /> : <FileText size={12} className="text-gray-500" />}
+                                                </div>
+                                                <span className="text-xs text-gray-600 max-w-[60px] truncate">{file.name}</span>
+                                                <button onClick={() => removeAttachment(i)} className="bg-gray-300 text-gray-600 rounded-full p-0.5 hover:bg-gray-400 hover:text-white transition"><X size={8} /></button>
+                                            </motion.div>
+                                        );
+                                    }
+                                })}
+                                </>
+                            )}
+                            <textarea 
+                                ref={textareaRef}
+                                value={prompt}
+                                onChange={(e) => setPrompt(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleSend();
+                                    }
+                                }}
+                                placeholder="Type a message..."
+                                rows={1}
+                                className="flex-1 bg-transparent border-none outline-none text-sm resize-none text-gray-700 placeholder-gray-400 min-w-[120px]"
+                                style={{ height: 'auto', minHeight: '24px' }} 
+                                onInput={(e) => {
+                                    const target = e.target as HTMLTextAreaElement;
+                                    target.style.height = 'auto';
+                                    target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
+                                }}
+                            />
+                        </div>
+
+                        <div className="p-1 px-2 flex items-center justify-between border-t border-transparent">
+                            <div className="flex items-center gap-1">
+                                <button onClick={() => fileInputRef.current?.click()} className="p-2 rounded-full text-gray-400 hover:text-gray-600 hover:bg-black/5 transition"><Paperclip size={18} /></button>
+                                <button onClick={() => setAgentMode(!agentMode)} className={`h-8 px-3 rounded-full border flex items-center gap-1.5 text-xs font-medium transition mx-1 ${agentMode ? 'bg-blue-50 border-[#3B82F6] text-[#3B82F6]' : 'bg-transparent border-blue-200 text-blue-500 hover:bg-blue-50'}`}><Sparkles size={12} /> Agent</button>
+                            </div>
+                            
+                            {/* Right Icons */}
+                            <div className="flex items-center gap-1">
+                                <div className="h-8 bg-gray-50/80 rounded-full flex items-center p-0.5 px-2 gap-2 border border-gray-100">
+                                    <button onClick={() => setModelMode('thinking')} className={`text-gray-500 hover:text-black transition`} title="Thinking Mode"><Lightbulb size={16} strokeWidth={2} /></button>
+                                    <div className="w-px h-3 bg-gray-300"></div>
+                                    <button onClick={() => setModelMode('fast')} className={`text-gray-500 hover:text-black transition`} title="Fast Mode"><Zap size={16} strokeWidth={2} /></button>
+                                </div>
+                                <button onClick={() => setWebEnabled(!webEnabled)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${webEnabled ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-black/5 bg-white'}`}><Globe size={16} strokeWidth={1.5} /></button>
+                                <button onClick={() => setImageModelEnabled(!imageModelEnabled)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${imageModelEnabled ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-black/5 bg-white'}`}><Box size={16} strokeWidth={2} /></button>
+                                <button onClick={() => handleSend()} disabled={!prompt.trim() && attachments.length === 0} className={`w-8 h-8 rounded-full flex items-center justify-center transition shadow-sm ${(!prompt.trim() && attachments.length === 0) ? 'bg-gray-200 text-gray-400' : 'bg-black text-white hover:scale-105'}`}><ArrowUp size={16} strokeWidth={2.5} /></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="flex-1 relative flex flex-col h-full overflow-hidden">
-          <div className="absolute top-6 left-6 right-6 flex justify-between items-start z-30 pointer-events-none">
+          <div className="absolute top-6 left-6 right-6 flex justify-between items-start z-30 pointer-events-none transition-all duration-300" style={{ paddingRight: showAssistant ? '420px' : '0' }}>
               <div className="flex items-center gap-3 pointer-events-auto transition-all duration-300 ml-12">
                  <button onClick={() => navigate('/')} className="w-10 h-10 bg-black rounded-full flex items-center justify-center text-white font-bold text-xs shadow-md hover:scale-105 transition">XC</button>
                  <div className="flex items-center gap-2 cursor-pointer hover:bg-white/50 px-3 py-1.5 rounded-full transition backdrop-blur-sm pointer-events-auto">
@@ -1483,11 +1690,11 @@ const Workspace: React.FC = () => {
               </div>
           </div>
 
-          <div ref={containerRef} className="flex-1 overflow-hidden relative bg-[#F9FAFB] cursor-crosshair w-full h-full" onContextMenu={handleContextMenu} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp} onWheel={handleWheel} style={{ cursor: (activeTool === 'hand' || isPanning || isSpacePressed) ? (isPanning ? 'grabbing' : 'grab') : (activeTool === 'mark' ? 'crosshair' : 'default') }}>
+          <div ref={containerRef} className="flex-1 overflow-hidden relative bg-[#F9FAFB] cursor-crosshair w-full h-full" onContextMenu={handleContextMenu} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp} style={{ cursor: (activeTool === 'hand' || isPanning || isSpacePressed) ? (isPanning ? 'grabbing' : 'grab') : (activeTool === 'mark' ? 'crosshair' : 'default') }}>
              {renderToolbar()}
              {renderTextToolbar()}
              {renderShapeToolbar()}
-             {renderGenImageToolbar()}
+             {renderImageToolbar()}
              {renderGenVideoToolbar()}
              <div className="absolute top-0 left-0 w-0 h-0 overflow-visible transition-transform duration-75 ease-out" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transformOrigin: '0 0' }}>
                 {elements.map((el) => {
@@ -1507,13 +1714,44 @@ const Workspace: React.FC = () => {
                                     {el.shapeType === 'bubble' && (<path d="M10,10 Q90,10 90,50 Q90,90 50,90 L30,100 L40,85 Q10,80 10,50 Q10,10 50,10" fill={el.fillColor} stroke={el.strokeColor} strokeWidth={el.strokeColor === 'transparent' ? 0 : (el.strokeWidth || 2)} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />)}
                                 </svg>
                              )}
-                             {el.type === 'image' && el.url && (<img src={el.url} className="w-full h-full object-contain shadow-sm rounded-sm pointer-events-none select-none" draggable={false} />)}
-                             {el.type === 'gen-image' && (
-                                 <div className={`w-full h-full flex flex-col relative overflow-hidden transition-all ${el.url ? 'bg-white' : 'bg-[#F0F9FF]'} ${isSelected ? 'ring-2 ring-blue-500' : (el.url ? '' : 'border border-blue-100')} rounded-lg`}> 
+                             {(el.type === 'image' || el.type === 'gen-image') && (
+                                 <div className={`w-full h-full flex flex-col relative transition-all ${el.url && el.type === 'image' ? '' : (el.url ? 'bg-white' : 'bg-[#F0F9FF]')} ${isSelected ? 'ring-1 ring-blue-500' : (el.type === 'gen-image' && !el.url ? 'border border-blue-100' : '')} ${el.type === 'gen-image' ? 'rounded-lg overflow-hidden' : ''}`}> 
                                      {el.url ? (
                                         <>
-                                            <img src={el.url} className="w-full h-full object-cover" draggable={false} />
-                                            <button onClick={() => setPreviewUrl(el.url)} className="absolute top-2 right-2 p-1.5 bg-white/90 backdrop-blur rounded-lg shadow-sm text-xs font-medium text-gray-700 hover:bg-white hover:text-black transition flex items-center gap-1.5"><Maximize2 size={12} /> 放大查看</button>
+                                            <img src={el.url} className={`w-full h-full ${el.type === 'image' ? 'w-full h-full' : 'object-cover'}`} draggable={false} />
+                                            {/* Resize Handles - Only for Image & Selected */}
+                                            {isSelected && (
+                                                <>
+                                                    <div className="absolute top-0 left-0 w-3 h-3 bg-white border-2 border-blue-500 rounded-full -translate-x-1/2 -translate-y-1/2 z-20 cursor-nw-resize hover:scale-125 transition" onMouseDown={(e) => handleResizeStart(e, 'nw', el.id)}></div>
+                                                    <div className="absolute top-0 right-0 w-3 h-3 bg-white border-2 border-blue-500 rounded-full translate-x-1/2 -translate-y-1/2 z-20 cursor-ne-resize hover:scale-125 transition" onMouseDown={(e) => handleResizeStart(e, 'ne', el.id)}></div>
+                                                    <div className="absolute bottom-0 left-0 w-3 h-3 bg-white border-2 border-blue-500 rounded-full -translate-x-1/2 translate-y-1/2 z-20 cursor-sw-resize hover:scale-125 transition" onMouseDown={(e) => handleResizeStart(e, 'sw', el.id)}></div>
+                                                    <div className="absolute bottom-0 right-0 w-3 h-3 bg-white border-2 border-blue-500 rounded-full translate-x-1/2 translate-y-1/2 z-20 cursor-se-resize hover:scale-125 transition" onMouseDown={(e) => handleResizeStart(e, 'se', el.id)}></div>
+                                                    {/* Side Handles */}
+                                                    <div className="absolute top-1/2 left-0 w-1.5 h-6 bg-white border border-blue-500 rounded-full -translate-x-1/2 -translate-y-1/2 z-20 cursor-ew-resize hover:scale-110 transition hidden group-hover:block" onMouseDown={(e) => handleResizeStart(e, 'w', el.id)}></div>
+                                                    <div className="absolute top-1/2 right-0 w-1.5 h-6 bg-white border border-blue-500 rounded-full translate-x-1/2 -translate-y-1/2 z-20 cursor-ew-resize hover:scale-110 transition hidden group-hover:block" onMouseDown={(e) => handleResizeStart(e, 'e', el.id)}></div>
+                                                    {/* Top Selection Info Bar (Clean Text Style) */}
+                                                    {/* Left: Name */}
+                                                    <div 
+                                                        className="absolute top-0 left-0 flex items-center gap-1.5 text-xs font-semibold text-gray-700 whitespace-nowrap pointer-events-none select-none opacity-0 group-hover:opacity-100 transition-opacity delay-75 duration-200 origin-bottom-left z-50"
+                                                        style={{ 
+                                                            transform: `scale(${100 / zoom}) translateY(calc(-100% - 4px))`
+                                                        }}
+                                                    >
+                                                        <ImageIcon size={12} className="opacity-80" />
+                                                        <span>{el.id.includes('unnamed') ? 'unnamed' : 'Image'}</span>
+                                                    </div>
+
+                                                    {/* Right: Dimensions */}
+                                                    <div 
+                                                        className="absolute top-0 right-0 font-mono text-[10px] font-medium text-gray-500 whitespace-nowrap pointer-events-none select-none opacity-0 group-hover:opacity-100 transition-opacity delay-75 duration-200 origin-bottom-right z-50"
+                                                        style={{ 
+                                                            transform: `scale(${100 / zoom}) translateY(calc(-100% - 6px))`
+                                                        }}
+                                                    >
+                                                        {Math.round(el.width)} × {Math.round(el.height)}
+                                                    </div>
+                                                </>
+                                            )}
                                         </>
                                      ) : (
                                         <>
@@ -1526,12 +1764,48 @@ const Workspace: React.FC = () => {
                                      )}
                                  </div>
                              )}
-                             {el.type === 'gen-video' && (
-                                <div className={`w-full h-full flex flex-col relative overflow-hidden transition-all bg-[#F0FAFF] ${isSelected ? 'ring-2 ring-blue-500' : 'border border-blue-100' } rounded-lg`}> 
+                             {(el.type === 'gen-video' || el.type === 'video') && (
+                                <div className={`w-full h-full flex flex-col relative transition-all ${el.url ? 'bg-black' : 'bg-[#F0FAFF]'} ${isSelected ? 'ring-1 ring-blue-500' : ((el.type === 'gen-video' || el.type === 'video') && !el.url ? 'border border-blue-100' : '')} ${(el.type === 'gen-video' || el.type === 'video') ? 'rounded-lg overflow-hidden' : ''}`}> 
                                     {el.url ? (
-                                        <div className="w-full h-full relative bg-black flex items-center justify-center">
-                                            <video src={el.url} className="w-full h-full object-contain" controls />
-                                        </div>
+                                        <>
+                                            <div className="w-full h-full relative flex items-center justify-center">
+                                                <video src={el.url} className="w-full h-full object-contain" controls />
+                                            </div>
+                                            {/* Resize Handles - Only for Selected */}
+                                            {isSelected && (
+                                                <>
+                                                    <div className="absolute top-0 left-0 w-3 h-3 bg-white border-2 border-blue-500 rounded-full -translate-x-1/2 -translate-y-1/2 z-20 cursor-nw-resize hover:scale-125 transition" onMouseDown={(e) => handleResizeStart(e, 'nw', el.id)}></div>
+                                                    <div className="absolute top-0 right-0 w-3 h-3 bg-white border-2 border-blue-500 rounded-full translate-x-1/2 -translate-y-1/2 z-20 cursor-ne-resize hover:scale-125 transition" onMouseDown={(e) => handleResizeStart(e, 'ne', el.id)}></div>
+                                                    <div className="absolute bottom-0 left-0 w-3 h-3 bg-white border-2 border-blue-500 rounded-full -translate-x-1/2 translate-y-1/2 z-20 cursor-sw-resize hover:scale-125 transition" onMouseDown={(e) => handleResizeStart(e, 'sw', el.id)}></div>
+                                                    <div className="absolute bottom-0 right-0 w-3 h-3 bg-white border-2 border-blue-500 rounded-full translate-x-1/2 translate-y-1/2 z-20 cursor-se-resize hover:scale-125 transition" onMouseDown={(e) => handleResizeStart(e, 'se', el.id)}></div>
+                                                    {/* Side Handles */}
+                                                    <div className="absolute top-1/2 left-0 w-1.5 h-6 bg-white border border-blue-500 rounded-full -translate-x-1/2 -translate-y-1/2 z-20 cursor-ew-resize hover:scale-110 transition hidden group-hover:block" onMouseDown={(e) => handleResizeStart(e, 'w', el.id)}></div>
+                                                    <div className="absolute top-1/2 right-0 w-1.5 h-6 bg-white border border-blue-500 rounded-full translate-x-1/2 -translate-y-1/2 z-20 cursor-ew-resize hover:scale-110 transition hidden group-hover:block" onMouseDown={(e) => handleResizeStart(e, 'e', el.id)}></div>
+                                                    
+                                                    {/* Top Selection Info Bar (Counter-Scaled) */}
+                                                    {/* Left: Name */}
+                                                    <div 
+                                                        className="absolute top-0 left-0 flex items-center gap-1.5 text-xs font-semibold text-gray-700 whitespace-nowrap pointer-events-none select-none opacity-0 group-hover:opacity-100 transition-opacity delay-75 duration-200 origin-bottom-left z-50 mix-blend-difference text-white"
+                                                        style={{ 
+                                                            transform: `scale(${100 / zoom}) translateY(calc(-100% - 4px))`
+                                                        }}
+                                                    >
+                                                        <Video size={12} className="opacity-80" />
+                                                        <span>Video</span>
+                                                    </div>
+
+                                                    {/* Right: Dimensions */}
+                                                    <div 
+                                                        className="absolute top-0 right-0 font-mono text-[10px] font-medium text-gray-500 whitespace-nowrap pointer-events-none select-none opacity-0 group-hover:opacity-100 transition-opacity delay-75 duration-200 origin-bottom-right z-50 mix-blend-difference text-white"
+                                                        style={{ 
+                                                            transform: `scale(${100 / zoom}) translateY(calc(-100% - 6px))`
+                                                        }}
+                                                    >
+                                                        {Math.round(el.width)} × {Math.round(el.height)}
+                                                    </div>
+                                                </>
+                                            )}
+                                        </>
                                     ) : (
                                         <>
                                             <div className="flex items-center justify-between px-3 py-2 text-xs text-gray-500 border-b border-blue-100/50 whitespace-nowrap"><div className="flex items-center gap-2 font-medium"> <Video size={12} /> <span>Video...</span> </div><div className="font-mono opacity-70"> {Math.round(el.width)} × {Math.round(el.height)} </div></div>
@@ -1570,6 +1844,8 @@ const Workspace: React.FC = () => {
              </div>
           </div>
       </div>
+
+
     </div>
   );
 };

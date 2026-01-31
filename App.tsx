@@ -7,7 +7,7 @@ import Projects from './pages/Projects';
 const App: React.FC = () => {
   return (
     <Router>
-      <div className="min-h-screen bg-[#F9FAFB] text-gray-900 overflow-hidden">
+      <div className="min-h-screen bg-gray-50 text-gray-900">
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/projects" element={<Projects />} />

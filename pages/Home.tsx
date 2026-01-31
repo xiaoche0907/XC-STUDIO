@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import { 
   Home as HomeIcon, Folder, User, Info, Plus, Bell, ChevronDown, 
   Zap, Globe, Box, ArrowUp, Lightbulb, Paperclip,
@@ -17,8 +18,13 @@ const Sidebar = () => {
       navigate(`/workspace/new-${Date.now()}`);
   };
 
+
   return (
-    <div className="fixed left-6 top-1/2 -translate-y-1/2 flex flex-col gap-4 z-50">
+    <motion.div 
+      initial={{ x: -20, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      className="fixed left-6 top-1/2 -translate-y-1/2 flex flex-col gap-4 z-50"
+    >
       <div>
         <button 
             onClick={handleNewProject} 
@@ -29,18 +35,18 @@ const Sidebar = () => {
         </button>
       </div>
 
-      <div className="w-12 py-6 bg-white rounded-full shadow-lg flex flex-col items-center gap-6 border border-gray-100">
+      <div className="w-12 py-6 bg-white/80 backdrop-blur-md rounded-full shadow-xl flex flex-col items-center gap-6 border border-white/20">
         <button onClick={() => navigate('/')} className="p-2 bg-gray-100 rounded-full text-black transition hover:bg-gray-200"><HomeIcon size={20} /></button>
         <button onClick={() => navigate('/projects')} className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"><Folder size={20} /></button>
         <button className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"><User size={20} /></button>
         <button className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"><Info size={20} /></button>
       </div>
-    </div>
+    </motion.div>
   );
 };
 
 const Header = () => (
-  <header className="fixed top-0 left-0 right-0 h-16 px-8 flex items-center justify-between z-40 bg-[#F9FAFB]/90 backdrop-blur-sm">
+  <header className="fixed top-0 left-0 right-0 h-16 px-8 flex items-center justify-between z-40 bg-white/70 backdrop-blur-md border-b border-white/20 shadow-sm shadow-gray-100/20">
     <div className="flex items-center gap-2">
       <div className="w-8 h-8 bg-black rounded-full flex items-center justify-center text-white font-bold text-xs">XC</div>
       <span className="font-bold text-xl tracking-tight">XcAISTUDIO</span>
@@ -177,7 +183,7 @@ const Home: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen pb-20">
+    <div className="min-h-screen pb-20 bg-gradient-to-b from-gray-50 to-white">
       <Header />
       <Sidebar />
       
@@ -185,15 +191,26 @@ const Home: React.FC = () => {
         
         <div className="h-8"></div>
 
-        <h1 className="text-4xl font-bold text-center mb-3 flex items-center gap-3">
-          <div className="w-8 h-8 bg-black rounded-full flex items-center justify-center text-white text-xs">XC</div>
-          XcAISTUDIO 让设计更简单
-        </h1>
-        <p className="text-gray-500 mb-10">懂你的设计代理，帮你搞定一切</p>
+        <motion.div
+           initial={{ opacity: 0, y: 20 }}
+           animate={{ opacity: 1, y: 0 }}
+           transition={{ delay: 0.1 }}
+        >
+            <h1 className="text-4xl font-bold text-center mb-3 flex items-center gap-3">
+            <div className="w-8 h-8 bg-black rounded-full flex items-center justify-center text-white text-xs">XC</div>
+            XcAISTUDIO 让设计更简单
+            </h1>
+            <p className="text-gray-500 mb-10 text-center">懂你的设计代理，帮你搞定一切</p>
+        </motion.div>
 
         {/* Input Area */}
-        <div className="w-full max-w-4xl relative mb-8">
-            <div className="bg-white rounded-[28px] border border-gray-200 shadow-sm hover:shadow-md transition-all duration-300 relative group focus-within:ring-2 focus-within:ring-black/5 focus-within:border-gray-300 overflow-hidden">
+        <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.2 }}
+            className="w-full max-w-4xl relative mb-8"
+        >
+            <div className="bg-white rounded-[28px] border border-gray-200/50 shadow-xl shadow-gray-100/50 hover:shadow-2xl hover:shadow-gray-200/50 transition-all duration-300 relative group focus-within:ring-2 focus-within:ring-black/5 focus-within:border-gray-300 overflow-hidden">
                 
                 <div className="p-4 pt-3">
                     {/* Input Field */}
@@ -323,7 +340,7 @@ const Home: React.FC = () => {
                     </div>
                 </div>
             </div>
-        </div>
+        </motion.div>
 
         {/* Filters / Tags */}
         <div className="flex flex-wrap justify-center gap-3 mb-16">
