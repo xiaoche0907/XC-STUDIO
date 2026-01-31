@@ -35,24 +35,23 @@ User Request: ${message}`;
           temperature: 0.7,
           responseMimeType: 'application/json',
           responseSchema: {
-            type: 'OBJECT',
+            type: Type.OBJECT,
             properties: {
-              analysis: { type: 'STRING' },
+              analysis: { type: Type.STRING },
               proposals: {
-                type: 'ARRAY',
+                type: Type.ARRAY,
                 items: {
-                  type: 'OBJECT',
+                  type: Type.OBJECT,
                   properties: {
-                    id: { type: 'STRING' },
-                    title: { type: 'STRING' },
-                    description: { type: 'STRING' },
-                    skillCalls: { type: 'ARRAY' }
+                    id: { type: Type.STRING },
+                    title: { type: Type.STRING },
+                    description: { type: Type.STRING }
                   }
                 }
               },
-              skillCalls: { type: 'ARRAY' },
-              message: { type: 'STRING' },
-              concept: { type: 'STRING' }
+              skillCalls: { type: Type.ARRAY },
+              message: { type: Type.STRING },
+              concept: { type: Type.STRING }
             }
           }
         }
