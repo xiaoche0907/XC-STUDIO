@@ -100,6 +100,13 @@ interface HistoryState {
   markers: Marker[];
 }
 
+interface InputBlock {
+    id: string;
+    type: 'text' | 'file';
+    text?: string;
+    file?: File;
+}
+
 const Workspace: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -141,10 +148,82 @@ const Workspace: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [showAssistant, setShowAssistant] = useState(true);
-  const [attachments, setAttachments] = useState<File[]>([]);
+  const [inputBlocks, setInputBlocks] = useState<InputBlock[]>([{ id: 'init', type: 'text', text: '' }]);
+  const [activeBlockId, setActiveBlockId] = useState<string>('init');
+  const [selectionIndex, setSelectionIndex] = useState<number | null>(null);
+  
+  // prompt/attachments legacy states replaced by inputBlocks effectively, 
+  // but keeping 'prompt' sync for other potential uses if needed, or simply deriving in handleSend.
+  // We will ignore 'prompt' and 'attachments' state for the INPUT area.
   const [modelMode, setModelMode] = useState<'thinking' | 'fast'>('thinking');
   const [webEnabled, setWebEnabled] = useState(false);
   const [imageModelEnabled, setImageModelEnabled] = useState(false);
+  
+  const activeBlockIdRef = useRef(activeBlockId);
+  const selectionIndexRef = useRef(selectionIndex);
+  
+  useEffect(() => { activeBlockIdRef.current = activeBlockId; }, [activeBlockId]);
+  useEffect(() => { selectionIndexRef.current = selectionIndex; }, [selectionIndex]);
+
+    // Insert File Logic for Blocks (Moved to top for scope visibility)
+    // Uses Refs to ensure event handlers (paste) get current cursor
+    const insertInputFile = (file: File) => {
+        console.log('insertInputFile called:', file.name, 'Current blocks:', inputBlocks.length, 'Active ID:', activeBlockIdRef.current);
+        setInputBlocks(prev => {
+            console.log('Prev blocks:', prev.length, 'Block IDs:', prev.map(b => b.id));
+            const currentActiveId = activeBlockIdRef.current;
+            const currentSelectionIdx = selectionIndexRef.current;
+            
+            const activeIndex = prev.findIndex(b => b.id === currentActiveId);
+            console.log('Active index:', activeIndex, 'Looking for ID:', currentActiveId);
+            
+            if (activeIndex === -1) {
+                console.log('Active block not found! Appending to end.');
+                return [...prev, { id: `file-${Date.now()}`, type: 'file', file }, { id: `text-${Date.now()}`, type: 'text', text: '' }];
+            }
+            
+            const activeBlock = prev[activeIndex];
+            console.log('Active block found:', activeBlock.type, activeBlock.id);
+            
+            if (activeBlock.type === 'text') {
+                const text = activeBlock.text || '';
+                const idx = currentSelectionIdx !== null ? currentSelectionIdx : text.length;
+                const preText = text.slice(0, idx);
+                const postText = text.slice(idx);
+                
+                console.log('Splitting text block. Pre:', preText, 'Post:', postText);
+                
+                const newBlocks: InputBlock[] = [
+                    { ...activeBlock, text: preText },
+                    { id: `file-${Date.now()}`, type: 'file', file },
+                    { id: `text-${Date.now()}`, type: 'text', text: postText }
+                ];
+                
+                console.log('New blocks created:', newBlocks.length, newBlocks.map(b => `${b.type}:${b.id}`));
+                
+                // Auto-focus the post-text block
+                const newBlockId = newBlocks[2].id;
+                setTimeout(() => {
+                    setActiveBlockId(newBlockId);
+                    setSelectionIndex(0); // Start of new block
+                    // 直接聚焦 DOM 元素
+                    const inputEl = document.getElementById(`input-block-${newBlockId}`) as HTMLInputElement;
+                    if (inputEl) {
+                        inputEl.focus();
+                    }
+                }, 50);
+                
+                const before = prev.slice(0, activeIndex);
+                const after = prev.slice(activeIndex + 1);
+                const result = [...before, ...newBlocks, ...after];
+                console.log('Returning merged blocks:', result.length);
+                return result;
+            } else {
+                console.log('Active block is not text, appending after');
+                 return [...prev, { id: `file-${Date.now()}`, type: 'file', file }, { id: `text-${Date.now()}`, type: 'text', text: '' }];
+            }
+        });
+    };
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   
   // New UI states for Assistant
@@ -278,7 +357,7 @@ const Workspace: React.FC = () => {
     setPan({ x: newPanX, y: newPanY });
   };
 
-  const handlePaste = async () => {
+  const handleManualPaste = async () => {
       try {
           const items = await navigator.clipboard.read();
           for (const item of items) {
@@ -543,13 +622,28 @@ const Workspace: React.FC = () => {
         };
         load();
     }
-    if (location.state?.initialPrompt) {
-      setPrompt(location.state.initialPrompt);
-      if (location.state.initialAttachments) setAttachments(location.state.initialAttachments);
-      if (location.state.initialModelMode) setModelMode(location.state.initialModelMode);
-      if (location.state.initialWebEnabled) setWebEnabled(location.state.initialWebEnabled);
-      if (location.state.initialImageModel) setImageModelEnabled(true);
-      handleSend(location.state.initialPrompt, location.state.initialAttachments, location.state.initialWebEnabled);
+    if (location.state?.initialPrompt || location.state?.initialAttachments) {
+       const blocks: InputBlock[] = [];
+       if (location.state.initialAttachments) {
+           (location.state.initialAttachments as File[]).forEach((f, i) => {
+               blocks.push({ id: `file-${Date.now()}-${i}`, type: 'file', file: f });
+               blocks.push({ id: `text-${Date.now()}-${i}`, type: 'text', text: '' });
+           });
+       }
+       if (location.state.initialPrompt) {
+           if (blocks.length > 0 && blocks[blocks.length-1].type === 'text') {
+               blocks[blocks.length-1].text = location.state.initialPrompt;
+           } else {
+               blocks.push({ id: `text-${Date.now()}`, type: 'text', text: location.state.initialPrompt });
+           }
+       }
+       if (blocks.length === 0) blocks.push({ id: 'init', type: 'text', text: '' });
+       setInputBlocks(blocks);
+
+       if (location.state.initialModelMode) setModelMode(location.state.initialModelMode);
+       if (location.state.initialWebEnabled) setWebEnabled(location.state.initialWebEnabled);
+       if (location.state.initialImageModel) setImageModelEnabled(true);
+       handleSend(location.state.initialPrompt, location.state.initialAttachments, location.state.initialWebEnabled);
     }
     if (location.state?.backgroundUrl) {
         const type = location.state.backgroundType || 'image';
@@ -828,6 +922,7 @@ const Workspace: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
+
   const handleVideoRefUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'start' | 'end' | 'ref', index?: number) => {
       const file = e.target.files?.[0];
       if (!file || !selectedElementId) return;
@@ -954,13 +1049,23 @@ const Workspace: React.FC = () => {
               const crop = await cropImageRegion(el.url, x, y, 300, 300);
               if (crop) {
                   cropUrl = crop;
-                  // Convert crop to File and Add to Input Box Attachments
-                  const file = dataURLtoFile(crop, `marker-${newMarkerId}.png`);
-                  (file as any).markerId = newMarkerId; // Attach marker ID to file object
-                  setAttachments(prev => [...prev, file]);
                   
-                  if (!showAssistant) setShowAssistant(true);
-                  textareaRef.current?.focus();
+                  // 先打开助手面板，确保输入框已渲染
+                  if (!showAssistant) {
+                      setShowAssistant(true);
+                      // 等待助手面板渲染完成
+                      await new Promise(resolve => setTimeout(resolve, 100));
+                  }
+                  
+                  // Convert crop to File and Add to Input Box
+                  const file = dataURLtoFile(crop, `marker-${newMarkerId}.png`);
+                  (file as any).markerId = newMarkerId;
+                  
+                  // 使用 setTimeout 确保状态更新后再插入
+                  setTimeout(() => {
+                      insertInputFile(file);
+                      console.log('File inserted:', file.name, 'Marker ID:', newMarkerId);
+                  }, 150);
               }
           }
           
@@ -988,12 +1093,79 @@ const Workspace: React.FC = () => {
   const handleShapeMenuMouseEnter = () => { if (closeShapeMenuTimerRef.current) { clearTimeout(closeShapeMenuTimerRef.current); closeShapeMenuTimerRef.current = null; } setShowToolMenu(false); setShowInsertMenu(false); setShowShapeMenu(true); };
   const handleShapeMenuMouseLeave = () => { closeShapeMenuTimerRef.current = setTimeout(() => { setShowShapeMenu(false); }, 100); };
   
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files) setAttachments(prev => [...prev, ...Array.from(e.target.files!)].slice(0, 10)); if (fileInputRef.current) fileInputRef.current.value = ''; };
-  const removeAttachment = (index: number) => { setAttachments(prev => prev.filter((_, i) => i !== index)); };
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { 
+      if (e.target.files) {
+          const files = Array.from(e.target.files!);
+          files.forEach(f => insertInputFile(f as File));
+      }
+      if (fileInputRef.current) fileInputRef.current.value = ''; 
+  };
+  
+  const removeInputBlock = (blockId: string) => {
+      setInputBlocks(prev => {
+          // If removing a file block, we should merge adjacent text blocks
+          const idx = prev.findIndex(b => b.id === blockId);
+          if (idx === -1) return prev;
+          
+          const newBlocks = [...prev];
+          
+          // Logic: remove block at idx
+          // Check if left and right are text
+          const left = newBlocks[idx - 1];
+          const right = newBlocks[idx + 1];
+          
+          // Also remove corresponding markers from canvas if this file had a markerId
+          const block = newBlocks[idx];
+          if (block.file && (block.file as any).markerId) {
+             const markerId = (block.file as any).markerId;
+             const newMarkers = markers.filter(m => m.id !== markerId).map((m, i) => ({ ...m, id: i + 1 }));
+             // Need to update markerIds in OTHER blocks too?
+             // Since markers state is external, we update it.
+             // But the file objects in OTHER blocks still hold old markerIds.
+             // We need to update those active file objects.
+             // This is tricky with React State immutability inside File objects. But 'insertInputFile' uses references.
+             // We should map inputBlocks to update file markerIds.
+             
+             // First, update canvas markers
+             setMarkers(newMarkers);
+             saveToHistory(elements, newMarkers);
+             
+             // Then update inputBlocks' files
+             newBlocks.forEach(b => {
+                 if (b.type === 'file' && b.file && (b.file as any).markerId > markerId) {
+                     (b.file as any).markerId -= 1;
+                 }
+             });
+          }
+
+          if (left?.type === 'text' && right?.type === 'text') {
+               // Merge
+               left.text = (left.text || '') + (right.text || '');
+               // Remove current and right
+               newBlocks.splice(idx, 2);
+               // Focus left
+               setActiveBlockId(left.id);
+          } else {
+              // Just remove
+              newBlocks.splice(idx, 1);
+              // If we removed the last block and it's empty, ensure at least one text block?
+              if (newBlocks.length === 0) newBlocks.push({ id: `text-${Date.now()}`, type: 'text', text: '' });
+          }
+          
+          return newBlocks;
+      });
+  };
+
   const handleSend = async (textOverride?: string, attachmentsOverride?: File[], enableWebSearch: boolean = webEnabled) => {
-    const textToSend = textOverride !== undefined ? textOverride : prompt;
-    const filesToSend = attachmentsOverride !== undefined ? attachmentsOverride : attachments;
+    // Construct message from blocks
+    const derivedText = inputBlocks.filter(b => b.type === 'text').map(b => b.text).join(' ');
+    const derivedFiles = inputBlocks.filter(b => b.type === 'file' && b.file).map(b => b.file!) as File[];
+    
+    const textToSend = textOverride !== undefined ? textOverride : derivedText;
+    const filesToSend = attachmentsOverride !== undefined ? attachmentsOverride : derivedFiles;
+    
     if ((!textToSend.trim() && filesToSend.length === 0 && markers.length === 0) || isTyping) return;
+    
     let fullMessage = textToSend;
     
     // Check if there are marker attachments and append context
@@ -1003,7 +1175,10 @@ const Workspace: React.FC = () => {
     }
 
     const newUserMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: fullMessage + (filesToSend.length > 0 ? ` [${filesToSend.length} files attached]` : ''), timestamp: Date.now() };
-    setMessages(prev => [...prev, newUserMsg]); setPrompt(''); setAttachments([]); setMarkers([]); setIsTyping(true);
+    setMessages(prev => [...prev, newUserMsg]); 
+    setInputBlocks([{ id: `text-${Date.now()}`, type: 'text', text: '' }]);
+    setMarkers([]); 
+    setIsTyping(true);
     if (chatSessionRef.current) {
         const responseText = await sendMessage(chatSessionRef.current, fullMessage, filesToSend, enableWebSearch);
         setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), role: 'model', text: responseText, timestamp: Date.now() }]);
@@ -1013,8 +1188,7 @@ const Workspace: React.FC = () => {
 
   const startNewChat = () => {
     setMessages([]);
-    setPrompt('');
-    setAttachments([]);
+    setInputBlocks([{ id: 'init', type: 'text', text: '' }]);
     setMarkers([]);
     setHistoryStep(0);
     chatSessionRef.current = createChatSession('gemini-3-pro-preview');
@@ -1078,7 +1252,7 @@ const Workspace: React.FC = () => {
             style={{ left: contextMenu.x, top: contextMenu.y }}
             onClick={(e) => e.stopPropagation()} 
           >
-              <button onClick={() => { handlePaste(); setContextMenu(null); }} className="w-full text-left px-4 py-2 hover:bg-gray-50 text-gray-700 flex justify-between items-center group">
+              <button onClick={() => { handleManualPaste(); setContextMenu(null); }} className="w-full text-left px-4 py-2 hover:bg-gray-50 text-gray-700 flex justify-between items-center group">
                   <span>粘贴</span><span className="text-xs text-gray-400 font-sans group-hover:text-gray-500">Ctrl + V</span>
               </button>
               {isImage && (
@@ -1585,64 +1759,105 @@ const Workspace: React.FC = () => {
                 <div className="p-4 bg-white/50 backdrop-blur-sm border-t border-gray-100/50 z-20">
                     <div className="bg-white rounded-[24px] border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 relative group focus-within:ring-2 focus-within:ring-black/5 focus-within:border-gray-300 flex flex-col">
                         
-                        {/* Text Input Area */}
-                        <div className="px-3 py-3 flex flex-wrap items-center gap-2 min-h-[48px]">
-                            {attachments.length > 0 && (
-                                <>
-                                {attachments.map((file, i) => {
+                        {/* Text Input Area (Block Based) */}
+                        <div className="px-3 py-3 flex flex-wrap items-center gap-1.5 min-h-[48px] cursor-text" onClick={() => {
+                            // Focus the active block or last block
+                            const lastId = inputBlocks[inputBlocks.length - 1].id;
+                            const el = document.getElementById(`input-block-${activeBlockId}`) || document.getElementById(`input-block-${lastId}`);
+                            el?.focus();
+                        }}>
+                            {inputBlocks.map((block, i) => {
+                                if (block.type === 'file' && block.file) {
+                                    // Render Chip
+                                    const file = block.file;
                                     const markerId = (file as any).markerId;
                                     if (markerId) {
-                                        // Marker Chip Style
                                         return (
-                                            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} key={i} className="flex items-center gap-1 bg-[#F3F4F6] rounded-full pl-1 pr-3 py-1 cursor-default relative group flex-shrink-0">
+                                            <div key={block.id} className="flex items-center gap-1 bg-[#F3F4F6] rounded-full pl-1 pr-3 py-1 cursor-default relative group flex-shrink-0 select-none">
                                                 <div className="w-6 h-6 bg-gray-900 rounded-full overflow-hidden border border-gray-200">
                                                     <img src={URL.createObjectURL(file)} className="w-full h-full object-cover"/>
                                                 </div>
                                                 <div className="w-4 h-4 bg-[#3B82F6] rounded-full flex items-center justify-center text-white text-[10px] font-bold shadow-sm -ml-2 border border-white z-10">{markerId}</div>
                                                 <span className="text-xs text-gray-700 font-medium ml-1">区域</span>
-                                                <ChevronDown size={12} className="text-gray-400 ml-1" />
-                                                <button onClick={() => removeAttachment(i)} className="absolute -top-1 -right-1 bg-black text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition shadow-sm z-20"><X size={8} /></button>
-                                            </motion.div>
+                                                <button onClick={(e) => { e.stopPropagation(); removeInputBlock(block.id); }} className="absolute -top-1 -right-1 bg-black text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition shadow-sm z-20"><X size={8} /></button>
+                                            </div>
                                         );
                                     } else {
                                         return (
-                                            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} key={i} className="relative flex items-center gap-2 bg-[#F3F4F6] rounded-lg pl-1 pr-2 py-1 flex-shrink-0">
+                                            <div key={block.id} className="relative flex items-center gap-2 bg-[#F3F4F6] rounded-lg pl-1 pr-2 py-1 flex-shrink-0 select-none">
                                                 <div className="w-6 h-6 bg-gray-200 rounded-md overflow-hidden flex items-center justify-center">
                                                     {file.type.startsWith('image/') ? <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" /> : <FileText size={12} className="text-gray-500" />}
                                                 </div>
                                                 <span className="text-xs text-gray-600 max-w-[60px] truncate">{file.name}</span>
-                                                <button onClick={() => removeAttachment(i)} className="bg-gray-300 text-gray-600 rounded-full p-0.5 hover:bg-gray-400 hover:text-white transition"><X size={8} /></button>
-                                            </motion.div>
+                                                <button onClick={(e) => { e.stopPropagation(); removeInputBlock(block.id); }} className="bg-gray-300 text-gray-600 rounded-full p-0.5 hover:bg-gray-400 hover:text-white transition"><X size={8} /></button>
+                                            </div>
                                         );
                                     }
-                                })}
-                                </>
-                            )}
-                            <textarea 
-                                ref={textareaRef}
-                                value={prompt}
-                                onChange={(e) => setPrompt(e.target.value)}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                        e.preventDefault();
-                                        handleSend();
-                                    }
-                                }}
-                                placeholder="Type a message..."
-                                rows={1}
-                                className="flex-1 bg-transparent border-none outline-none text-sm resize-none text-gray-700 placeholder-gray-400 min-w-[120px]"
-                                style={{ height: 'auto', minHeight: '24px' }} 
-                                onInput={(e) => {
-                                    const target = e.target as HTMLTextAreaElement;
-                                    target.style.height = 'auto';
-                                    target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
-                                }}
-                            />
+                                } else {
+                                    // Render Input Text
+                                    return (
+                                        <input
+                                            key={block.id}
+                                            id={`input-block-${block.id}`}
+                                            value={block.text}
+                                            onChange={(e) => setInputBlocks(prev => prev.map(b => b.id === block.id ? { ...b, text: e.target.value } : b))}
+                                            onFocus={() => setActiveBlockId(block.id)}
+                                            onSelect={(e) => setSelectionIndex(e.currentTarget.selectionStart)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Backspace' && !block.text) {
+                                                     // If empty and backspace, maybe remove previous block if it is a file?
+                                                     // e.preventDefault(); // Don't prevent default, let it process? 
+                                                     // Actually we need to handle manual removal
+                                                     const myIndex = inputBlocks.findIndex(b => b.id === block.id);
+                                                     if (myIndex > 0) {
+                                                         const prevBlock = inputBlocks[myIndex - 1];
+                                                         if (prevBlock.type === 'file') {
+                                                             removeInputBlock(prevBlock.id);
+                                                             e.preventDefault(); // Prevent deleting char from prev block if it somehow merged?
+                                                         }
+                                                     }
+                                                }
+                                                if (e.key === 'Enter' && !e.shiftKey) {
+                                                    e.preventDefault();
+                                                    handleSend();
+                                                }
+                                            }}
+                                            onPaste={(e) => {
+                                                if (e.clipboardData.files.length > 0) {
+                                                    e.preventDefault();
+                                                    Array.from(e.clipboardData.files).forEach(f => insertInputFile(f as File));
+                                                }
+                                            }}
+                                            className={`bg-transparent border-none outline-none text-sm text-gray-700 placeholder-gray-400 ${
+                                                // 最后一个文本块，且（有内容或是唯一块）时才 flex-grow
+                                                i === inputBlocks.length - 1 && block.type === 'text' && (block.text || inputBlocks.length === 1)
+                                                    ? 'flex-grow min-w-[150px]'
+                                                    : block.text 
+                                                        ? 'min-w-[20px]' 
+                                                        : 'min-w-[10px]'
+                                            }`}
+                                            style={
+                                                i === inputBlocks.length - 1 && block.type === 'text' && (block.text || inputBlocks.length === 1)
+                                                    ? {} 
+                                                    : block.text
+                                                        ? { width: `${Math.max(20, (block.text || '').split('').reduce((acc, char) => acc + (char.charCodeAt(0) > 255 ? 16 : 9), 0) + 20)}px` }
+                                                        : { width: '10px' }
+                                            }
+                                            placeholder={i === 0 && inputBlocks.length === 1 ? "Type a message..." : ""}
+                                            autoComplete="off"
+                                        />
+                                    );
+                                }
+                            })}
                         </div>
 
                         <div className="p-1 px-2 flex items-center justify-between border-t border-transparent">
                             <div className="flex items-center gap-1">
-                                <button onClick={() => fileInputRef.current?.click()} className="p-2 rounded-full text-gray-400 hover:text-gray-600 hover:bg-black/5 transition"><Paperclip size={18} /></button>
+                                <button onClick={() => {
+                                    console.log('Paperclip button clicked!');
+                                    console.log('fileInputRef.current:', fileInputRef.current);
+                                    fileInputRef.current?.click();
+                                }} className="p-2 rounded-full text-gray-400 hover:text-gray-600 hover:bg-black/5 transition"><Paperclip size={18} /></button>
                                 <button onClick={() => setAgentMode(!agentMode)} className={`h-8 px-3 rounded-full border flex items-center gap-1.5 text-xs font-medium transition mx-1 ${agentMode ? 'bg-blue-50 border-[#3B82F6] text-[#3B82F6]' : 'bg-transparent border-blue-200 text-blue-500 hover:bg-blue-50'}`}><Sparkles size={12} /> Agent</button>
                             </div>
                             
@@ -1655,11 +1870,34 @@ const Workspace: React.FC = () => {
                                 </div>
                                 <button onClick={() => setWebEnabled(!webEnabled)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${webEnabled ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-black/5 bg-white'}`}><Globe size={16} strokeWidth={1.5} /></button>
                                 <button onClick={() => setImageModelEnabled(!imageModelEnabled)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${imageModelEnabled ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-black/5 bg-white'}`}><Box size={16} strokeWidth={2} /></button>
-                                <button onClick={() => handleSend()} disabled={!prompt.trim() && attachments.length === 0} className={`w-8 h-8 rounded-full flex items-center justify-center transition shadow-sm ${(!prompt.trim() && attachments.length === 0) ? 'bg-gray-200 text-gray-400' : 'bg-black text-white hover:scale-105'}`}><ArrowUp size={16} strokeWidth={2.5} /></button>
+                                <button onClick={() => handleSend()} disabled={inputBlocks.every(b => (b.type === 'text' && !b.text) || (b.type === 'file' && !b.file))} className={`w-8 h-8 rounded-full flex items-center justify-center transition shadow-sm ${(inputBlocks.every(b => (b.type === 'text' && !b.text) || (b.type === 'file' && !b.file))) ? 'bg-gray-200 text-gray-400' : 'bg-black text-white hover:scale-105'}`}><ArrowUp size={16} strokeWidth={2.5} /></button>
                             </div>
                         </div>
                     </div>
                 </div>
+                
+                {/* Hidden file input for selecting files */}
+                <input 
+                    ref={fileInputRef} 
+                    type="file" 
+                    accept="image/*" 
+                    multiple 
+                    className="hidden" 
+                    onChange={(e) => {
+                        console.log('File input onChange triggered!', e.target.files);
+                        if (e.target.files) {
+                            console.log('Files selected:', e.target.files.length);
+                            Array.from(e.target.files).forEach((f: File, idx: number) => {
+                                console.log(`Processing file ${idx + 1}:`, f.name, f.type, f.size);
+                                insertInputFile(f as File);
+                            });
+                        }
+                        if (fileInputRef.current) {
+                            console.log('Clearing file input value');
+                            fileInputRef.current.value = '';
+                        }
+                    }}
+                />
             </motion.div>
         )}
       </AnimatePresence>
