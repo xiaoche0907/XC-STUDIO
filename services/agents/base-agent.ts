@@ -17,9 +17,8 @@ export abstract class BaseAgent {
     const prompt = this.buildPrompt(task);
 
     try {
-      // Use direct API call with JSON mode instead of chat session
       const { GoogleGenAI } = await import('@google/genai');
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY });
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
