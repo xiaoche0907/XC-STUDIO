@@ -83,3 +83,28 @@ export interface Template {
   description: string;
   image: string;
 }
+
+// Agent System Types
+export interface AgentChatMessage extends ChatMessage {
+  agentId?: string;
+  taskId?: string;
+  skillCalls?: Array<{
+    skillName: string;
+    params: Record<string, any>;
+    result?: any;
+    error?: string;
+  }>;
+}
+
+export interface ProjectContext {
+  projectId: string;
+  projectTitle: string;
+  brandInfo?: {
+    name?: string;
+    colors?: string[];
+    fonts?: string[];
+    style?: string;
+  };
+  existingAssets: CanvasElement[];
+  conversationHistory: ChatMessage[];
+}

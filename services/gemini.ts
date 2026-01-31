@@ -9,7 +9,7 @@ const PRO_MODEL = 'gemini-3-pro-preview';
 const FLASH_MODEL = 'gemini-3-flash-preview';
 // Image Gen models
 const IMAGE_PRO_MODEL = 'gemini-3-pro-image-preview';
-const IMAGE_FLASH_MODEL = 'gemini-2.5-flash-image';
+const IMAGE_FLASH_MODEL = 'gemini-3-pro-image-preview';
 // Video Gen models
 const VEO_FAST_MODEL = 'veo-3.1-fast-generate-preview';
 const VEO_PRO_MODEL = 'veo-3.1-generate-preview';
@@ -38,13 +38,14 @@ const retryWithBackoff = async <T>(
   }
 };
 
-export const createChatSession = (model: string = PRO_MODEL, history: Content[] = []): Chat => {
+export const createChatSession = (model: string = PRO_MODEL, history: Content[] = [], systemInstruction?: string): Chat => {
   return ai.chats.create({
     model: model,
     history: history,
     config: {
-      systemInstruction: "You are XcAISTUDIO, an expert AI design assistant. You help users create posters, branding, and design elements. You are helpful, creative, and concise.",
+      systemInstruction: systemInstruction || "You are XcAISTUDIO, an expert AI design assistant. You help users create posters, branding, and design elements. You are helpful, creative, and concise.",
       temperature: 0.7,
+      responseMimeType: "application/json"
     },
   });
 };

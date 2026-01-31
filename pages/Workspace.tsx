@@ -22,6 +22,14 @@ import { createChatSession, sendMessage, generateImage, generateVideo, extractTe
 import { ChatMessage, Template, CanvasElement, ShapeType, Marker, Project } from '../types';
 import { getProject, saveProject, formatDate } from '../services/storage';
 import { Content } from '@google/genai';
+import { useAgentOrchestrator } from '../hooks/useAgentOrchestrator';
+import { useProjectContext } from '../hooks/useProjectContext';
+import { getAgentInfo, executeAgentTask } from '../services/agents';
+import { AgentAvatar } from '../components/agents/AgentAvatar';
+import { AgentSelector } from '../components/agents/AgentSelector';
+import { ProposalSelector } from '../components/agents/ProposalSelector';
+import { TaskProgress } from '../components/agents/TaskProgress';
+import { AgentType, AgentProposal, AgentTask } from '../types/agent.types';
 
 const TEMPLATES: Template[] = [
   { id: '1', title: 'Wine List', description: 'Mimic this effect to generate a poster of ...', image: 'https://picsum.photos/80/80?random=10' },
@@ -229,6 +237,16 @@ const Workspace: React.FC = () => {
   // New UI states for Assistant
   const [agentMode, setAgentMode] = useState(false);
 
+  // Agent orchestration
+  const projectContext = useProjectContext(id || '', projectTitle, elements, messages);
+  const { currentTask, isAgentMode, setIsAgentMode, processMessage } = useAgentOrchestrator(projectContext);
+
+  // Sync agentMode state with isAgentMode
+  useEffect(() => {
+    console.log('[Workspace] Setting isAgentMode to:', agentMode);
+    setIsAgentMode(agentMode);
+  }, [agentMode, setIsAgentMode]);
+
   // Text Edit Feature State
   const [showTextEditModal, setShowTextEditModal] = useState(false);
   const [detectedTexts, setDetectedTexts] = useState<string[]>([]);
@@ -245,6 +263,7 @@ const Workspace: React.FC = () => {
   const closeToolMenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeMenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeShapeMenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialPromptProcessedRef = useRef(false);
 
   const saveToHistory = (newElements: CanvasElement[], newMarkers: Marker[]) => {
     const newHistory = history.slice(0, historyStep + 1);
@@ -623,27 +642,30 @@ const Workspace: React.FC = () => {
         load();
     }
     if (location.state?.initialPrompt || location.state?.initialAttachments) {
-       const blocks: InputBlock[] = [];
-       if (location.state.initialAttachments) {
-           (location.state.initialAttachments as File[]).forEach((f, i) => {
-               blocks.push({ id: `file-${Date.now()}-${i}`, type: 'file', file: f });
-               blocks.push({ id: `text-${Date.now()}-${i}`, type: 'text', text: '' });
-           });
-       }
-       if (location.state.initialPrompt) {
-           if (blocks.length > 0 && blocks[blocks.length-1].type === 'text') {
-               blocks[blocks.length-1].text = location.state.initialPrompt;
-           } else {
-               blocks.push({ id: `text-${Date.now()}`, type: 'text', text: location.state.initialPrompt });
-           }
-       }
-       if (blocks.length === 0) blocks.push({ id: 'init', type: 'text', text: '' });
-       setInputBlocks(blocks);
+       if (!initialPromptProcessedRef.current) {
+         initialPromptProcessedRef.current = true;
+         const blocks: InputBlock[] = [];
+         if (location.state.initialAttachments) {
+             (location.state.initialAttachments as File[]).forEach((f, i) => {
+                 blocks.push({ id: `file-${Date.now()}-${i}`, type: 'file', file: f });
+                 blocks.push({ id: `text-${Date.now()}-${i}`, type: 'text', text: '' });
+             });
+         }
+         if (location.state.initialPrompt) {
+             if (blocks.length > 0 && blocks[blocks.length-1].type === 'text') {
+                 blocks[blocks.length-1].text = location.state.initialPrompt;
+             } else {
+                 blocks.push({ id: `text-${Date.now()}`, type: 'text', text: location.state.initialPrompt });
+             }
+         }
+         if (blocks.length === 0) blocks.push({ id: 'init', type: 'text', text: '' });
+         setInputBlocks(blocks);
 
-       if (location.state.initialModelMode) setModelMode(location.state.initialModelMode);
-       if (location.state.initialWebEnabled) setWebEnabled(location.state.initialWebEnabled);
-       if (location.state.initialImageModel) setImageModelEnabled(true);
-       handleSend(location.state.initialPrompt, location.state.initialAttachments, location.state.initialWebEnabled);
+         if (location.state.initialModelMode) setModelMode(location.state.initialModelMode);
+         if (location.state.initialWebEnabled) setWebEnabled(location.state.initialWebEnabled);
+         if (location.state.initialImageModel) setImageModelEnabled(true);
+         handleSend(location.state.initialPrompt, location.state.initialAttachments, location.state.initialWebEnabled);
+       }
     }
     if (location.state?.backgroundUrl) {
         const type = location.state.backgroundType || 'image';
@@ -1160,11 +1182,37 @@ const Workspace: React.FC = () => {
     // Construct message from blocks
     const derivedText = inputBlocks.filter(b => b.type === 'text').map(b => b.text).join(' ');
     const derivedFiles = inputBlocks.filter(b => b.type === 'file' && b.file).map(b => b.file!) as File[];
-    
+
     const textToSend = textOverride !== undefined ? textOverride : derivedText;
     const filesToSend = attachmentsOverride !== undefined ? attachmentsOverride : derivedFiles;
-    
+
     if ((!textToSend.trim() && filesToSend.length === 0 && markers.length === 0) || isTyping) return;
+
+    // Agent mode handling
+    if (agentMode && isAgentMode && textToSend.trim()) {
+      const newUserMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: textToSend, timestamp: Date.now() };
+      setMessages(prev => [...prev, newUserMsg]);
+      setInputBlocks([{ id: `text-${Date.now()}`, type: 'text', text: '' }]);
+      setIsTyping(true);
+
+      try {
+        const agentResult = await processMessage(textToSend, filesToSend);
+        if (agentResult?.output) {
+          setMessages(prev => [...prev, {
+            id: (Date.now() + 1).toString(),
+            role: 'model',
+            text: agentResult.output.message,
+            timestamp: Date.now(),
+            agentTask: agentResult
+          } as any]);
+        }
+      } catch (error) {
+        setMessages(prev => [...prev, { id: (Date.now() + 2).toString(), role: 'model', text: `Error: ${error instanceof Error ? error.message : 'Unknown'}`, timestamp: Date.now() }]);
+      } finally {
+        setIsTyping(false);
+      }
+      return;
+    }
     
     let fullMessage = textToSend;
     
@@ -1714,13 +1762,16 @@ const Workspace: React.FC = () => {
                     ) : (
                         <div className="space-y-4 pb-4">
                             {messages.map(msg => (
-                                <motion.div 
-                                    initial={{ opacity: 0, y: 10 }} 
-                                    animate={{ opacity: 1, y: 0 }} 
-                                    key={msg.id} 
-                                    className={`flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
+                                <motion.div
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    key={msg.id}
+                                    className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                                 >
-                                    <div className={`max-w-[95%] rounded-2xl px-4 py-3 text-sm shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-none'}`}>
+                                    {msg.role === 'model' && currentTask && (
+                                        <AgentAvatar agentId={currentTask.agentId} size="sm" />
+                                    )}
+                                    <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-none'}`}>
                                         {msg.text}
                                         {msg.attachments && msg.attachments.length > 0 && (
                                             <div className="mt-2 grid grid-cols-2 gap-2">
@@ -1748,6 +1799,73 @@ const Workspace: React.FC = () => {
                                     </div>
                                 </div>
                             )}
+
+                            {/* Agent Task Progress */}
+                            {currentTask && (currentTask.status === 'analyzing' || currentTask.status === 'executing') && (
+                                <TaskProgress task={currentTask} />
+                            )}
+
+                            {/* Proposal Selector */}
+                            {currentTask?.output?.proposals && currentTask.output.proposals.length > 0 && (
+                                <div className="mt-4">
+                                    <ProposalSelector
+                                        proposals={currentTask.output.proposals}
+                                        onSelect={async (proposal: AgentProposal) => {
+                                            setIsTyping(true);
+                                            try {
+                                                const task: AgentTask = {
+                                                    id: `task-${Date.now()}`,
+                                                    agentId: currentTask.agentId,
+                                                    status: 'executing',
+                                                    input: {
+                                                        message: `Execute proposal: ${proposal.id}`,
+                                                        context: projectContext
+                                                    },
+                                                    createdAt: Date.now(),
+                                                    updatedAt: Date.now()
+                                                };
+
+                                                const result = await executeAgentTask(task);
+
+                                                if (result.output?.assets) {
+                                                    result.output.assets.forEach(asset => {
+                                                        if (asset.type === 'image') {
+                                                            const newElement: CanvasElement = {
+                                                                id: `gen-${Date.now()}-${Math.random()}`,
+                                                                type: 'gen-image',
+                                                                url: asset.url,
+                                                                x: 100,
+                                                                y: 100,
+                                                                width: 400,
+                                                                height: 400,
+                                                                zIndex: elements.length,
+                                                                genPrompt: asset.metadata.prompt,
+                                                                genModel: asset.metadata.model as any
+                                                            };
+                                                            setElements((prev: CanvasElement[]) => [...prev, newElement]);
+                                                        }
+                                                    });
+                                                }
+
+                                                if (result.output?.message) {
+                                                    setMessages((prev: ChatMessage[]) => [...prev, {
+                                                        id: `msg-${Date.now()}`,
+                                                        role: 'model',
+                                                        text: result.output.message,
+                                                        timestamp: Date.now()
+                                                    }]);
+                                                }
+                                            } catch (error) {
+                                                console.error('Proposal execution error:', error);
+                                            } finally {
+                                                setIsTyping(false);
+                                            }
+                                        }}
+                                        isExecuting={isTyping}
+                                    />
+                                </div>
+                            )}
+
                             <div ref={messagesEndRef} />
                         </div>
                     )}
@@ -1858,7 +1976,25 @@ const Workspace: React.FC = () => {
                                     console.log('fileInputRef.current:', fileInputRef.current);
                                     fileInputRef.current?.click();
                                 }} className="p-2 rounded-full text-gray-400 hover:text-gray-600 hover:bg-black/5 transition"><Paperclip size={18} /></button>
-                                <button onClick={() => setAgentMode(!agentMode)} className={`h-8 px-3 rounded-full border flex items-center gap-1.5 text-xs font-medium transition mx-1 ${agentMode ? 'bg-blue-50 border-[#3B82F6] text-[#3B82F6]' : 'bg-transparent border-blue-200 text-blue-500 hover:bg-blue-50'}`}><Sparkles size={12} /> Agent</button>
+                                <button
+                                    onClick={() => {
+                                        const newMode = !agentMode;
+                                        console.log('[Agent Button] Toggling agent mode to:', newMode);
+                                        setAgentMode(newMode);
+                                    }}
+                                    className={`h-8 px-3 rounded-full border flex items-center gap-1.5 text-xs font-medium transition mx-1 ${agentMode ? 'bg-blue-50 border-[#3B82F6] text-[#3B82F6]' : 'bg-transparent border-blue-200 text-blue-500 hover:bg-blue-50'}`}
+                                >
+                                    <Sparkles size={12} />
+                                    {currentTask && currentTask.status !== 'completed' ? `${getAgentInfo(currentTask.agentId).name} Working...` : 'Agent'}
+                                </button>
+                                {agentMode && currentTask && (
+                                    <div className="ml-2">
+                                        <AgentSelector
+                                            currentAgent={currentTask.agentId}
+                                            onSelect={(agentId: AgentType) => console.log('Agent selected:', agentId)}
+                                        />
+                                    </div>
+                                )}
                             </div>
                             
                             {/* Right Icons */}
