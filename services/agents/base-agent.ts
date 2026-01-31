@@ -1,4 +1,4 @@
-import { Chat } from '@google/genai';
+import { Chat, Type } from '@google/genai';
 import { createChatSession } from '../gemini';
 import { AgentTask, AgentInfo, ProjectContext, GeneratedAsset } from '../../types/agent.types';
 import { executeSkill } from '../skills';
