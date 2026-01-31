@@ -33,7 +33,28 @@ User Request: ${message}`;
         contents: { parts: [{ text: fullPrompt }] },
         config: {
           temperature: 0.7,
-          responseMimeType: 'application/json'
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              analysis: { type: 'STRING' },
+              proposals: {
+                type: 'ARRAY',
+                items: {
+                  type: 'OBJECT',
+                  properties: {
+                    id: { type: 'STRING' },
+                    title: { type: 'STRING' },
+                    description: { type: 'STRING' },
+                    skillCalls: { type: 'ARRAY' }
+                  }
+                }
+              },
+              skillCalls: { type: 'ARRAY' },
+              message: { type: 'STRING' },
+              concept: { type: 'STRING' }
+            }
+          }
         }
       });
 
