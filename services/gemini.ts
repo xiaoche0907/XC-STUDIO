@@ -44,8 +44,7 @@ export const createChatSession = (model: string = PRO_MODEL, history: Content[] 
     history: history,
     config: {
       systemInstruction: systemInstruction || "You are XcAISTUDIO, an expert AI design assistant. You help users create posters, branding, and design elements. You are helpful, creative, and concise.",
-      temperature: 0.7,
-      responseMimeType: "application/json"
+      temperature: 0.7
     },
   });
 };

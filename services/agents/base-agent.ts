@@ -14,12 +14,22 @@ export abstract class BaseAgent {
   }
 
   async execute(task: AgentTask): Promise<AgentTask> {
-    if (!this.chat) await this.initialize(task.input.context);
-
     const prompt = this.buildPrompt(task);
 
     try {
-      const response = await this.chat!.sendMessage({ message: [{ text: prompt }] });
+      // Use direct API call with JSON mode instead of chat session
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: { parts: [{ text: `${this.systemPrompt}\n\n${prompt}` }] },
+        config: {
+          temperature: 0.7,
+          responseMimeType: 'application/json'
+        }
+      });
+
       const responseText = response.text || '';
       console.log('[Agent] Raw response:', responseText.substring(0, 500));
 
@@ -75,7 +85,7 @@ Project Context:
 
 User Request: ${message}
 
-IMPORTANT: Respond ONLY with valid JSON. Follow the exact format specified in your system prompt.`;
+CRITICAL INSTRUCTION: You MUST respond with ONLY a valid JSON object. Do NOT include any explanatory text, markdown formatting, or code blocks. Start your response with { and end with }. The JSON must follow the exact format specified in the "Response Format" section above.`;
   }
 
   protected parseResponse(response: string): any {
