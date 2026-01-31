@@ -14,15 +14,23 @@ export abstract class BaseAgent {
   }
 
   async execute(task: AgentTask): Promise<AgentTask> {
-    const prompt = this.buildPrompt(task);
-
     try {
       const { GoogleGenAI } = await import('@google/genai');
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY });
 
+      const { message, context } = task.input;
+      const fullPrompt = `${this.systemPrompt}
+
+Project Context:
+- Title: ${context.projectTitle}
+- Brand: ${JSON.stringify(context.brandInfo || {})}
+- Existing Assets: ${context.existingAssets.length}
+
+User Request: ${message}`;
+
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
-        contents: { parts: [{ text: `${this.systemPrompt}\n\n${prompt}` }] },
+        contents: { parts: [{ text: fullPrompt }] },
         config: {
           temperature: 0.7,
           responseMimeType: 'application/json'
@@ -73,19 +81,6 @@ export abstract class BaseAgent {
     }
   }
 
-  protected buildPrompt(task: AgentTask): string {
-    const { message, context } = task.input;
-    return `${this.systemPrompt}
-
-Project Context:
-- Title: ${context.projectTitle}
-- Brand: ${JSON.stringify(context.brandInfo || {})}
-- Existing Assets: ${context.existingAssets.length}
-
-User Request: ${message}
-
-CRITICAL INSTRUCTION: You MUST respond with ONLY a valid JSON object. Do NOT include any explanatory text, markdown formatting, or code blocks. Start your response with { and end with }. The JSON must follow the exact format specified in the "Response Format" section above.`;
-  }
 
   protected parseResponse(response: string): any {
     console.log('[parseResponse] Raw response:', response.substring(0, 200));
