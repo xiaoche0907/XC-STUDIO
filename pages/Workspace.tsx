@@ -120,7 +120,7 @@ const Workspace: React.FC = () => {
   const location = useLocation();
   const { id } = useParams<{ id: string }>();
   
-  const [zoom, setZoom] = useState(30);
+  const [zoom, setZoom] = useState(50);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [elements, setElements] = useState<CanvasElement[]>([]);
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
@@ -165,8 +165,8 @@ const Workspace: React.FC = () => {
   // prompt/attachments legacy states replaced by inputBlocks effectively, 
   // but keeping 'prompt' sync for other potential uses if needed, or simply deriving in handleSend.
   // We will ignore 'prompt' and 'attachments' state for the INPUT area.
-  const [modelMode, setModelMode] = useState<'thinking' | 'fast'>('thinking');
-  const [webEnabled, setWebEnabled] = useState(false);
+  const [modelMode, setModelMode] = useState<'thinking' | 'fast'>('fast');
+  const [webEnabled, setWebEnabled] = useState(true);
   const [imageModelEnabled, setImageModelEnabled] = useState(false);
   
   const activeBlockIdRef = useRef(activeBlockId);
@@ -254,6 +254,32 @@ const Workspace: React.FC = () => {
   
   // Legacy agent mode (keeping for compatibility)
   const [agentMode, setAgentMode] = useState(false);
+  
+  // Image Toolbar States
+  const [upscaleMenuOpen, setUpscaleMenuOpen] = useState(false);
+  const [eraserMode, setEraserMode] = useState(false);
+  const [brushSize, setBrushSize] = useState(30);
+
+  const handleUpscaleSelect = (factor: number) => {
+      setUpscaleMenuOpen(false);
+      // Trigger Agent or specific API here
+      console.log(`Upscaling to ${factor}x`);
+  };
+
+  const handleUndoEraser = () => {
+      console.log('Undo eraser');
+  };
+
+  const handleClearEraser = () => {
+      console.log('Clear eraser path');
+  };
+
+  const handleExecuteEraser = () => {
+      setEraserMode(false);
+      console.log('Execute erase');
+  };
+
+
 
   // Agent orchestration
   const projectContext = useProjectContext(id || '', projectTitle, elements, messages);
@@ -339,6 +365,61 @@ const Workspace: React.FC = () => {
       setElements(history[nextStep].elements);
       setMarkers(history[nextStep].markers);
     }
+  };
+
+  const removeInputBlock = (blockId: string) => {
+      setInputBlocks(prev => {
+          // If removing a file block, we should merge adjacent text blocks
+          const idx = prev.findIndex(b => b.id === blockId);
+          if (idx === -1) return prev;
+          
+          const newBlocks = [...prev];
+          
+          // Logic: remove block at idx
+          // Check if left and right are text
+          const left = newBlocks[idx - 1];
+          const right = newBlocks[idx + 1];
+          
+          // Also remove corresponding markers from canvas if this file had a markerId
+          const block = newBlocks[idx];
+          if (block.file && (block.file as any).markerId) {
+             const markerId = (block.file as any).markerId;
+             const newMarkers = markers.filter(m => m.id !== markerId).map((m, i) => ({ ...m, id: i + 1 }));
+             // Need to update markerIds in OTHER blocks too?
+             // Since markers state is external, we update it.
+             // But the file objects in OTHER blocks still hold old markerIds.
+             // We need to update those active file objects.
+             // This is tricky with React State immutability inside File objects. But 'insertInputFile' uses references.
+             // We should map inputBlocks to update file markerIds.
+             
+             // First, update canvas markers
+             setMarkers(newMarkers);
+             saveToHistory(elements, newMarkers);
+             
+             // Then update inputBlocks' files
+             newBlocks.forEach(b => {
+                 if (b.type === 'file' && b.file && (b.file as any).markerId > markerId) {
+                     (b.file as any).markerId -= 1;
+                 }
+             });
+          }
+
+          if (left?.type === 'text' && right?.type === 'text') {
+               // Merge
+               left.text = (left.text || '') + (right.text || '');
+               // Remove current and right
+               newBlocks.splice(idx, 2);
+               // Focus left
+               setActiveBlockId(left.id);
+          } else {
+              // Just remove
+              newBlocks.splice(idx, 1);
+              // If we removed the last block and it's empty, ensure at least one text block?
+              if (newBlocks.length === 0) newBlocks.push({ id: `text-${Date.now()}`, type: 'text', text: '' });
+          }
+          
+          return newBlocks;
+      });
   };
 
   useEffect(() => {
@@ -829,6 +910,15 @@ const Workspace: React.FC = () => {
             textareaRef.current?.focus(); 
         }
 
+        // Check for selected Chip deletion first to avoid deleting canvas elements
+        if ((e.key === 'Backspace' || e.key === 'Delete') && selectedChipId) {
+            e.preventDefault();
+            e.stopPropagation();
+            removeInputBlock(selectedChipId);
+            setSelectedChipId(null);
+            return;
+        }
+
         if (document.activeElement?.tagName !== 'TEXTAREA' && document.activeElement?.tagName !== 'INPUT' && !document.activeElement?.getAttribute('contenteditable')) {
             if (e.key.toLowerCase() === 'v' && !(e.metaKey || e.ctrlKey)) setActiveTool('select');
             if (e.key.toLowerCase() === 'h') setActiveTool('hand');
@@ -839,7 +929,7 @@ const Workspace: React.FC = () => {
     const handleKeyUp = (e: KeyboardEvent) => { if (e.code === 'Space') setIsSpacePressed(false); };
     window.addEventListener('keydown', handleKeyDown); window.addEventListener('keyup', handleKeyUp);
     return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
-  }, [selectedElementId, history, historyStep, elements, markers]);
+  }, [selectedElementId, history, historyStep, elements, markers, selectedChipId]);
 
   const addElement = (type: 'image' | 'video', url: string, dims?: { width: number, height: number }) => { 
       const containerW = window.innerWidth - (showAssistant ? 400 : 0); 
@@ -1193,60 +1283,7 @@ const Workspace: React.FC = () => {
       if (fileInputRef.current) fileInputRef.current.value = ''; 
   };
   
-  const removeInputBlock = (blockId: string) => {
-      setInputBlocks(prev => {
-          // If removing a file block, we should merge adjacent text blocks
-          const idx = prev.findIndex(b => b.id === blockId);
-          if (idx === -1) return prev;
-          
-          const newBlocks = [...prev];
-          
-          // Logic: remove block at idx
-          // Check if left and right are text
-          const left = newBlocks[idx - 1];
-          const right = newBlocks[idx + 1];
-          
-          // Also remove corresponding markers from canvas if this file had a markerId
-          const block = newBlocks[idx];
-          if (block.file && (block.file as any).markerId) {
-             const markerId = (block.file as any).markerId;
-             const newMarkers = markers.filter(m => m.id !== markerId).map((m, i) => ({ ...m, id: i + 1 }));
-             // Need to update markerIds in OTHER blocks too?
-             // Since markers state is external, we update it.
-             // But the file objects in OTHER blocks still hold old markerIds.
-             // We need to update those active file objects.
-             // This is tricky with React State immutability inside File objects. But 'insertInputFile' uses references.
-             // We should map inputBlocks to update file markerIds.
-             
-             // First, update canvas markers
-             setMarkers(newMarkers);
-             saveToHistory(elements, newMarkers);
-             
-             // Then update inputBlocks' files
-             newBlocks.forEach(b => {
-                 if (b.type === 'file' && b.file && (b.file as any).markerId > markerId) {
-                     (b.file as any).markerId -= 1;
-                 }
-             });
-          }
 
-          if (left?.type === 'text' && right?.type === 'text') {
-               // Merge
-               left.text = (left.text || '') + (right.text || '');
-               // Remove current and right
-               newBlocks.splice(idx, 2);
-               // Focus left
-               setActiveBlockId(left.id);
-          } else {
-              // Just remove
-              newBlocks.splice(idx, 1);
-              // If we removed the last block and it's empty, ensure at least one text block?
-              if (newBlocks.length === 0) newBlocks.push({ id: `text-${Date.now()}`, type: 'text', text: '' });
-          }
-          
-          return newBlocks;
-      });
-  };
 
   const handleSend = async (textOverride?: string, attachmentsOverride?: File[], enableWebSearch: boolean = webEnabled) => {
     // Construct message from blocks
@@ -1490,27 +1527,127 @@ const Workspace: React.FC = () => {
         );
     }
 
+    // ERASER MODE UI
+    if (eraserMode) {
+       return (
+         <>
+             {/* Top Hint */}
+             <div className="absolute -translate-x-1/2 bg-white px-4 py-2 rounded-full shadow-lg border border-gray-100 flex items-center gap-2 text-sm text-gray-600 z-50 whitespace-nowrap animate-in slide-in-from-bottom-2 fade-in" style={{ left: centerX, top: topToolbarTop - 50 }}>
+                 <span>在图片上绘制选区，</span>
+                 <kbd className="bg-gray-100 px-1.5 py-0.5 rounded text-xs border border-gray-200 font-sans">Alt</kbd> <span>擦除，</span>
+                 <kbd className="bg-gray-100 px-1.5 py-0.5 rounded text-xs border border-gray-200 font-sans">Esc</kbd> <span>退出</span>
+             </div>
+
+             {/* Eraser Toolbar */}
+             <div className="absolute -translate-x-1/2 bg-white rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.12)] border border-gray-100 p-2 flex items-center gap-3 z-50 animate-in zoom-in-95 fade-in duration-200" style={{ left: centerX, top: topToolbarTop }}>
+                 <div className="flex items-center gap-2 px-2 border-r border-gray-100">
+                    <Eraser size={18} className="text-blue-500 fill-blue-500/20" />
+                    <span className="text-sm font-medium text-gray-900">擦除</span>
+                 </div>
+                 
+                 <div className="flex items-center gap-3 px-2">
+                    <div className={`w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center`}>
+                        <div className="bg-gray-800 rounded-full" style={{ width: Math.max(4, brushSize / 4), height: Math.max(4, brushSize / 4) }}></div>
+                    </div>
+                    <input 
+                        type="range" 
+                        min="5" max="100" 
+                        value={brushSize} 
+                        onChange={(e) => setBrushSize(Number(e.target.value))}
+                        className="w-32 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-gray-900 hover:accent-black"
+                    />
+                    <div className="w-8 text-xs text-gray-500 text-right">{brushSize}px</div>
+                 </div>
+
+                 <div className="w-px h-6 bg-gray-200"></div>
+
+                 <button onClick={handleUndoEraser} className="p-2 text-gray-500 hover:text-black hover:bg-gray-50 rounded-lg transition" title="Undo">
+                    <RotateCw className="-scale-x-100" size={16} />
+                 </button>
+
+                 <button onClick={handleClearEraser} className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition mr-1" title="Reset/Clear">
+                    <Trash2 size={16} />
+                 </button>
+
+                 <button 
+                     onClick={handleExecuteEraser}
+                     className="px-4 py-1.5 bg-gray-900 text-white shadow-md shadow-gray-200 font-medium text-xs rounded-lg hover:bg-black hover:scale-105 transition"
+                 >
+                     执行擦除
+                 </button>
+                 
+                 <button onClick={() => setEraserMode(false)} className="absolute -top-2 -right-2 bg-white rounded-full p-0.5 border shadow-sm text-gray-400 hover:text-black">
+                    <X size={12} />
+                 </button>
+             </div>
+         </>
+       );
+    }
+
     return (
         <>
             <div className="absolute bg-white rounded-xl shadow-[0_4px_12px_rgba(0,0,0,0.08)] border border-gray-100 px-2 py-1.5 flex items-center gap-1 z-50 animate-in fade-in zoom-in-95 duration-200 -translate-x-1/2 whitespace-nowrap" style={{ left: centerX, top: topToolbarTop }} onMouseDown={(e) => e.stopPropagation()}>
-                <button onClick={handleUpscale} className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium group relative">
-                    <div className="relative w-3.5 h-3.5 border border-current rounded-[2px] flex items-center justify-center font-bold text-[8px]">HD</div> 放大
-                </button>
+                
+                {/* Upscale */}
+                <div className="relative">
+                    <button 
+                        onClick={() => setUpscaleMenuOpen(!upscaleMenuOpen)} 
+                        className={`p-1.5 rounded-lg flex items-center gap-1.5 text-xs font-medium transition ${upscaleMenuOpen ? 'bg-gray-100 text-black' : 'text-gray-600 hover:text-black hover:bg-gray-50'}`}
+                    >
+                        <div className="relative w-3.5 h-3.5 border border-current rounded-[2px] flex items-center justify-center font-bold text-[8px]">HD</div> 放大
+                    </button>
+                    {upscaleMenuOpen && (
+                        <div className="absolute top-full left-0 mt-2 bg-white rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.15)] border border-gray-100 p-1.5 flex flex-col gap-0.5 w-32 overflow-hidden z-[70] animate-in slide-in-from-top-1">
+                            <button onClick={() => handleUpscaleSelect(2)} className="text-left px-3 py-2 text-xs hover:bg-gray-50 rounded-lg flex justify-between items-center group">
+                                <span>2x (2K)</span>
+                                <span className="text-[10px] text-gray-400 group-hover:text-gray-600">Standard</span>
+                            </button>
+                            <button onClick={() => handleUpscaleSelect(4)} className="text-left px-3 py-2 text-xs hover:bg-blue-50 text-blue-600 rounded-lg font-medium flex justify-between items-center bg-blue-50/30">
+                                <span>4x (4K)</span>
+                                <Sparkles size={10} className="text-blue-500" />
+                            </button>
+                            <button onClick={() => handleUpscaleSelect(8)} className="text-left px-3 py-2 text-xs hover:bg-purple-50 text-purple-600 rounded-lg font-medium flex justify-between items-center">
+                                <span>8x (Ultra)</span>
+                                <span className="text-[10px] uppercase text-purple-400 border border-purple-200 px-1 rounded">Pro</span>
+                            </button>
+                        </div>
+                    )}
+                </div>
+                
                 <div className="w-px h-4 bg-gray-200 mx-0.5"></div>
+                
                 <button onClick={handleRemoveBg} className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium">
                     <div className="relative"><Eraser size={14} /><div className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 bg-white border border-gray-600 rounded-full"></div></div> 移除背景
                 </button>
-                <button className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium"><Shirt size={14} /> Mockup</button>
-                <button className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium"><Eraser size={14} /> 擦除</button>
-                <button className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium"><Layers size={14} /> 编辑元素</button>
+                <button className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium">
+                    <Shirt size={14} /> Mockup
+                </button>
+                <button 
+                    onClick={() => setEraserMode(true)}
+                    className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium"
+                >
+                    <Eraser size={14} /> 擦除
+                </button>
+                <button className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium">
+                    <Layers size={14} /> 编辑元素
+                </button>
                 <button onClick={handleEditTextClick} className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium relative">
                     <Type size={14} /> 编辑文字
                     {el.type === 'gen-image' && <span className="absolute -top-1 -right-1 flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span></span>}
                 </button>
-                <button className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium"><Expand size={14} /> 扩展</button>
-                <button className="p-1.5 text-gray-400 hover:text-black hover:bg-gray-50 rounded-lg"><MoreHorizontal size={14} /></button>
+                <button className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium">
+                    <Expand size={14} /> 扩展
+                </button>
+                
                 <div className="w-px h-4 bg-gray-200 mx-0.5"></div>
-                <button onClick={handleDownload} className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg"><Download size={14} /></button>
+                
+                <button className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center justify-center w-8">
+                    <MoreHorizontal size={14} />
+                </button>
+
+                <button onClick={handleDownload} className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center justify-center w-8">
+                    <Download size={14} />
+                </button>
             </div>
             
             {showFastEdit ? (
@@ -2382,10 +2519,21 @@ const Workspace: React.FC = () => {
                                 {/* Agent Mode: Original Icons */}
                                 {creationMode === 'agent' && (
                                     <>
-                                        <div className="h-8 bg-gray-50/80 rounded-full flex items-center p-0.5 px-2 gap-2 border border-gray-100">
-                                            <button onClick={() => setModelMode('thinking')} className={`text-gray-500 hover:text-black transition`} title="Thinking Mode"><Lightbulb size={16} strokeWidth={2} /></button>
-                                            <div className="w-px h-3 bg-gray-300"></div>
-                                            <button onClick={() => setModelMode('fast')} className={`text-gray-500 hover:text-black transition`} title="Fast Mode"><Zap size={16} strokeWidth={2} /></button>
+                                        <div className="h-8 bg-gray-100 rounded-full flex items-center p-1 gap-1 border border-gray-200">
+                                            <button 
+                                                onClick={() => setModelMode('thinking')} 
+                                                className={`w-6 h-6 flex items-center justify-center rounded-full transition-all ${modelMode === 'thinking' ? 'bg-white shadow-sm text-black ring-1 ring-black/5' : 'text-gray-400 hover:text-gray-600'}`} 
+                                                title="思考模式 (gemini-3-pro-preview)"
+                                            >
+                                                <Lightbulb size={14} strokeWidth={2} />
+                                            </button>
+                                            <button 
+                                                onClick={() => setModelMode('fast')} 
+                                                className={`w-6 h-6 flex items-center justify-center rounded-full transition-all ${modelMode === 'fast' ? 'bg-white shadow-sm text-black ring-1 ring-black/5' : 'text-gray-400 hover:text-gray-600'}`} 
+                                                title="快速模式 (gemini-3-flash-preview)"
+                                            >
+                                                <Zap size={14} strokeWidth={2} />
+                                            </button>
                                         </div>
                                         <button onClick={() => setWebEnabled(!webEnabled)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${webEnabled ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-black/5 bg-white'}`}><Globe size={16} strokeWidth={1.5} /></button>
                                         <button onClick={() => setImageModelEnabled(!imageModelEnabled)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${imageModelEnabled ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-black/5 bg-white'}`}><Box size={16} strokeWidth={2} /></button>

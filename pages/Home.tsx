@@ -141,10 +141,10 @@ const Home: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Model State: 'thinking' (Pro) or 'fast' (Flash)
-  const [modelMode, setModelMode] = useState<'thinking' | 'fast'>('thinking');
+  const [modelMode, setModelMode] = useState<'thinking' | 'fast'>('fast');
   
   // New States for Features
-  const [webEnabled, setWebEnabled] = useState(false);
+  const [webEnabled, setWebEnabled] = useState(true);
   const [imageModelEnabled, setImageModelEnabled] = useState(false); // Cube icon: "Nano Banana Pro"
   
   // UI States
@@ -314,9 +314,10 @@ const Home: React.FC = () => {
                             </div>
 
                             {/* Globe (Web Search) */}
+                            {/* Globe (Web Search) */}
                             <button 
                                 onClick={() => setWebEnabled(!webEnabled)}
-                                className={`w-9 h-9 rounded-full border flex items-center justify-center transition ${webEnabled ? 'bg-gray-100 border-gray-300 text-black' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-gray-50'}`}
+                                className={`w-9 h-9 rounded-full border flex items-center justify-center transition ${webEnabled ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-gray-50'}`}
                                 title="Networking Mode (Web Search)"
                             >
                                 <Globe size={18} strokeWidth={1.5} />
