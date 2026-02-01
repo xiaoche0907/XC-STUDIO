@@ -1,8 +1,33 @@
 
 import { GoogleGenAI, Chat, GenerateContentResponse, Part, Content, VideoGenerationReferenceImage, VideoGenerationReferenceType, Type } from "@google/genai";
 
-// Initialize the GenAI client with the API key from environment variables
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Helper to get API Key dynamically
+const getApiKey = () => {
+  const win = window as any;
+  if (win.aistudio && win.aistudio.getKey) {
+      return win.aistudio.getKey() || process.env.API_KEY;
+  }
+  return localStorage.getItem('custom_api_key') || process.env.API_KEY;
+};
+
+// Helper to get API Base URL dynamically
+const getApiUrl = () => {
+    if (typeof window !== 'undefined') {
+        const url = localStorage.getItem('custom_api_url');
+        if (url && url.trim()) return url.trim();
+    }
+    return undefined;
+};
+
+// Initialize the GenAI client with dynamic key and url
+const getClient = () => {
+    const config: any = { apiKey: getApiKey() };
+    const baseUrl = getApiUrl();
+    if (baseUrl) {
+        config.baseUrl = baseUrl; // Optimistically pass baseUrl for proxy support
+    }
+    return new GoogleGenAI(config);
+};
 
 // Models
 const PRO_MODEL = 'gemini-3-pro-preview';
@@ -39,7 +64,7 @@ const retryWithBackoff = async <T>(
 };
 
 export const createChatSession = (model: string = PRO_MODEL, history: Content[] = [], systemInstruction?: string): Chat => {
-  return ai.chats.create({
+  return getClient().chats.create({
     model: model,
     history: history,
     config: {
@@ -154,7 +179,7 @@ export const analyzeImageRegion = async (imageBase64: string): Promise<string> =
         const matches = imageBase64.match(/^data:(.+);base64,(.+)$/);
         if (!matches) throw new Error("Invalid base64 image");
 
-        const response = await retryWithBackoff<GenerateContentResponse>(() => ai.models.generateContent({
+        const response = await retryWithBackoff<GenerateContentResponse>(() => getClient().models.generateContent({
             model: FLASH_MODEL,
             contents: {
                 parts: [
@@ -183,7 +208,7 @@ export const extractTextFromImage = async (imageBase64: string): Promise<string[
         const matches = imageBase64.match(/^data:(.+);base64,(.+)$/);
         if (!matches) throw new Error("Invalid base64 image");
 
-        const response = await retryWithBackoff<GenerateContentResponse>(() => ai.models.generateContent({
+        const response = await retryWithBackoff<GenerateContentResponse>(() => getClient().models.generateContent({
             model: FLASH_MODEL,
             contents: {
                 parts: [
@@ -263,7 +288,7 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
         imageConfig.imageSize = config.imageSize;
     }
 
-    const response = await retryWithBackoff<GenerateContentResponse>(() => ai.models.generateContent({
+    const response = await retryWithBackoff<GenerateContentResponse>(() => getClient().models.generateContent({
       model: modelToUse,
       contents: { parts },
       config: {
@@ -304,7 +329,7 @@ export const generateVideo = async (config: VideoGenerationConfig): Promise<stri
         }
 
         // New instance for Veo requests
-        const genAI = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const genAI = getClient();
         
         let validAspectRatio = config.aspectRatio;
         // Veo models usually strictly support 16:9 or 9:16. 
@@ -401,7 +426,7 @@ export const generateVideo = async (config: VideoGenerationConfig): Promise<stri
 
         const uri = operation.response?.generatedVideos?.[0]?.video?.uri;
         if (uri) {
-            return `${uri}&key=${process.env.API_KEY}`;
+            return `${uri}&key=${getApiKey()}`;
         }
         return null;
 

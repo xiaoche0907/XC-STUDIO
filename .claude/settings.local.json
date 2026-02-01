@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run dev:*)",
+      "Bash(npx tsc:*)",
+      "Bash(curl:*)",
+      "Bash(taskkill:*)",
+      "Bash(findstr:*)",
+      "Bash(dir:*)",
+      "Bash(npm run build:*)",
+      "Bash(exit 0)",
+      "Bash(grep:*)",
+      "Bash(if not exist:*)",
+      "Bash(npm run build)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git reset:*)"
+    ]
+  }
+}

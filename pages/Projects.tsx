@@ -3,15 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
   Home as HomeIcon, Folder, User, Info, Plus, Bell, ChevronDown, 
-  Box, Image as ImageIcon, Video, Hash, Search, Filter, MoreHorizontal, Trash2, CheckSquare, X, Edit2
+  Box, Image as ImageIcon, Video, Hash, Search, Filter, MoreHorizontal, Trash2, CheckSquare, X, Edit2, Settings
 } from 'lucide-react';
 import { Project } from '../types';
 import { getProjects, deleteProject, saveProject } from '../services/storage';
 import { AnimatePresence } from 'framer-motion';
+import { SettingsModal } from '../components/SettingsModal';
 
 const Sidebar = () => {
     const navigate = useNavigate();
     const [showMenu, setShowMenu] = useState(false);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -51,6 +53,7 @@ const Sidebar = () => {
         animate={{ x: 0, opacity: 1 }}
         className="fixed left-6 top-1/2 -translate-y-1/2 flex flex-col gap-4 z-50"
       >
+        <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
         <div className="relative" ref={menuRef}>
             <button 
                 onClick={() => setShowMenu(!showMenu)} 
@@ -101,6 +104,7 @@ const Sidebar = () => {
           <button onClick={() => navigate('/projects')} className="p-2 bg-gray-100 text-black rounded-full transition hover:bg-gray-200"><Folder size={20} /></button>
           <button className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"><User size={20} /></button>
           <button className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"><Info size={20} /></button>
+          <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition" title="Settings / API Key"><Settings size={20} /></button>
         </div>
       </motion.div>
     );

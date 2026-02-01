@@ -5,27 +5,33 @@ import {
   Home as HomeIcon, Folder, User, Info, Plus, Bell, ChevronDown, 
   Zap, Globe, Box, ArrowUp, Lightbulb, Paperclip,
   Image as ImageIcon, Video, Hash, X, FileText, Banana, ShoppingCart, Palette, Star,
-  Sparkles
+  Sparkles, Settings
 } from 'lucide-react';
 import { Project } from '../types';
 import { getProjects } from '../services/storage';
+import { SettingsModal } from '../components/SettingsModal';
 
 const Sidebar = () => {
   const navigate = useNavigate();
 
-  // "Black Plus" is now just a direct New Project action, removing the previous menu.
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const handleNewProject = () => {
       navigate(`/workspace/new-${Date.now()}`);
   };
 
+  const handleSettings = () => {
+      setIsSettingsOpen(true);
+  };
+
 
   return (
-    <motion.div 
-      initial={{ x: -20, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      className="fixed left-6 top-1/2 -translate-y-1/2 flex flex-col gap-4 z-50"
-    >
-      <div>
+      <motion.div 
+        initial={{ x: -20, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        className="fixed left-6 top-1/2 -translate-y-1/2 flex flex-col gap-4 z-50"
+      >
+        <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+        <div>
         <button 
             onClick={handleNewProject} 
             className="w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 shadow-lg bg-black text-white hover:scale-105"
@@ -40,6 +46,7 @@ const Sidebar = () => {
         <button onClick={() => navigate('/projects')} className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"><Folder size={20} /></button>
         <button className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"><User size={20} /></button>
         <button className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"><Info size={20} /></button>
+        <button onClick={handleSettings} className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition" title="Settings / API Key"><Settings size={20} /></button>
       </div>
     </motion.div>
   );

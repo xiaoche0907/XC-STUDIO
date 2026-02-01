@@ -159,6 +159,8 @@ const Workspace: React.FC = () => {
   const [inputBlocks, setInputBlocks] = useState<InputBlock[]>([{ id: 'init', type: 'text', text: '' }]);
   const [activeBlockId, setActiveBlockId] = useState<string>('init');
   const [selectionIndex, setSelectionIndex] = useState<number | null>(null);
+  const [selectedChipId, setSelectedChipId] = useState<string | null>(null); // For arrow key chip selection
+  const [hoveredChipId, setHoveredChipId] = useState<string | null>(null); // For hover preview
   
   // prompt/attachments legacy states replaced by inputBlocks effectively, 
   // but keeping 'prompt' sync for other potential uses if needed, or simply deriving in handleSend.
@@ -234,7 +236,23 @@ const Workspace: React.FC = () => {
     };
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   
-  // New UI states for Assistant
+  // 创作模式状态: 'agent' | 'image' | 'video'
+  type CreationMode = 'agent' | 'image' | 'video';
+  const [creationMode, setCreationMode] = useState<CreationMode>('agent');
+  const [showModeSelector, setShowModeSelector] = useState(false);
+  
+  // 图像生成器相关状态
+  const [imageGenRatio, setImageGenRatio] = useState('1:1');
+  const [imageGenRes, setImageGenRes] = useState('1K');
+  const [imageGenUpload, setImageGenUpload] = useState<File | null>(null);
+  
+  // 视频生成器相关状态
+  const [videoGenRatio, setVideoGenRatio] = useState('16:9');
+  const [videoGenDuration, setVideoGenDuration] = useState('5s');
+  const [videoStartFrame, setVideoStartFrame] = useState<File | null>(null);
+  const [videoEndFrame, setVideoEndFrame] = useState<File | null>(null);
+  
+  // Legacy agent mode (keeping for compatibility)
   const [agentMode, setAgentMode] = useState(false);
 
   // Agent orchestration
@@ -246,6 +264,39 @@ const Workspace: React.FC = () => {
     console.log('[Workspace] Setting isAgentMode to:', agentMode);
     setIsAgentMode(agentMode);
   }, [agentMode, setIsAgentMode]);
+
+  // Sync markers with inputBlocks - remove markers that don't have corresponding chips in inputBlocks
+  // Only sync when inputBlocks has at least one marker file (meaning user is actively working with markers)
+  useEffect(() => {
+    const hasMarkerFiles = inputBlocks.some(block => 
+      block.type === 'file' && block.file && (block.file as any).markerId
+    );
+    
+    // Only sync if user has marker files in input (active session)
+    // Skip sync if inputBlocks is just the initial empty state
+    if (!hasMarkerFiles && inputBlocks.length === 1 && inputBlocks[0].type === 'text' && !inputBlocks[0].text) {
+      // Initial state or clean state - don't clear markers from loaded project
+      return;
+    }
+    
+    const markerIdsInInput = inputBlocks
+      .filter(block => block.type === 'file' && block.file && (block.file as any).markerId)
+      .map(block => (block.file as any).markerId as number);
+    
+    setMarkers(prev => {
+      // If there are no marker files in input but there are markers, clear them
+      // This handles the case when user removes all marker chips
+      if (!hasMarkerFiles && prev.length > 0) {
+        return [];
+      }
+      
+      const filtered = prev.filter(m => markerIdsInInput.includes(m.id));
+      if (filtered.length !== prev.length) {
+        return filtered;
+      }
+      return prev;
+    });
+  }, [inputBlocks]);
 
   // Text Edit Feature State
   const [showTextEditModal, setShowTextEditModal] = useState(false);
@@ -633,9 +684,11 @@ const Workspace: React.FC = () => {
             const project = await getProject(id);
             if (project) {
                 if (project.elements) setElements(project.elements);
-                if (project.markers) setMarkers(project.markers);
+                // Note: We intentionally don't restore markers here because
+                // the corresponding File objects in inputBlocks cannot be serialized/restored
+                // Markers are session-specific and should be recreated by user
                 if (project.title) setProjectTitle(project.title);
-                setHistory([{ elements: project.elements || [], markers: project.markers || [] }]);
+                setHistory([{ elements: project.elements || [], markers: [] }]);
                 setHistoryStep(0);
             }
         };
@@ -1068,7 +1121,11 @@ const Workspace: React.FC = () => {
           let cropUrl: string | undefined = undefined;
           
           if (el && (el.type === 'image' || el.type === 'gen-image') && el.url) {
-              const crop = await cropImageRegion(el.url, x, y, 300, 300);
+              // 固定选区大小 (像素)
+              const cropWidth = 300;
+              const cropHeight = 300;
+              
+              const crop = await cropImageRegion(el.url, x, y, cropWidth, cropHeight);
               if (crop) {
                   cropUrl = crop;
                   
@@ -1082,6 +1139,19 @@ const Workspace: React.FC = () => {
                   // Convert crop to File and Add to Input Box
                   const file = dataURLtoFile(crop, `marker-${newMarkerId}.png`);
                   (file as any).markerId = newMarkerId;
+                  (file as any).markerName = '区域';
+                  
+                  // 添加markerInfo用于hover预览 - 包含原图URL和选区位置
+                  // 需要根据百分比位置计算实际像素位置
+                  (file as any).markerInfo = {
+                      fullImageUrl: el.url,
+                      x: (x / 100) * el.width - cropWidth / 2, // 选区左上角X (相对于原图)
+                      y: (y / 100) * el.height - cropHeight / 2, // 选区左上角Y
+                      width: cropWidth,
+                      height: cropHeight,
+                      imageWidth: el.width,
+                      imageHeight: el.height
+                  };
                   
                   // 使用 setTimeout 确保状态更新后再插入
                   setTimeout(() => {
@@ -1623,20 +1693,16 @@ const Workspace: React.FC = () => {
                 transition={{ type: "spring", stiffness: 300, damping: 30 }}
                 className="absolute top-4 right-4 w-[400px] bottom-4 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 z-40 flex flex-col overflow-hidden"
             >
-                {/* Header with Toolbar */}
-                <div className="pl-5 pr-3 py-3.5 border-b border-gray-100 flex items-center justify-between bg-white/80 backdrop-blur-md z-20 shrink-0 select-none">
-                    <div className="flex items-center gap-2.5 opacity-90 hover:opacity-100 transition-opacity cursor-default">
-                        <div className="w-7 h-7 bg-black rounded-lg shadow-sm flex items-center justify-center text-white font-bold text-[10px] tracking-wider">XC</div>
-                        <span className="font-bold text-sm text-gray-800 tracking-tight">Xc-STUDIO</span>
-                    </div>
-                    <div className="flex items-center gap-0.5 relative">
+                {/* Header with Toolbar - Lovart Style */}
+                <div className="px-3 py-3.5 flex items-center justify-end bg-white/80 backdrop-blur-md z-20 shrink-0 select-none">
+                    <div className="flex items-center gap-1 relative">
                         {/* 1. New Chat */}
                         <button 
-                            onClick={() => { setMessages([]); setPrompt(''); }} 
-                            className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-all group relative" 
-                            title="New Chat"
+                            onClick={() => { setMessages([]); setPrompt(''); setCreationMode('agent'); }} 
+                            className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all" 
+                            title="新建对话"
                         >
-                            <CirclePlus size={16} strokeWidth={1.5} />
+                            <CirclePlus size={18} strokeWidth={1.5} />
                         </button>
 
                         {/* 2. History Popover */}
@@ -1727,33 +1793,40 @@ const Workspace: React.FC = () => {
                     </div>
                 </div>
                 
-                <div className="flex-1 overflow-y-auto px-6 py-4 no-scrollbar relative">
+                <div className="flex-1 overflow-y-auto px-6 py-6 no-scrollbar relative">
                     {messages.length === 0 ? (
                         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-                            <h3 className="text-xl font-bold text-gray-900 leading-tight mb-2">试试这些 XC-STUDIO Skills</h3>
+                            {/* XcAISTUDIO Logo */}
+                            <div className="flex items-center gap-2.5 mb-6">
+                                <div className="w-8 h-8 bg-gray-900 rounded-lg flex items-center justify-center text-white font-bold text-[10px] tracking-wide shadow-sm">XC</div>
+                                <span className="font-bold text-base text-gray-900 tracking-tight">XcAISTUDIO</span>
+                            </div>
+                            
+                            <h3 className="text-xl font-bold text-gray-900 leading-tight mb-3">试试这些 XcAI Skills</h3>
                             <p className="text-sm text-gray-500 mb-8 leading-relaxed">
                                 我们将行业最佳实践封装为Skills，只需输入简单的需求，即刻实现专业产出。
                             </p>
                             
-                            <div className="flex flex-col gap-6 w-full">
+                            {/* Skills List - Lovart Style (more compact) */}
+                            <div className="flex flex-col gap-5 w-full">
                                 <button onClick={() => setPrompt("Amazon Product Listing Kit")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
-                                    <Store size={20} className="text-pink-500" />
+                                    <Store size={18} className="text-gray-600" strokeWidth={1.5} />
                                     <span className="text-gray-700 font-medium text-sm group-hover:text-black">Amazon Product Listing Kit</span>
                                 </button>
                                 <button onClick={() => setPrompt("Logo & Brand Design")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
-                                    <Layout size={20} className="text-orange-400" />
+                                    <Layout size={18} className="text-gray-600" strokeWidth={1.5} />
                                     <span className="text-gray-700 font-medium text-sm group-hover:text-black">Logo & Brand Design</span>
                                 </button>
                                 <button onClick={() => setPrompt("Marketing Brochures")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
-                                    <FileText size={20} className="text-lime-500" />
+                                    <FileText size={18} className="text-gray-600" strokeWidth={1.5} />
                                     <span className="text-gray-700 font-medium text-sm group-hover:text-black">Marketing Brochures</span>
                                 </button>
                                 <button onClick={() => setPrompt("Social Media Visual Assets")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
-                                    <ImageIcon size={20} className="text-blue-500" />
+                                    <Globe size={18} className="text-gray-600" strokeWidth={1.5} />
                                     <span className="text-gray-700 font-medium text-sm group-hover:text-black">Social Media Visual Assets</span>
                                 </button>
                                 <button onClick={() => setPrompt("Narrative Storyboards")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
-                                    <Copy size={20} className="text-teal-500" />
+                                    <Copy size={18} className="text-gray-600" strokeWidth={1.5} />
                                     <span className="text-gray-700 font-medium text-sm group-hover:text-black">Narrative Storyboards</span>
                                 </button>
                             </div>
@@ -1883,46 +1956,151 @@ const Workspace: React.FC = () => {
 
 
 
-                {/* Input Area */}
-                <div className="p-4 bg-white/50 backdrop-blur-sm border-t border-gray-100/50 z-20">
-                    <div className="bg-white rounded-[24px] border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 relative group focus-within:ring-2 focus-within:ring-black/5 focus-within:border-gray-300 flex flex-col">
+                {/* Input Area - Lovart Style with Mode Support */}
+                <div className="p-4 bg-white/50 backdrop-blur-sm z-20">
+                    <div className="bg-white rounded-[20px] border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 relative group focus-within:ring-2 focus-within:ring-black/5 focus-within:border-gray-300 flex flex-col">
                         
-                        {/* Text Input Area (Block Based) */}
-                        <div className="px-3 py-3 flex flex-wrap items-center gap-1.5 min-h-[48px] cursor-text" onClick={() => {
-                            // Focus the active block or last block
+                        {/* Image Mode: Upload Area */}
+                        {creationMode === 'image' && (
+                            <div className="px-4 pt-4 pb-2">
+                                <div 
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="w-14 h-14 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition group/upload"
+                                >
+                                    <Plus size={16} className="text-gray-400 group-hover/upload:text-blue-500 transition" />
+                                    <span className="text-[10px] text-gray-400 group-hover/upload:text-blue-500 mt-0.5">图片</span>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Video Mode: Frame Upload Area */}
+                        {creationMode === 'video' && (
+                            <div className="px-4 pt-4 pb-2 flex items-center gap-3">
+                                <div 
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="w-14 h-14 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition group/upload"
+                                >
+                                    <Plus size={16} className="text-gray-400 group-hover/upload:text-blue-500 transition" />
+                                    <span className="text-[10px] text-gray-400 group-hover/upload:text-blue-500 mt-0.5">首帧</span>
+                                </div>
+                                <div 
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="w-14 h-14 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition group/upload"
+                                >
+                                    <Plus size={16} className="text-gray-400 group-hover/upload:text-blue-500 transition" />
+                                    <span className="text-[10px] text-gray-400 group-hover/upload:text-blue-500 mt-0.5">尾帧</span>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Text Input Area - 图2样式 */}
+                        <div className={`px-4 py-3 flex flex-wrap items-center gap-1 min-h-[48px] cursor-text`} onClick={() => {
                             const lastId = inputBlocks[inputBlocks.length - 1].id;
                             const el = document.getElementById(`input-block-${activeBlockId}`) || document.getElementById(`input-block-${lastId}`);
                             el?.focus();
                         }}>
                             {inputBlocks.map((block, i) => {
                                 if (block.type === 'file' && block.file) {
-                                    // Render Chip
                                     const file = block.file;
                                     const markerId = (file as any).markerId;
+                                    const isSelected = selectedChipId === block.id;
+                                    const isHovered = hoveredChipId === block.id;
+                                    // 获取原图和选区信息用于hover预览
+                                    const markerInfo = (file as any).markerInfo as { 
+                                        fullImageUrl?: string; 
+                                        x?: number; 
+                                        y?: number; 
+                                        width?: number; 
+                                        height?: number;
+                                        imageWidth?: number;
+                                        imageHeight?: number;
+                                    } | undefined;
+                                    
                                     if (markerId) {
+                                        // 标记区域chip - 图2样式 with hover preview
                                         return (
-                                            <div key={block.id} className="flex items-center gap-1 bg-[#F3F4F6] rounded-full pl-1 pr-3 py-1 cursor-default relative group flex-shrink-0 select-none">
-                                                <div className="w-6 h-6 bg-gray-900 rounded-full overflow-hidden border border-gray-200">
+                                            <div 
+                                                key={block.id} 
+                                                className={`inline-flex items-center gap-1 rounded-lg pl-1 pr-1.5 py-1 cursor-default relative group flex-shrink-0 select-none h-7 transition-all ${
+                                                    isSelected 
+                                                        ? 'bg-blue-100 ring-2 ring-blue-500' 
+                                                        : 'bg-[#F3F4F6]'
+                                                }`}
+                                                onClick={() => setSelectedChipId(isSelected ? null : block.id)}
+                                                onMouseEnter={() => setHoveredChipId(block.id)}
+                                                onMouseLeave={() => setHoveredChipId(null)}
+                                            >
+                                                <div className="w-5 h-5 rounded overflow-hidden border border-gray-200">
                                                     <img src={URL.createObjectURL(file)} className="w-full h-full object-cover"/>
                                                 </div>
-                                                <div className="w-4 h-4 bg-[#3B82F6] rounded-full flex items-center justify-center text-white text-[10px] font-bold shadow-sm -ml-2 border border-white z-10">{markerId}</div>
-                                                <span className="text-xs text-gray-700 font-medium ml-1">区域</span>
-                                                <button onClick={(e) => { e.stopPropagation(); removeInputBlock(block.id); }} className="absolute -top-1 -right-1 bg-black text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition shadow-sm z-20"><X size={8} /></button>
+                                                <div className="w-4 h-4 bg-[#3B82F6] rounded flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
+                                                    {markerId}
+                                                </div>
+                                                <span className="text-xs text-gray-700 font-medium max-w-[60px] truncate">{(file as any).markerName || '区域'}</span>
+                                                <ChevronDown size={12} className="text-gray-400" />
+                                                <button onClick={(e) => { e.stopPropagation(); removeInputBlock(block.id); setSelectedChipId(null); }} className="absolute -top-1.5 -right-1.5 bg-gray-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition shadow-sm z-20 hover:bg-gray-700"><X size={8} /></button>
+                                                
+                                                {/* Hover Preview Tooltip */}
+                                                {isHovered && markerInfo?.fullImageUrl && (
+                                                    <div 
+                                                        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 z-50 animate-in fade-in zoom-in-95 duration-150"
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        <div className="bg-white rounded-xl shadow-2xl border border-gray-200 p-2 min-w-[180px] max-w-[240px]">
+                                                            {/* Preview image with marker highlight */}
+                                                            <div className="relative rounded-lg overflow-hidden">
+                                                                <img 
+                                                                    src={markerInfo.fullImageUrl} 
+                                                                    className="w-full h-auto rounded-lg"
+                                                                    style={{ maxHeight: '160px', objectFit: 'contain' }}
+                                                                />
+                                                                {/* Marker overlay */}
+                                                                {markerInfo.x !== undefined && markerInfo.imageWidth && (
+                                                                    <div 
+                                                                        className="absolute border-2 border-blue-500 rounded-sm pointer-events-none"
+                                                                        style={{
+                                                                            left: `${(markerInfo.x / markerInfo.imageWidth) * 100}%`,
+                                                                            top: `${(markerInfo.y! / markerInfo.imageHeight!) * 100}%`,
+                                                                            width: `${(markerInfo.width! / markerInfo.imageWidth) * 100}%`,
+                                                                            height: `${(markerInfo.height! / markerInfo.imageHeight!) * 100}%`,
+                                                                        }}
+                                                                    >
+                                                                        {/* Marker badge */}
+                                                                        <div className="absolute -top-2 -right-2 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center text-white text-[10px] font-bold shadow-lg">
+                                                                            {markerId}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        {/* Triangle pointer */}
+                                                        <div className="absolute left-1/2 -translate-x-1/2 -bottom-1.5 w-3 h-3 bg-white border-r border-b border-gray-200 transform rotate-45"></div>
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     } else {
+                                        // 普通文件chip - 图2样式
                                         return (
-                                            <div key={block.id} className="relative flex items-center gap-2 bg-[#F3F4F6] rounded-lg pl-1 pr-2 py-1 flex-shrink-0 select-none">
-                                                <div className="w-6 h-6 bg-gray-200 rounded-md overflow-hidden flex items-center justify-center">
-                                                    {file.type.startsWith('image/') ? <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" /> : <FileText size={12} className="text-gray-500" />}
+                                            <div 
+                                                key={block.id} 
+                                                className={`inline-flex items-center gap-1.5 rounded-lg pl-1 pr-1.5 py-1 flex-shrink-0 select-none relative group h-7 cursor-default transition-all ${
+                                                    isSelected 
+                                                        ? 'bg-blue-100 ring-2 ring-blue-500' 
+                                                        : 'bg-[#F3F4F6]'
+                                                }`}
+                                                onClick={() => setSelectedChipId(isSelected ? null : block.id)}
+                                            >
+                                                <div className="w-5 h-5 bg-gray-200 rounded overflow-hidden flex items-center justify-center">
+                                                    {file.type.startsWith('image/') ? <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" /> : <FileText size={10} className="text-gray-500" />}
                                                 </div>
-                                                <span className="text-xs text-gray-600 max-w-[60px] truncate">{file.name}</span>
-                                                <button onClick={(e) => { e.stopPropagation(); removeInputBlock(block.id); }} className="bg-gray-300 text-gray-600 rounded-full p-0.5 hover:bg-gray-400 hover:text-white transition"><X size={8} /></button>
+                                                <span className="text-xs text-gray-700 font-medium max-w-[70px] truncate">{file.name.replace(/\.[^/.]+$/, '')}</span>
+                                                <ChevronDown size={12} className="text-gray-400" />
+                                                <button onClick={(e) => { e.stopPropagation(); removeInputBlock(block.id); setSelectedChipId(null); }} className="absolute -top-1.5 -right-1.5 bg-gray-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition shadow-sm z-20 hover:bg-gray-700"><X size={8} /></button>
                                             </div>
                                         );
                                     }
                                 } else {
-                                    // Render Input Text
                                     return (
                                         <input
                                             key={block.id}
@@ -1932,19 +2110,105 @@ const Workspace: React.FC = () => {
                                             onFocus={() => setActiveBlockId(block.id)}
                                             onSelect={(e) => setSelectionIndex(e.currentTarget.selectionStart)}
                                             onKeyDown={(e) => {
-                                                if (e.key === 'Backspace' && !block.text) {
-                                                     // If empty and backspace, maybe remove previous block if it is a file?
-                                                     // e.preventDefault(); // Don't prevent default, let it process? 
-                                                     // Actually we need to handle manual removal
-                                                     const myIndex = inputBlocks.findIndex(b => b.id === block.id);
-                                                     if (myIndex > 0) {
-                                                         const prevBlock = inputBlocks[myIndex - 1];
-                                                         if (prevBlock.type === 'file') {
-                                                             removeInputBlock(prevBlock.id);
-                                                             e.preventDefault(); // Prevent deleting char from prev block if it somehow merged?
-                                                         }
-                                                     }
+                                                const myIndex = inputBlocks.findIndex(b => b.id === block.id);
+                                                const cursorPos = e.currentTarget.selectionStart || 0;
+                                                const textLen = (block.text || '').length;
+                                                
+                                                // Clear chip selection when typing
+                                                if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+                                                    setSelectedChipId(null);
                                                 }
+                                                
+                                                // ArrowLeft at position 0 - select previous chip or jump
+                                                if (e.key === 'ArrowLeft' && cursorPos === 0) {
+                                                    // Find previous file block
+                                                    const prevFileIndex = inputBlocks.slice(0, myIndex).reverse().findIndex(b => b.type === 'file');
+                                                    if (prevFileIndex !== -1) {
+                                                        const actualIndex = myIndex - 1 - prevFileIndex;
+                                                        const prevFile = inputBlocks[actualIndex];
+                                                        
+                                                        if (selectedChipId === prevFile.id) {
+                                                            // Already selected, jump to text before it
+                                                            for (let j = actualIndex - 1; j >= 0; j--) {
+                                                                if (inputBlocks[j].type === 'text') {
+                                                                    e.preventDefault();
+                                                                    setSelectedChipId(null);
+                                                                    const prevInput = document.getElementById(`input-block-${inputBlocks[j].id}`) as HTMLInputElement;
+                                                                    if (prevInput) {
+                                                                        prevInput.focus();
+                                                                        const len = (inputBlocks[j].text || '').length;
+                                                                        prevInput.setSelectionRange(len, len);
+                                                                    }
+                                                                    break;
+                                                                }
+                                                            }
+                                                        } else {
+                                                            // Select the chip
+                                                            e.preventDefault();
+                                                            setSelectedChipId(prevFile.id);
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                // ArrowRight at end of text - select next chip or jump
+                                                if (e.key === 'ArrowRight' && cursorPos === textLen) {
+                                                    // Find next file block
+                                                    const nextFileIndex = inputBlocks.slice(myIndex + 1).findIndex(b => b.type === 'file');
+                                                    if (nextFileIndex !== -1) {
+                                                        const actualIndex = myIndex + 1 + nextFileIndex;
+                                                        const nextFile = inputBlocks[actualIndex];
+                                                        
+                                                        if (selectedChipId === nextFile.id) {
+                                                            // Already selected, jump to text after it
+                                                            for (let j = actualIndex + 1; j < inputBlocks.length; j++) {
+                                                                if (inputBlocks[j].type === 'text') {
+                                                                    e.preventDefault();
+                                                                    setSelectedChipId(null);
+                                                                    const nextInput = document.getElementById(`input-block-${inputBlocks[j].id}`) as HTMLInputElement;
+                                                                    if (nextInput) {
+                                                                        nextInput.focus();
+                                                                        nextInput.setSelectionRange(0, 0);
+                                                                    }
+                                                                    break;
+                                                                }
+                                                            }
+                                                        } else {
+                                                            // Select the chip
+                                                            e.preventDefault();
+                                                            setSelectedChipId(nextFile.id);
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                // Backspace - delete selected chip or previous file block
+                                                if (e.key === 'Backspace') {
+                                                    if (selectedChipId) {
+                                                        // Delete selected chip
+                                                        e.preventDefault();
+                                                        removeInputBlock(selectedChipId);
+                                                        setSelectedChipId(null);
+                                                    } else if (!block.text && myIndex > 0) {
+                                                        const prevBlock = inputBlocks[myIndex - 1];
+                                                        if (prevBlock.type === 'file') {
+                                                            // Select it first, next backspace will delete
+                                                            e.preventDefault();
+                                                            setSelectedChipId(prevBlock.id);
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                // Delete key - delete selected chip
+                                                if (e.key === 'Delete' && selectedChipId) {
+                                                    e.preventDefault();
+                                                    removeInputBlock(selectedChipId);
+                                                    setSelectedChipId(null);
+                                                }
+                                                
+                                                // Escape - clear selection
+                                                if (e.key === 'Escape') {
+                                                    setSelectedChipId(null);
+                                                }
+                                                
                                                 if (e.key === 'Enter' && !e.shiftKey) {
                                                     e.preventDefault();
                                                     handleSend();
@@ -1956,22 +2220,24 @@ const Workspace: React.FC = () => {
                                                     Array.from(e.clipboardData.files).forEach(f => insertInputFile(f as File));
                                                 }
                                             }}
-                                            className={`bg-transparent border-none outline-none text-sm text-gray-700 placeholder-gray-400 ${
-                                                // 最后一个文本块，且（有内容或是唯一块）时才 flex-grow
-                                                i === inputBlocks.length - 1 && block.type === 'text' && (block.text || inputBlocks.length === 1)
-                                                    ? 'flex-grow min-w-[150px]'
-                                                    : block.text 
-                                                        ? 'min-w-[20px]' 
-                                                        : 'min-w-[10px]'
+                                            className={`bg-transparent border-none outline-none text-sm text-gray-800 placeholder-gray-400 h-7 leading-7 ${
+                                                // 最后一个文本块占据剩余空间，中间的空文本块尽量小
+                                                i === inputBlocks.length - 1
+                                                    ? 'flex-1 min-w-[80px]'
+                                                    : block.text ? '' : 'w-1'
                                             }`}
                                             style={
-                                                i === inputBlocks.length - 1 && block.type === 'text' && (block.text || inputBlocks.length === 1)
+                                                i === inputBlocks.length - 1
                                                     ? {} 
                                                     : block.text
-                                                        ? { width: `${Math.max(20, (block.text || '').split('').reduce((acc, char) => acc + (char.charCodeAt(0) > 255 ? 16 : 9), 0) + 20)}px` }
-                                                        : { width: '10px' }
+                                                        ? { width: `${(block.text || '').split('').reduce((acc, char) => acc + (char.charCodeAt(0) > 255 ? 14 : 8), 0)}px` }
+                                                        : {}
                                             }
-                                            placeholder={i === 0 && inputBlocks.length === 1 ? "Type a message..." : ""}
+                                            placeholder={i === inputBlocks.length - 1 && inputBlocks.length === 1 ? (
+                                                creationMode === 'agent' ? "请输入你的设计需求" :
+                                                creationMode === 'image' ? "今天我们要创作什么" :
+                                                "今天我们要创作什么"
+                                            ) : ""}
                                             autoComplete="off"
                                         />
                                     );
@@ -1979,44 +2245,153 @@ const Workspace: React.FC = () => {
                             })}
                         </div>
 
-                        <div className="p-1 px-2 flex items-center justify-between border-t border-transparent">
+                        {/* Bottom Toolbar */}
+                        <div className="p-2 px-3 flex items-center justify-between">
                             <div className="flex items-center gap-1">
-                                <button onClick={() => {
-                                    console.log('Paperclip button clicked!');
-                                    console.log('fileInputRef.current:', fileInputRef.current);
-                                    fileInputRef.current?.click();
-                                }} className="p-2 rounded-full text-gray-400 hover:text-gray-600 hover:bg-black/5 transition"><Paperclip size={18} /></button>
-                                <button
-                                    onClick={() => {
-                                        const newMode = !agentMode;
-                                        console.log('[Agent Button] Toggling agent mode to:', newMode);
-                                        setAgentMode(newMode);
-                                    }}
-                                    className={`h-8 px-3 rounded-full border flex items-center gap-1.5 text-xs font-medium transition mx-1 ${agentMode ? 'bg-blue-50 border-[#3B82F6] text-[#3B82F6]' : 'bg-transparent border-blue-200 text-blue-500 hover:bg-blue-50'}`}
-                                >
-                                    <Sparkles size={12} />
-                                    {currentTask && currentTask.status !== 'completed' ? `${getAgentInfo(currentTask.agentId).name} Working...` : 'Agent'}
-                                </button>
-                                {agentMode && currentTask && (
-                                    <div className="ml-2">
-                                        <AgentSelector
-                                            currentAgent={currentTask.agentId}
-                                            onSelect={(agentId: AgentType) => console.log('Agent selected:', agentId)}
-                                        />
-                                    </div>
+                                {/* Attachment Button (for Agent mode) */}
+                                {creationMode === 'agent' && (
+                                    <button onClick={() => fileInputRef.current?.click()} className="p-2 rounded-full text-gray-400 hover:text-gray-600 hover:bg-black/5 transition">
+                                        <Paperclip size={18} />
+                                    </button>
                                 )}
+                                
+                                {/* Mode Selector Button with Dropdown */}
+                                <div className="relative">
+                                    <button
+                                        onClick={() => setShowModeSelector(!showModeSelector)}
+                                        className={`h-8 px-3 rounded-full border flex items-center gap-1.5 text-xs font-medium transition ${
+                                            creationMode === 'agent' ? 'bg-blue-50 border-[#3B82F6] text-[#3B82F6]' : 
+                                            creationMode === 'image' ? 'bg-blue-50 border-[#3B82F6] text-[#3B82F6]' :
+                                            'bg-purple-50 border-purple-500 text-purple-600'
+                                        }`}
+                                    >
+                                        {creationMode === 'agent' && <><Sparkles size={12} /> Agent</>}
+                                        {creationMode === 'image' && <><ImageIcon size={12} /> 图像</>}
+                                        {creationMode === 'video' && <><Video size={12} /> 视频</>}
+                                    </button>
+                                    
+                                    {/* Mode Dropdown */}
+                                    {showModeSelector && (
+                                        <div className="absolute bottom-full left-0 mb-2 w-36 bg-white rounded-xl shadow-xl border border-gray-200 py-2 z-50">
+                                            <button 
+                                                onClick={() => { setCreationMode('agent'); setShowModeSelector(false); setAgentMode(true); }}
+                                                className={`w-full px-3 py-2 flex items-center gap-2 text-sm hover:bg-gray-50 transition ${creationMode === 'agent' ? 'text-[#3B82F6]' : 'text-gray-700'}`}
+                                            >
+                                                <Sparkles size={14} /> Agent
+                                                {creationMode === 'agent' && <Check size={14} className="ml-auto" />}
+                                            </button>
+                                            <button 
+                                                onClick={() => { setCreationMode('image'); setShowModeSelector(false); setAgentMode(false); }}
+                                                className={`w-full px-3 py-2 flex items-center gap-2 text-sm hover:bg-gray-50 transition ${creationMode === 'image' ? 'text-[#3B82F6]' : 'text-gray-700'}`}
+                                            >
+                                                <ImageIcon size={14} /> 图像生成器
+                                                {creationMode === 'image' && <Check size={14} className="ml-auto" />}
+                                            </button>
+                                            <button 
+                                                onClick={() => { setCreationMode('video'); setShowModeSelector(false); setAgentMode(false); }}
+                                                className={`w-full px-3 py-2 flex items-center gap-2 text-sm hover:bg-gray-50 transition ${creationMode === 'video' ? 'text-purple-600' : 'text-gray-700'}`}
+                                            >
+                                                <Video size={14} /> 视频生成器
+                                                {creationMode === 'video' && <Check size={14} className="ml-auto" />}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                             
-                            {/* Right Icons */}
-                            <div className="flex items-center gap-1">
-                                <div className="h-8 bg-gray-50/80 rounded-full flex items-center p-0.5 px-2 gap-2 border border-gray-100">
-                                    <button onClick={() => setModelMode('thinking')} className={`text-gray-500 hover:text-black transition`} title="Thinking Mode"><Lightbulb size={16} strokeWidth={2} /></button>
-                                    <div className="w-px h-3 bg-gray-300"></div>
-                                    <button onClick={() => setModelMode('fast')} className={`text-gray-500 hover:text-black transition`} title="Fast Mode"><Zap size={16} strokeWidth={2} /></button>
-                                </div>
-                                <button onClick={() => setWebEnabled(!webEnabled)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${webEnabled ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-black/5 bg-white'}`}><Globe size={16} strokeWidth={1.5} /></button>
-                                <button onClick={() => setImageModelEnabled(!imageModelEnabled)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${imageModelEnabled ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-black/5 bg-white'}`}><Box size={16} strokeWidth={2} /></button>
-                                <button onClick={() => handleSend()} disabled={inputBlocks.every(b => (b.type === 'text' && !b.text) || (b.type === 'file' && !b.file))} className={`w-8 h-8 rounded-full flex items-center justify-center transition shadow-sm ${(inputBlocks.every(b => (b.type === 'text' && !b.text) || (b.type === 'file' && !b.file))) ? 'bg-gray-200 text-gray-400' : 'bg-black text-white hover:scale-105'}`}><ArrowUp size={16} strokeWidth={2.5} /></button>
+                            {/* Right Side Controls */}
+                            <div className="flex items-center gap-2">
+                                {/* Image Mode: Resolution & Aspect Ratio */}
+                                {creationMode === 'image' && (
+                                    <>
+                                        <div className="relative">
+                                            <button
+                                                onClick={() => setShowResPicker(!showResPicker)}
+                                                className="h-7 px-2.5 rounded-full border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 transition flex items-center gap-1"
+                                            >
+                                                {imageGenRes} · {imageGenRatio}
+                                                <ChevronDown size={12} />
+                                            </button>
+                                            {showResPicker && (
+                                                <div className="absolute bottom-full right-0 mb-2 w-32 bg-white rounded-xl shadow-xl border border-gray-200 py-2 z-50">
+                                                    <div className="px-3 py-1 text-[10px] text-gray-400 uppercase">分辨率</div>
+                                                    {['1K', '2K', '4K'].map(res => (
+                                                        <button key={res} onClick={() => { setImageGenRes(res); }} className={`w-full px-3 py-1.5 text-left text-xs hover:bg-gray-50 ${imageGenRes === res ? 'text-blue-500' : 'text-gray-700'}`}>{res}</button>
+                                                    ))}
+                                                    <div className="border-t border-gray-100 mt-1 pt-1">
+                                                        <div className="px-3 py-1 text-[10px] text-gray-400 uppercase">比例</div>
+                                                        {['1:1', '16:9', '9:16', '4:3', '3:4'].map(ratio => (
+                                                            <button key={ratio} onClick={() => { setImageGenRatio(ratio); setShowResPicker(false); }} className={`w-full px-3 py-1.5 text-left text-xs hover:bg-gray-50 ${imageGenRatio === ratio ? 'text-blue-500' : 'text-gray-700'}`}>{ratio}</button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-1 bg-gray-100 rounded-full px-1 py-0.5">
+                                            <button className="p-1 text-gray-500 hover:text-gray-700 transition"><Box size={14} /></button>
+                                        </div>
+                                        <button 
+                                            onClick={() => handleSend()}
+                                            disabled={inputBlocks.every(b => (b.type === 'text' && !b.text) || (b.type === 'file' && !b.file))}
+                                            className="h-8 px-3 rounded-full flex items-center gap-1 text-xs font-medium shadow-sm transition bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 disabled:opacity-50"
+                                        >
+                                            <Zap size={12} /> 10
+                                        </button>
+                                    </>
+                                )}
+                                
+                                {/* Video Mode: Duration & Aspect Ratio */}
+                                {creationMode === 'video' && (
+                                    <>
+                                        <div className="relative">
+                                            <button
+                                                onClick={() => setShowRatioPicker(!showRatioPicker)}
+                                                className="h-7 px-2.5 rounded-full border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 transition flex items-center gap-1"
+                                            >
+                                                首尾帧 · {videoGenRatio} · {videoGenDuration}
+                                                <ChevronDown size={12} />
+                                            </button>
+                                            {showRatioPicker && (
+                                                <div className="absolute bottom-full right-0 mb-2 w-36 bg-white rounded-xl shadow-xl border border-gray-200 py-2 z-50">
+                                                    <div className="px-3 py-1 text-[10px] text-gray-400 uppercase">时长</div>
+                                                    {['5s', '10s', '15s'].map(dur => (
+                                                        <button key={dur} onClick={() => { setVideoGenDuration(dur); }} className={`w-full px-3 py-1.5 text-left text-xs hover:bg-gray-50 ${videoGenDuration === dur ? 'text-purple-500' : 'text-gray-700'}`}>{dur}</button>
+                                                    ))}
+                                                    <div className="border-t border-gray-100 mt-1 pt-1">
+                                                        <div className="px-3 py-1 text-[10px] text-gray-400 uppercase">比例</div>
+                                                        {['16:9', '9:16', '1:1'].map(ratio => (
+                                                            <button key={ratio} onClick={() => { setVideoGenRatio(ratio); setShowRatioPicker(false); }} className={`w-full px-3 py-1.5 text-left text-xs hover:bg-gray-50 ${videoGenRatio === ratio ? 'text-purple-500' : 'text-gray-700'}`}>{ratio}</button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-1 bg-gray-100 rounded-full px-1 py-0.5">
+                                            <button className="p-1 text-gray-500 hover:text-gray-700 transition"><RotateCw size={14} /></button>
+                                        </div>
+                                        <button 
+                                            onClick={() => handleSend()}
+                                            disabled={inputBlocks.every(b => (b.type === 'text' && !b.text) || (b.type === 'file' && !b.file))}
+                                            className="h-8 px-3 rounded-full flex items-center gap-1 text-xs font-medium shadow-sm transition bg-gradient-to-r from-purple-500 to-purple-600 text-white hover:from-purple-600 hover:to-purple-700 disabled:opacity-50"
+                                        >
+                                            <Zap size={12} /> 20
+                                        </button>
+                                    </>
+                                )}
+                                
+                                {/* Agent Mode: Original Icons */}
+                                {creationMode === 'agent' && (
+                                    <>
+                                        <div className="h-8 bg-gray-50/80 rounded-full flex items-center p-0.5 px-2 gap-2 border border-gray-100">
+                                            <button onClick={() => setModelMode('thinking')} className={`text-gray-500 hover:text-black transition`} title="Thinking Mode"><Lightbulb size={16} strokeWidth={2} /></button>
+                                            <div className="w-px h-3 bg-gray-300"></div>
+                                            <button onClick={() => setModelMode('fast')} className={`text-gray-500 hover:text-black transition`} title="Fast Mode"><Zap size={16} strokeWidth={2} /></button>
+                                        </div>
+                                        <button onClick={() => setWebEnabled(!webEnabled)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${webEnabled ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-black/5 bg-white'}`}><Globe size={16} strokeWidth={1.5} /></button>
+                                        <button onClick={() => setImageModelEnabled(!imageModelEnabled)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${imageModelEnabled ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-black/5 bg-white'}`}><Box size={16} strokeWidth={2} /></button>
+                                        <button onClick={() => handleSend()} disabled={inputBlocks.every(b => (b.type === 'text' && !b.text) || (b.type === 'file' && !b.file))} className={`w-8 h-8 rounded-full flex items-center justify-center transition shadow-sm ${(inputBlocks.every(b => (b.type === 'text' && !b.text) || (b.type === 'file' && !b.file))) ? 'bg-gray-200 text-gray-400' : 'bg-blue-500 text-white hover:scale-105'}`}><ArrowUp size={16} strokeWidth={2.5} /></button>
+                                    </>
+                                )}
                             </div>
                         </div>
                     </div>
