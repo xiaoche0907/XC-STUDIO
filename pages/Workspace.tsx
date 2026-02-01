@@ -30,6 +30,88 @@ import { AgentSelector } from '../components/agents/AgentSelector';
 import { ProposalSelector } from '../components/agents/ProposalSelector';
 import { TaskProgress } from '../components/agents/TaskProgress';
 import { AgentType, AgentProposal, AgentTask } from '../types/agent.types';
+const SmartMessageRenderer = ({ text, onGenerate }: { text: string, onGenerate: (prompt: string) => void }) => {
+    // Split by code blocks, capturing language (optional) and content
+    // Regex: ```(optional lang)\n(content)```
+    const parts = text.split(/```([a-zA-Z0-9:-]*)\n?([\s\S]*?)```/g);
+    
+    if (parts.length === 1) return <div className="whitespace-pre-wrap">{text}</div>;
+
+    const elements = [];
+    for (let i = 0; i < parts.length; i += 3) {
+        // 1. Preceding Text
+        if (parts[i]) elements.push(<span key={`text-${i}`}>{parts[i]}</span>);
+        
+        // 2. Code Block logic
+        if (i + 2 < parts.length) {
+            const lang = parts[i+1]?.trim().toLowerCase();
+            const content = parts[i+2];
+            let renderedCard = false;
+
+            // Attempt to treat as Generation Card if json or json:generation
+            if (lang === 'json:generation' || lang === 'json') {
+                try {
+                    // Try parsing JSON (stripping potential trailing commas or minor errors if possible, but strict for now)
+                    const data = JSON.parse(content.trim());
+                    // Check schema
+                    if (data.title && data.prompt) {
+                        elements.push(
+                             <div key={`card-${i}`} className="my-3 p-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all group select-none block max-w-full">
+                                <div className="bg-gradient-to-r from-gray-50 to-white px-4 py-3 border-b border-gray-100 flex justify-between items-center gap-3">
+                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                                        <div className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)] shrink-0"></div>
+                                        <h4 className="font-bold text-gray-900 text-sm truncate" title={data.title}>{data.title}</h4>
+                                    </div>
+                                    <div className="flex gap-2 shrink-0">
+                                        <button 
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                navigator.clipboard.writeText(data.prompt);
+                                                // Optional: show toast
+                                            }}
+                                            className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition"
+                                            title="Copy Prompt"
+                                        >
+                                            <Copy size={12} />
+                                        </button>
+                                        <button 
+                                            onClick={() => onGenerate(data.prompt)}
+                                            className="bg-black hover:bg-gray-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-md hover:shadow-lg active:scale-95 shrink-0"
+                                        >
+                                            <Sparkles size={12} className="text-yellow-300 fill-yellow-300" /> 生成
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="p-4 bg-white/50">
+                                     <p className="text-xs text-gray-600 mb-3 leading-relaxed">{data.description || data.prompt}</p>
+                                     <div className="bg-gray-50/80 rounded-lg p-2.5 border border-gray-100 flex gap-2 items-start group/prompt cursor-help hover:border-blue-100 transition" title={data.prompt}>
+                                         <div className="text-[10px] text-blue-500 font-bold mt-0.5 shrink-0 select-none">PROMPT</div>
+                                         <div className="text-[11px] text-gray-500 font-medium italic flex-1 line-clamp-3 leading-relaxed">{data.prompt}</div>
+                                     </div>
+                                </div>
+                             </div>
+                        );
+                        renderedCard = true;
+                    }
+                } catch (e) {
+                    // JSON Parse failed, fall through to code block
+                }
+            }
+
+            if (!renderedCard) {
+                // Render as standard code block
+                elements.push(
+                    <div key={`code-${i}`} className="my-2 bg-gray-900 text-gray-100 p-3 rounded-lg text-xs font-mono overflow-auto relative group/code max-h-60">
+                         <div className="absolute top-2 right-2 opacity-0 group-hover/code:opacity-100 text-[10px] text-gray-400 uppercase select-none">{lang || 'text'}</div>
+                         <pre className="whitespace-pre-wrap break-all">{content}</pre>
+                    </div>
+                );
+            }
+        }
+    }
+
+    return <div className="whitespace-pre-wrap font-sans">{elements}</div>;
+};
 
 const TEMPLATES: Template[] = [
   { id: '1', title: 'Wine List', description: 'Mimic this effect to generate a poster of ...', image: 'https://picsum.photos/80/80?random=10' },
@@ -279,7 +361,46 @@ const Workspace: React.FC = () => {
       console.log('Execute erase');
   };
 
+  const handleSmartGenerate = async (prompt: string) => {
+      const id = `gen-${Date.now()}`;
+      // Calculate center of visible canvas area
+      const containerW = window.innerWidth - (showAssistant ? 400 : 0);
+      const containerH = window.innerHeight;
+      const centerX = (containerW / 2 - pan.x) / (zoom / 100);
+      const centerY = (containerH / 2 - pan.y) / (zoom / 100);
 
+      const newEl: CanvasElement = {
+          id,
+          type: 'gen-image',
+          x: centerX - 256, // 512 width
+          y: centerY - 256, // 512 height
+          width: 512,
+          height: 512,
+          genPrompt: prompt,
+          genModel: 'Nano Banana', // Default model for smart generate
+          zIndex: elements.length + 10, // Ensure it's on top
+          isGenerating: true
+      };
+      setElements(prev => [...prev, newEl]);
+      setSelectedElementId(id); // Select the newly generated element
+      
+      try {
+          const resultUrl = await generateImage({
+              prompt: prompt,
+              model: 'Nano Banana',
+              aspectRatio: '1:1' 
+          });
+          
+          if (resultUrl) {
+              setElements(prev => prev.map(el => el.id === id ? { ...el, isGenerating: false, url: resultUrl } : el));
+          } else {
+              setElements(prev => prev.map(el => el.id === id ? { ...el, isGenerating: false } : el));
+          }
+      } catch (e) {
+          console.error("Smart gen failed", e);
+          setElements(prev => prev.map(el => el.id === id ? { ...el, isGenerating: false } : el));
+      }
+  };
 
   // Agent orchestration
   const projectContext = useProjectContext(id || '', projectTitle, elements, messages);
@@ -973,8 +1094,8 @@ const Workspace: React.FC = () => {
   };
 
   const addText = () => { const containerW = window.innerWidth - (showAssistant ? 400 : 0); const containerH = window.innerHeight; const centerX = (containerW / 2 - pan.x) / (zoom / 100); const centerY = (containerH / 2 - pan.y) / (zoom / 100); const newElement: CanvasElement = { id: Date.now().toString(), type: 'text', text: 'Type something...', x: centerX - 100, y: centerY - 25, width: 200, height: 50, fontSize: 90, fontFamily: 'Inter', fontWeight: 400, fillColor: '#000000', strokeColor: 'transparent', textAlign: 'left', zIndex: elements.length + 1 }; const newElements = [...elements, newElement]; setElements(newElements); saveToHistory(newElements, markers); setSelectedElementId(newElement.id); };
-  const addGenImage = () => { const containerW = window.innerWidth - (showAssistant ? 400 : 0); const containerH = window.innerHeight; const centerX = (containerW / 2 - pan.x) / (zoom / 100); const centerY = (containerH / 2 - pan.y) / (zoom / 100); const newElement: CanvasElement = { id: Date.now().toString(), type: 'gen-image', x: centerX - 160, y: centerY - 160, width: 320, height: 320, zIndex: elements.length + 1, genModel: 'Nano Banana Pro', genAspectRatio: '1:1', genResolution: '1K', genPrompt: '' }; const newElements = [...elements, newElement]; setElements(newElements); saveToHistory(newElements, markers); setSelectedElementId(newElement.id); };
-  const addGenVideo = () => { const containerW = window.innerWidth - (showAssistant ? 400 : 0); const containerH = window.innerHeight; const centerX = (containerW / 2 - pan.x) / (zoom / 100); const centerY = (containerH / 2 - pan.y) / (zoom / 100); const newElement: CanvasElement = { id: Date.now().toString(), type: 'gen-video', x: centerX - 240, y: centerY - 135, width: 480, height: 270, zIndex: elements.length + 1, genModel: 'Veo 3.1 Fast', genAspectRatio: '16:9', genPrompt: '', genDuration: '5s' }; const newElements = [...elements, newElement]; setElements(newElements); saveToHistory(newElements, markers); setSelectedElementId(newElement.id); };
+  const addGenImage = () => { const containerW = window.innerWidth - (showAssistant ? 400 : 0); const containerH = window.innerHeight; const centerX = (containerW / 2 - pan.x) / (zoom / 100); const centerY = (containerH / 2 - pan.y) / (zoom / 100); const newElement: CanvasElement = { id: Date.now().toString(), type: 'gen-image', x: centerX - 256, y: centerY - 256, width: 512, height: 512, zIndex: elements.length + 1, genModel: 'Nano Banana Pro', genAspectRatio: '1:1', genResolution: '1K', genPrompt: '' }; const newElements = [...elements, newElement]; setElements(newElements); saveToHistory(newElements, markers); setSelectedElementId(newElement.id); };
+  const addGenVideo = () => { const containerW = window.innerWidth - (showAssistant ? 400 : 0); const containerH = window.innerHeight; const centerX = (containerW / 2 - pan.x) / (zoom / 100); const centerY = (containerH / 2 - pan.y) / (zoom / 100); const newElement: CanvasElement = { id: Date.now().toString(), type: 'gen-video', x: centerX - 320, y: centerY - 180, width: 640, height: 360, zIndex: elements.length + 1, genModel: 'Veo 3.1 Fast', genAspectRatio: '16:9', genPrompt: '', genDuration: '5s' }; const newElements = [...elements, newElement]; setElements(newElements); saveToHistory(newElements, markers); setSelectedElementId(newElement.id); };
 
   const getClosestAspectRatio = (width: number, height: number): string => { const ratio = width / height; let closest = '1:1'; let minDiff = Infinity; for (const ar of ASPECT_RATIOS) { const [w, h] = ar.value.split(':').map(Number); const r = w / h; const diff = Math.abs(ratio - r); if (diff < minDiff) { minDiff = diff; closest = ar.value; } } return closest; };
   
@@ -1334,7 +1455,9 @@ const Workspace: React.FC = () => {
     setMarkers([]); 
     setIsTyping(true);
     if (chatSessionRef.current) {
-        const responseText = await sendMessage(chatSessionRef.current, fullMessage, filesToSend, enableWebSearch);
+        // Inject system instruction for formatting, hidden from user UI
+        const systemInjection = `\n\n[SYSTEM NOTE: When providing visual design options, you MUST provide at least 3 distinct style variations. Output EACH option as a separate JSON block using this schema:\n\`\`\`json:generation\n{"title": "Style Name", "description": "Brief description", "prompt": "Detailed generation prompt"}\n\`\`\`\nDo not combine them. Output 3 separate blocks.]`;
+        const responseText = await sendMessage(chatSessionRef.current, fullMessage + systemInjection, filesToSend, enableWebSearch);
         setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), role: 'model', text: responseText, timestamp: Date.now() }]);
     }
     setIsTyping(false);
@@ -1468,17 +1591,119 @@ const Workspace: React.FC = () => {
     const el = elements.find(e => e.id === selectedElementId);
     if (!el || (el.type !== 'gen-image' && el.type !== 'image')) return null;
     
-    // Only show if it has a URL (actual image)
-    if (!el.url && el.type === 'gen-image') return null; // Let the generation placeholder handle itself or standard UI
-
     const screenX = el.x * (zoom / 100) + pan.x;
     const screenY = el.y * (zoom / 100) + pan.y;
     const screenWidth = el.width * (zoom / 100);
     const screenHeight = el.height * (zoom / 100);
+    const centerX = screenX + (screenWidth / 2);
+
+    // Configuration Toolbar for Empty Gen-Image
+    if (!el.url && el.type === 'gen-image') {
+         const toolbarTop = screenY + screenHeight + 16;
+         return (
+             <div className="absolute bg-white rounded-2xl shadow-[0_4px_24px_rgba(0,0,0,0.08)] border border-gray-100 p-4 z-50 animate-in fade-in zoom-in-95 duration-200 -translate-x-1/2 w-[440px]" style={{ left: centerX, top: toolbarTop }} onMouseDown={(e) => e.stopPropagation()}>
+                  <textarea 
+                    placeholder="今天我们要创作什么..." 
+                    className="w-full text-sm font-medium text-gray-700 placeholder:text-gray-300 bg-transparent border-none outline-none resize-none h-20 mb-4 p-1 leading-relaxed" 
+                    value={el.genPrompt || ''} 
+                    onChange={(e) => updateSelectedElement({ genPrompt: e.target.value })} 
+                    onKeyDown={(e) => e.stopPropagation()} 
+                    autoFocus
+                  />
+                  
+                  <div className="flex items-center justify-between border-t border-gray-100/80 pt-4">
+                      <div className="flex items-center gap-2">
+                           {/* Model Picker */}
+                           <div className="relative">
+                               <button 
+                                 onClick={() => { setShowModelPicker(!showModelPicker); setShowResPicker(false); setShowRatioPicker(false); }} 
+                                 className="flex items-center gap-2 text-xs font-semibold text-gray-700 hover:text-black transition px-3 py-2 hover:bg-gray-50 rounded-full border border-gray-200 hover:border-gray-300"
+                               >
+                                  <Box size={14} strokeWidth={2} className="text-gray-500"/>
+                                  <span className="truncate max-w-[100px]">{el.genModel || 'Nano Banana Pro'}</span>
+                                  <ChevronDown size={12} className="opacity-40" />
+                               </button>
+                               {showModelPicker && (
+                                   <div className="absolute bottom-full mb-2 left-0 w-52 bg-white rounded-xl shadow-xl border border-gray-100 p-1.5 z-[60] grid grid-cols-1 gap-1">
+                                       <div className="px-3 py-1.5 text-[10px] uppercase font-bold text-gray-400 tracking-wider">Model</div>
+                                       {['Nano Banana', 'Nano Banana Pro'].map(m => (
+                                           <button key={m} onClick={() => { updateSelectedElement({ genModel: m as any }); setShowModelPicker(false); }} className={`text-left px-3 py-2.5 hover:bg-gray-50 rounded-lg text-xs font-medium flex items-center justify-between group transition ${el.genModel === m ? 'text-blue-600 bg-blue-50/50' : 'text-gray-700'}`}>
+                                               {m}
+                                               {el.genModel === m && <Check size={14} />}
+                                           </button>
+                                       ))}
+                                   </div>
+                               )}
+                           </div>
+                           
+                           {/* Ref Image Button */}
+                           <button className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-50 rounded-full transition border border-transparent hover:border-gray-200" title="Reference Image">
+                               <ImagePlus size={18} strokeWidth={1.5} />
+                           </button>
+                      </div>
+                      
+                      <div className="flex items-center gap-3">
+                           {/* Resolution */}
+                           <div className="relative">
+                               <button 
+                                 onClick={() => { setShowResPicker(!showResPicker); setShowModelPicker(false); setShowRatioPicker(false); }} 
+                                 className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-black transition px-2 py-1.5 hover:bg-gray-50 rounded-lg"
+                               >
+                                  {el.genResolution || '1K'} <ChevronDown size={10} className="opacity-50" />
+                               </button>
+                               {showResPicker && (
+                                   <div className="absolute bottom-full mb-2 right-0 w-28 bg-white rounded-xl shadow-xl border border-gray-100 p-1 z-[60]">
+                                       {['1K', '2K', '4K'].map(r => (
+                                           <button key={r} onClick={() => { updateSelectedElement({ genResolution: r }); setShowResPicker(false); }} className={`w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg text-xs transition ${el.genResolution === r ? 'text-blue-600 font-bold bg-blue-50/30' : 'text-gray-600'}`}>
+                                               {r}
+                                           </button>
+                                       ))}
+                                   </div>
+                               )}
+                           </div>
+
+                           {/* Ratio */}
+                           <div className="relative">
+                               <button 
+                                 onClick={() => { setShowRatioPicker(!showRatioPicker); setShowModelPicker(false); setShowResPicker(false); }} 
+                                 className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-black transition px-2 py-1.5 hover:bg-gray-50 rounded-lg"
+                               >
+                                  {el.genAspectRatio || '1:1'} <ChevronDown size={10} className="opacity-50" />
+                               </button>
+                               {showRatioPicker && (
+                                   <div className="absolute bottom-full mb-2 right-0 w-28 bg-white rounded-xl shadow-xl border border-gray-100 p-1 z-[60]">
+                                       {['1:1', '4:3', '3:4', '16:9', '9:16'].map(r => (
+                                           <button key={r} onClick={() => { updateSelectedElement({ genAspectRatio: r }); setShowRatioPicker(false); }} className={`w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg text-xs transition ${el.genAspectRatio === r ? 'text-blue-600 font-bold bg-blue-50/30' : 'text-gray-600'}`}>
+                                               {r}
+                                           </button>
+                                       ))}
+                                   </div>
+                               )}
+                           </div>
+
+                           {/* Generate Button */}
+                           <button 
+                               onClick={() => handleGenImage(el.id)}
+                               disabled={!el.genPrompt || el.isGenerating}
+                               className={`h-9 px-5 rounded-xl flex items-center gap-2 text-xs font-bold shadow-sm transition-all ${
+                                   !el.genPrompt || el.isGenerating 
+                                   ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                                   : 'bg-gray-900 text-white hover:bg-black hover:scale-105 active:scale-95 shadow-lg shadow-gray-200'
+                               }`}
+                           >
+                               {el.isGenerating ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} className="text-yellow-300 fill-yellow-300" />}
+                               <span>10</span>
+                           </button>
+                      </div>
+                  </div>
+             </div>
+         );
+    }   
+    // Only show if it has a URL (actual image)
+    // if (!el.url && el.type === 'gen-image') return null; // This line is replaced by the above block
 
     const topToolbarTop = screenY - 86;   
     const bottomButtonTop = screenY + screenHeight + 16;
-    const centerX = screenX + (screenWidth / 2);
     
     // Text Edit Modal logic
     if (showTextEditModal) {
@@ -1981,7 +2206,7 @@ const Workspace: React.FC = () => {
                                         <AgentAvatar agentId={currentTask.agentId} size="sm" />
                                     )}
                                     <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-none'}`}>
-                                        {msg.text}
+                                        <SmartMessageRenderer text={msg.text} onGenerate={handleSmartGenerate} />
                                         {msg.attachments && msg.attachments.length > 0 && (
                                             <div className="mt-2 grid grid-cols-2 gap-2">
                                                 {msg.attachments.map((att, i) => (
