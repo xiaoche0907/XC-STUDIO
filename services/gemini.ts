@@ -4,10 +4,23 @@ import { GoogleGenAI, Chat, GenerateContentResponse, Part, Content, VideoGenerat
 // Helper to get API Key dynamically
 const getApiKey = () => {
     const win = window as any;
+    
+    // 1. 优先使用 AI Studio 的 key
     if (win.aistudio && win.aistudio.getKey) {
-        return win.aistudio.getKey() || import.meta.env.VITE_GEMINI_API_KEY;
+        const key = win.aistudio.getKey();
+        if (key) return key;
     }
-    return localStorage.getItem('custom_api_key') || import.meta.env.VITE_GEMINI_API_KEY;
+    
+    // 2. 其次使用 localStorage 中用户设置的 key
+    const localKey = localStorage.getItem('custom_api_key');
+    if (localKey) return localKey;
+    
+    // 3. 最后才使用环境变量（可选）
+    const envKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (envKey && envKey !== 'undefined') return envKey;
+    
+    // 4. 如果都没有，返回空字符串（不会报错，但API调用时会提示用户设置）
+    return '';
 };
 
 // Helper to get API Base URL dynamically
