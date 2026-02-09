@@ -5,9 +5,9 @@ import { GoogleGenAI, Chat, GenerateContentResponse, Part, Content, VideoGenerat
 const getApiKey = () => {
     const win = window as any;
     if (win.aistudio && win.aistudio.getKey) {
-        return win.aistudio.getKey() || process.env.API_KEY;
+        return win.aistudio.getKey() || import.meta.env.VITE_GEMINI_API_KEY;
     }
-    return localStorage.getItem('custom_api_key') || process.env.API_KEY;
+    return localStorage.getItem('custom_api_key') || import.meta.env.VITE_GEMINI_API_KEY;
 };
 
 // Helper to get API Base URL dynamically
