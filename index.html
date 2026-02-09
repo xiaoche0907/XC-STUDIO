@@ -25,7 +25,29 @@
     </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div style="display: flex; align-items: center; justify-content: center; height: 100vh; font-family: Arial;">
+        <div style="text-align: center;">
+          <h2>加载中...</h2>
+          <p id="loading-status">正在初始化应用</p>
+        </div>
+      </div>
+    </div>
+    <script>
+      // 错误捕获
+      window.addEventListener('error', function(e) {
+        document.getElementById('loading-status').innerHTML = 
+          '加载失败: ' + e.message + '<br><a href="/test.html">查看测试页面</a>';
+      });
+      
+      // 超时检测
+      setTimeout(function() {
+        var root = document.getElementById('root');
+        if (root && root.innerHTML.includes('加载中')) {
+          root.innerHTML = '<div style="padding: 40px; font-family: Arial;"><h1>⚠️ 应用加载超时</h1><p>请检查浏览器控制台查看错误信息</p><p><a href="/test.html">访问测试页面</a></p></div>';
+        }
+      }, 5000);
+    </script>
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>
