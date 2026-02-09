@@ -84,6 +84,13 @@ export interface Template {
   image: string;
 }
 
+export interface InputBlock {
+  id: string;
+  type: 'text' | 'file';
+  text?: string;
+  file?: File;
+}
+
 // Agent System Types
 export interface AgentChatMessage extends ChatMessage {
   agentId?: string;

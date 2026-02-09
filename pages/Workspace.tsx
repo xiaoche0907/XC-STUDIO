@@ -26,6 +26,7 @@ import { useAgentOrchestrator } from '../hooks/useAgentOrchestrator';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { getAgentInfo, executeAgentTask } from '../services/agents';
 import { AgentAvatar } from '../components/agents/AgentAvatar';
+import { assetsToCanvasElementsAtCenter } from '../utils/canvas-helpers';
 import { AgentSelector } from '../components/agents/AgentSelector';
 import { ProposalSelector } from '../components/agents/ProposalSelector';
 import { TaskProgress } from '../components/agents/TaskProgress';
