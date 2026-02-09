@@ -1,6 +1,19 @@
 # XC-STUDIO (AI Design Workbench)
 
+<div align="center">
+
+![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)
+![React](https://img.shields.io/badge/React-18-61dafb)
+
 一个基于 Google Gemini 模型的下一代 AI 辅助设计工作台，提供无限画布、智能体协作和多媒体生成能力。
+
+[快速开始](#-快速开始) • [功能特性](#-核心功能) • [开发文档](./DEVELOPMENT.md) • [API配置](./API-CONFIGURATION-GUIDE.md)
+
+</div>
+
+---
 
 ## 🌟 核心功能
 
@@ -109,11 +122,56 @@
 - `Ctrl` + `Z`: 撤销
 - `Ctrl` + `Y`: 重做
 
+## 📖 开发文档
+
+想要深入了解项目架构、开发指南和最佳实践？
+
+👉 **查看完整开发文档**: [DEVELOPMENT.md](./DEVELOPMENT.md)
+
+内容包括：
+- 🏗️ 架构概览和技术栈
+- 💾 Zustand 状态管理详解
+- 🤖 智能体系统开发指南
+- 🛠️ 代码规范和性能优化
+- 🧪 测试指南
+- 🐛 故障排查
+
 ## 📝 更新日志
 
 ### v1.0.0 (2026-02-09)
 
 - ✨ **新增**: 支持多 API 提供商切换（Gemini 原生 / 云雾 API / 自定义）
 - ✨ **新增**: 云雾 API 集成，国内用户可直接访问
+- ✨ **新增**: Zustand 状态管理系统
+- ✨ **新增**: 增强版智能体系统
 - 🔧 **优化**: API 配置界面，支持可视化选择提供商
-- 📖 **文档**: 新增详细的 API 配置指南
+- 📖 **文档**: 新增详细的开发文档和配置指南
+
+## 🤝 贡献指南
+
+欢迎贡献代码、报告问题或提出建议！
+
+1. Fork 本仓库
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启 Pull Request
+
+详细开发指南请查看 [DEVELOPMENT.md](./DEVELOPMENT.md)
+
+## 📄 许可证
+
+本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
+
+## 🙏 致谢
+
+- [Google Gemini](https://ai.google.dev/) - AI 模型支持
+- [React](https://react.dev/) - 前端框架
+- [Zustand](https://github.com/pmndrs/zustand) - 状态管理
+- [Tailwind CSS](https://tailwindcss.com/) - CSS 框架
+
+---
+
+<div align="center">
+Made with ❤️ by XC-STUDIO Team
+</div>
