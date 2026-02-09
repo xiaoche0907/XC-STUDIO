@@ -38,6 +38,7 @@
 - **语言**: TypeScript
 - **样式**: Tailwind CSS
 - **AI 模型**: Google Gemini API (Pro/Flash/Thinking)
+- **API 支持**: Gemini 原生 / 云雾 API / 自定义代理
 - **图标库**: Lucide React
 
 ## 🚀 快速开始
@@ -48,19 +49,58 @@
    npm install
    ```
 
-2. **配置环境变量**
-   在根目录创建 `.env.local` 文件并填入你的 Gemini API Key：
+2. **配置 API**
+
+   本项目支持三种 API 提供商：
+
+   - **Gemini 原生 API** (Google 官方，需要科学上网)
+   - **云雾 API** ⭐ 推荐 (国内可直接访问)
+   - **自定义代理** (使用自己的代理服务器)
+
+   **方式一：通过设置界面配置** (推荐)
+   
+   1. 启动应用后，点击设置按钮（齿轮图标）
+   2. 选择 API 提供商
+   3. 输入对应的 API Key
+   4. 保存配置即可使用
+
+   **方式二：配置环境变量**
+   
+   在根目录创建 `.env.local` 文件：
 
    ```env
    VITE_GEMINI_API_KEY=your_api_key_here
+   GEMINI_API_KEY=your_api_key_here
+   VITE_YUNWU_API_URL=https://yunwu.ai
    ```
+
+   详细配置说明请参考：[API 配置指南](./API-CONFIGURATION-GUIDE.md)
 
 3. **启动开发服务器**
    ```bash
    npm run dev
    ```
 
-## 🎮 快捷键指南
+## 🌐 API 配置
+
+### 支持的提供商
+
+| 提供商 | 特点 | 适用场景 | 配置文档 |
+|--------|------|----------|----------|
+| Gemini 原生 | Google 官方，最稳定 | 海外用户 | [获取 API Key](https://aistudio.google.com/) |
+| 云雾 API ⭐ | 国内可访问，无需翻墙 | 国内用户首选 | [访问官网](https://yunwu.ai) |
+| 自定义代理 | 完全自主控制 | 高级用户 | 自行配置 |
+
+### 快速配置
+
+1. 点击应用设置图标
+2. 选择 "云雾 API"（推荐国内用户）
+3. 输入您的 API Key
+4. 保存并开始使用
+
+📖 **完整配置指南**: [API-CONFIGURATION-GUIDE.md](./API-CONFIGURATION-GUIDE.md)
+
+## � 快捷键指南
 
 - `Space` + 拖拽: 平移画布
 - `Ctrl` + 滚轮: 缩放画布
@@ -68,3 +108,12 @@
 - `Delete` / `Backspace`: 删除选中元素
 - `Ctrl` + `Z`: 撤销
 - `Ctrl` + `Y`: 重做
+
+## 📝 更新日志
+
+### v1.0.0 (2026-02-09)
+
+- ✨ **新增**: 支持多 API 提供商切换（Gemini 原生 / 云雾 API / 自定义）
+- ✨ **新增**: 云雾 API 集成，国内用户可直接访问
+- 🔧 **优化**: API 配置界面，支持可视化选择提供商
+- 📖 **文档**: 新增详细的 API 配置指南

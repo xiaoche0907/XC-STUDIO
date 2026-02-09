@@ -3,18 +3,30 @@ import { GoogleGenAI, Chat, GenerateContentResponse, Part, Content, VideoGenerat
 
 // Helper to get API Key dynamically
 const getApiKey = () => {
-  const win = window as any;
-  if (win.aistudio && win.aistudio.getKey) {
-      return win.aistudio.getKey() || process.env.API_KEY;
-  }
-  return localStorage.getItem('custom_api_key') || process.env.API_KEY;
+    const win = window as any;
+    if (win.aistudio && win.aistudio.getKey) {
+        return win.aistudio.getKey() || process.env.API_KEY;
+    }
+    return localStorage.getItem('custom_api_key') || process.env.API_KEY;
 };
 
 // Helper to get API Base URL dynamically
 const getApiUrl = () => {
     if (typeof window !== 'undefined') {
-        const url = localStorage.getItem('custom_api_url');
-        if (url && url.trim()) return url.trim();
+        const provider = localStorage.getItem('api_provider') || 'gemini';
+
+        // 云雾API
+        if (provider === 'yunwu') {
+            return 'https://yunwu.ai';
+        }
+
+        // 自定义API
+        if (provider === 'custom') {
+            const url = localStorage.getItem('custom_api_url');
+            if (url && url.trim()) return url.trim();
+        }
+
+        // Gemini原生 - 返回undefined使用默认值
     }
     return undefined;
 };
@@ -41,34 +53,34 @@ const VEO_PRO_MODEL = 'veo-3.1-generate-preview';
 
 // Helper for retry logic
 const retryWithBackoff = async <T>(
-  fn: () => Promise<T>,
-  retries: number = 3,
-  delay: number = 2000,
-  factor: number = 2
+    fn: () => Promise<T>,
+    retries: number = 3,
+    delay: number = 2000,
+    factor: number = 2
 ): Promise<T> => {
-  try {
-    return await fn();
-  } catch (error: any) {
-    const isOverloaded = 
-      error.status === 503 || 
-      error.code === 503 || 
-      (error.message && (error.message.includes('overloaded') || error.message.includes('UNAVAILABLE') || error.message.includes('503')));
+    try {
+        return await fn();
+    } catch (error: any) {
+        const isOverloaded =
+            error.status === 503 ||
+            error.code === 503 ||
+            (error.message && (error.message.includes('overloaded') || error.message.includes('UNAVAILABLE') || error.message.includes('503')));
 
-    if (retries > 0 && isOverloaded) {
-      console.warn(`Model overloaded (503). Retrying in ${delay}ms... (${retries} attempts left)`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      return retryWithBackoff(fn, retries - 1, delay * factor, factor);
+        if (retries > 0 && isOverloaded) {
+            console.warn(`Model overloaded (503). Retrying in ${delay}ms... (${retries} attempts left)`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return retryWithBackoff(fn, retries - 1, delay * factor, factor);
+        }
+        throw error;
     }
-    throw error;
-  }
 };
 
 export const createChatSession = (model: string = PRO_MODEL, history: Content[] = [], systemInstruction?: string): Chat => {
-  return getClient().chats.create({
-    model: model,
-    history: history,
-    config: {
-      systemInstruction: systemInstruction || `You are XcAISTUDIO, an expert AI design assistant. You help users create posters, branding, and design elements.
+    return getClient().chats.create({
+        model: model,
+        history: history,
+        config: {
+            systemInstruction: systemInstruction || `You are XcAISTUDIO, an expert AI design assistant. You help users create posters, branding, and design elements.
       
       CRITICAL OUTPUT RULE:
       When you suggest visual designs or when the user asks for a design plan, YOU MUST provide specific actionable generation options.
@@ -84,36 +96,36 @@ export const createChatSession = (model: string = PRO_MODEL, history: Content[] 
       \`\`\`
       
       You can output multiple blocks. Keep the "title" short.`,
-      temperature: 0.7
-    },
-  });
+            temperature: 0.7
+        },
+    });
 };
 
 export const fileToPart = async (file: File): Promise<Part> => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        
+
         // Determine mime type manually if missing (common for some windows configs)
         let mimeType = file.type;
         const ext = file.name.split('.').pop()?.toLowerCase();
-        
+
         if (!mimeType) {
-             if (ext === 'pdf') mimeType = 'application/pdf';
-             else if (ext === 'docx') mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-             else if (ext === 'doc') mimeType = 'application/msword';
-             else if (ext === 'md') mimeType = 'text/markdown';
-             else if (ext === 'txt') mimeType = 'text/plain';
-             else if (ext === 'png') mimeType = 'image/png';
-             else if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg';
-             else if (ext === 'webp') mimeType = 'image/webp';
+            if (ext === 'pdf') mimeType = 'application/pdf';
+            else if (ext === 'docx') mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+            else if (ext === 'doc') mimeType = 'application/msword';
+            else if (ext === 'md') mimeType = 'text/markdown';
+            else if (ext === 'txt') mimeType = 'text/plain';
+            else if (ext === 'png') mimeType = 'image/png';
+            else if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg';
+            else if (ext === 'webp') mimeType = 'image/webp';
         }
 
         // Treat markdown and text as text parts
         if (mimeType === 'text/markdown' || mimeType === 'text/plain' || ext === 'md') {
-             reader.onloadend = () => {
+            reader.onloadend = () => {
                 resolve({ text: reader.result as string });
-             };
-             reader.readAsText(file);
+            };
+            reader.readAsText(file);
         } else {
             // Treat others (images, pdf, docx) as inlineData (base64)
             reader.onloadend = () => {
@@ -132,61 +144,61 @@ export const fileToPart = async (file: File): Promise<Part> => {
 };
 
 export const sendMessage = async (
-    chat: Chat, 
-    message: string, 
+    chat: Chat,
+    message: string,
     attachments: File[] = [],
     enableWebSearch: boolean = false
 ): Promise<string> => {
-  try {
-    const parts: Part[] = [];
-    
-    // Add text if present
-    if (message.trim()) {
-        parts.push({ text: message });
-    }
+    try {
+        const parts: Part[] = [];
 
-    // Add attachments
-    for (const file of attachments) {
-        const part = await fileToPart(file);
-        parts.push(part);
-    }
-
-    if (parts.length === 0) return "";
-
-    const config: any = {};
-    if (enableWebSearch) {
-        config.tools = [{ googleSearch: {} }];
-    }
-
-    const result: GenerateContentResponse = await retryWithBackoff(() => chat.sendMessage({
-      message: parts,
-      config
-    }));
-
-    let text = result.text || "I processed your request.";
-
-    // Handle Grounding Metadata (Sources)
-    const groundingChunks = result.candidates?.[0]?.groundingMetadata?.groundingChunks;
-    if (groundingChunks && groundingChunks.length > 0) {
-        const sources = groundingChunks
-            .map((chunk: any) => {
-                if (chunk.web) {
-                    return `[${chunk.web.title}](${chunk.web.uri})`;
-                }
-                return null;
-            })
-            .filter(Boolean);
-
-        if (sources.length > 0) {
-            text += `\n\n**Sources:**\n${sources.map((s: string) => `- ${s}`).join('\n')}`;
+        // Add text if present
+        if (message.trim()) {
+            parts.push({ text: message });
         }
-    }
 
-    return text;
-  } catch (error) {
-    console.error("Gemini API Error:", error);
-    return "Sorry, I encountered an error while processing your request. Please ensure the file types are supported.";
-  }
+        // Add attachments
+        for (const file of attachments) {
+            const part = await fileToPart(file);
+            parts.push(part);
+        }
+
+        if (parts.length === 0) return "";
+
+        const config: any = {};
+        if (enableWebSearch) {
+            config.tools = [{ googleSearch: {} }];
+        }
+
+        const result: GenerateContentResponse = await retryWithBackoff(() => chat.sendMessage({
+            message: parts,
+            config
+        }));
+
+        let text = result.text || "I processed your request.";
+
+        // Handle Grounding Metadata (Sources)
+        const groundingChunks = result.candidates?.[0]?.groundingMetadata?.groundingChunks;
+        if (groundingChunks && groundingChunks.length > 0) {
+            const sources = groundingChunks
+                .map((chunk: any) => {
+                    if (chunk.web) {
+                        return `[${chunk.web.title}](${chunk.web.uri})`;
+                    }
+                    return null;
+                })
+                .filter(Boolean);
+
+            if (sources.length > 0) {
+                text += `\n\n**Sources:**\n${sources.map((s: string) => `- ${s}`).join('\n')}`;
+            }
+        }
+
+        return text;
+    } catch (error) {
+        console.error("Gemini API Error:", error);
+        return "Sorry, I encountered an error while processing your request. Please ensure the file types are supported.";
+    }
 };
 
 export const analyzeImageRegion = async (imageBase64: string): Promise<string> => {
@@ -258,69 +270,69 @@ export const extractTextFromImage = async (imageBase64: string): Promise<string[
 };
 
 export interface ImageGenerationConfig {
-  prompt: string;
-  model: 'Nano Banana' | 'Nano Banana Pro';
-  aspectRatio: string;
-  imageSize?: '1K' | '2K' | '4K';
-  referenceImage?: string; // base64
+    prompt: string;
+    model: 'Nano Banana' | 'Nano Banana Pro';
+    aspectRatio: string;
+    imageSize?: '1K' | '2K' | '4K';
+    referenceImage?: string; // base64
 }
 
 export const generateImage = async (config: ImageGenerationConfig): Promise<string | null> => {
-  try {
-    const modelToUse = config.model === 'Nano Banana Pro' ? IMAGE_PRO_MODEL : IMAGE_FLASH_MODEL;
-    
-    let validAspectRatio = config.aspectRatio;
-    const supported = ["1:1", "3:4", "4:3", "9:16", "16:9"];
-    if (!supported.includes(validAspectRatio)) {
-        if (validAspectRatio === '21:9') validAspectRatio = '16:9'; 
-        else if (validAspectRatio === '3:2') validAspectRatio = '16:9'; 
-        else if (validAspectRatio === '2:3') validAspectRatio = '9:16';
-        else if (validAspectRatio === '5:4') validAspectRatio = '4:3';
-        else if (validAspectRatio === '4:5') validAspectRatio = '3:4';
-        else validAspectRatio = '1:1';
-    }
+    try {
+        const modelToUse = config.model === 'Nano Banana Pro' ? IMAGE_PRO_MODEL : IMAGE_FLASH_MODEL;
 
-    const parts: any[] = [{ text: config.prompt }];
-    
-    if (config.referenceImage) {
-        const matches = config.referenceImage.match(/^data:(.+);base64,(.+)$/);
-        if (matches) {
-            parts.unshift({
-                inlineData: {
-                    mimeType: matches[1],
-                    data: matches[2]
-                }
-            });
+        let validAspectRatio = config.aspectRatio;
+        const supported = ["1:1", "3:4", "4:3", "9:16", "16:9"];
+        if (!supported.includes(validAspectRatio)) {
+            if (validAspectRatio === '21:9') validAspectRatio = '16:9';
+            else if (validAspectRatio === '3:2') validAspectRatio = '16:9';
+            else if (validAspectRatio === '2:3') validAspectRatio = '9:16';
+            else if (validAspectRatio === '5:4') validAspectRatio = '4:3';
+            else if (validAspectRatio === '4:5') validAspectRatio = '3:4';
+            else validAspectRatio = '1:1';
         }
-    }
 
-    // Special handling for high resolution requests
-    const imageConfig: any = {
-        aspectRatio: validAspectRatio,
-    };
-    
-    if (config.model === 'Nano Banana Pro' && config.imageSize) {
-        imageConfig.imageSize = config.imageSize;
-    }
+        const parts: any[] = [{ text: config.prompt }];
 
-    const response = await retryWithBackoff<GenerateContentResponse>(() => getClient().models.generateContent({
-      model: modelToUse,
-      contents: { parts },
-      config: {
-        imageConfig
-      }
-    }));
+        if (config.referenceImage) {
+            const matches = config.referenceImage.match(/^data:(.+);base64,(.+)$/);
+            if (matches) {
+                parts.unshift({
+                    inlineData: {
+                        mimeType: matches[1],
+                        data: matches[2]
+                    }
+                });
+            }
+        }
 
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) {
-        return `data:image/png;base64,${part.inlineData.data}`;
-      }
+        // Special handling for high resolution requests
+        const imageConfig: any = {
+            aspectRatio: validAspectRatio,
+        };
+
+        if (config.model === 'Nano Banana Pro' && config.imageSize) {
+            imageConfig.imageSize = config.imageSize;
+        }
+
+        const response = await retryWithBackoff<GenerateContentResponse>(() => getClient().models.generateContent({
+            model: modelToUse,
+            contents: { parts },
+            config: {
+                imageConfig
+            }
+        }));
+
+        for (const part of response.candidates?.[0]?.content?.parts || []) {
+            if (part.inlineData) {
+                return `data:image/png;base64,${part.inlineData.data}`;
+            }
+        }
+        return null;
+    } catch (error) {
+        console.error("Image Generation Error:", error);
+        throw error;
     }
-    return null;
-  } catch (error) {
-    console.error("Image Generation Error:", error);
-    throw error;
-  }
 };
 
 export interface VideoGenerationConfig {
@@ -345,12 +357,12 @@ export const generateVideo = async (config: VideoGenerationConfig): Promise<stri
 
         // New instance for Veo requests
         const genAI = getClient();
-        
+
         let validAspectRatio = config.aspectRatio;
         // Veo models usually strictly support 16:9 or 9:16. 
         if (validAspectRatio !== '16:9' && validAspectRatio !== '9:16') {
-             // Default to 16:9 if invalid for video (or map 1:1 to 16:9 for now as 1:1 is not strictly supported in standard Veo preview yet)
-             validAspectRatio = '16:9'; 
+            // Default to 16:9 if invalid for video (or map 1:1 to 16:9 for now as 1:1 is not strictly supported in standard Veo preview yet)
+            validAspectRatio = '16:9';
         }
 
         let operation;
@@ -382,13 +394,13 @@ export const generateVideo = async (config: VideoGenerationConfig): Promise<stri
             // Fast model doesn't officially document lastFrame in standard public docs yet but system rules say so.
             // If provided, we add it.
             if (config.endFrame) {
-                 const matches = config.endFrame.match(/^data:(.+);base64,(.+)$/);
-                 if (matches) {
-                     request.config.lastFrame = {
-                         mimeType: matches[1],
-                         imageBytes: matches[2]
-                     };
-                 }
+                const matches = config.endFrame.match(/^data:(.+);base64,(.+)$/);
+                if (matches) {
+                    request.config.lastFrame = {
+                        mimeType: matches[1],
+                        imageBytes: matches[2]
+                    };
+                }
             }
             operation = await retryWithBackoff(() => genAI.models.generateVideos(request));
 
@@ -396,7 +408,7 @@ export const generateVideo = async (config: VideoGenerationConfig): Promise<stri
             // Veo 3.1 (Pro): Supports referenceImages, and usually start/end frames too.
             // Prioritize start/end if explicitly provided (First/Last mode).
             // Otherwise use referenceImages.
-            
+
             const request: any = {
                 model: modelId,
                 prompt: config.prompt,
@@ -436,7 +448,7 @@ export const generateVideo = async (config: VideoGenerationConfig): Promise<stri
 
         while (!operation.done) {
             await new Promise(resolve => setTimeout(resolve, 5000));
-            operation = await retryWithBackoff(() => genAI.operations.getVideosOperation({operation: operation}));
+            operation = await retryWithBackoff(() => genAI.operations.getVideosOperation({ operation: operation }));
         }
 
         const uri = operation.response?.generatedVideos?.[0]?.video?.uri;
@@ -448,12 +460,12 @@ export const generateVideo = async (config: VideoGenerationConfig): Promise<stri
     } catch (error: any) {
         console.error("Video Generation Error:", error);
         if (error.message && error.message.includes('Requested entity was not found')) {
-             const win = window as any;
-             if (win.aistudio) {
+            const win = window as any;
+            if (win.aistudio) {
                 // Reset key and prompt again if entity not found (key issue)
                 await win.aistudio.openSelectKey();
                 throw new Error("Please select a valid API key and try again.");
-             }
+            }
         }
         throw error;
     }

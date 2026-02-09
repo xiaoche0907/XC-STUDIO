@@ -9,9 +9,12 @@ interface SettingsModalProps {
 
 import { createPortal } from 'react-dom';
 
+type ApiProvider = 'gemini' | 'yunwu' | 'custom';
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     const [apiKey, setApiKey] = useState('');
     const [apiUrl, setApiUrl] = useState('');
+    const [apiProvider, setApiProvider] = useState<ApiProvider>('gemini');
     const [isVisible, setIsVisible] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'success'>('idle');
@@ -20,23 +23,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         if (isOpen) {
             const currentKey = localStorage.getItem('custom_api_key') || '';
             const currentUrl = localStorage.getItem('custom_api_url') || '';
+            const currentProvider = (localStorage.getItem('api_provider') as ApiProvider) || 'gemini';
             setApiKey(currentKey);
             setApiUrl(currentUrl);
+            setApiProvider(currentProvider);
             setSaveStatus('idle');
         }
     }, [isOpen]);
+
+    const handleProviderChange = (provider: ApiProvider) => {
+        setApiProvider(provider);
+        // 自动设置对应的API URL
+        if (provider === 'yunwu') {
+            setApiUrl('https://yunwu.ai');
+        } else if (provider === 'gemini') {
+            setApiUrl('');
+        }
+        // custom 保持用户输入的URL
+    };
 
     const handleSave = () => {
         setIsSaving(true);
         // Simulate a brief validation/save process
         setTimeout(() => {
             localStorage.setItem('custom_api_key', apiKey);
-            if (apiUrl.trim()) {
+            localStorage.setItem('api_provider', apiProvider);
+
+            if (apiProvider === 'yunwu') {
+                localStorage.setItem('custom_api_url', 'https://yunwu.ai');
+            } else if (apiProvider === 'custom' && apiUrl.trim()) {
                 localStorage.setItem('custom_api_url', apiUrl.trim());
             } else {
                 localStorage.removeItem('custom_api_url');
             }
-            
+
             setIsSaving(false);
             setSaveStatus('success');
             setTimeout(() => {
@@ -57,7 +77,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         onClick={onClose}
                         className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm"
                     />
-                    
+
                     {/* Modal */}
                     <div className="fixed inset-0 z-[101] flex items-center justify-center p-4 pointer-events-none">
                         <motion.div
@@ -78,7 +98,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                         <p className="text-xs text-gray-400">设置您的 Google Gemini API Key</p>
                                     </div>
                                 </div>
-                                <button 
+                                <button
                                     onClick={onClose}
                                     className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition"
                                 >
@@ -88,18 +108,60 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
                             {/* Body */}
                             <div className="p-6 space-y-4">
+                                {/* API Provider Selection */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-gray-700 block">API 提供商</label>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleProviderChange('gemini')}
+                                            className={`px-3 py-2.5 rounded-xl text-sm font-medium border-2 transition-all ${apiProvider === 'gemini'
+                                                    ? 'bg-blue-50 border-blue-500 text-blue-700'
+                                                    : 'bg-gray-50 border-gray-200 text-gray-600 hover:border-gray-300'
+                                                }`}
+                                        >
+                                            Gemini 原生
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleProviderChange('yunwu')}
+                                            className={`px-3 py-2.5 rounded-xl text-sm font-medium border-2 transition-all ${apiProvider === 'yunwu'
+                                                    ? 'bg-purple-50 border-purple-500 text-purple-700'
+                                                    : 'bg-gray-50 border-gray-200 text-gray-600 hover:border-gray-300'
+                                                }`}
+                                        >
+                                            云雾 API
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleProviderChange('custom')}
+                                            className={`px-3 py-2.5 rounded-xl text-sm font-medium border-2 transition-all ${apiProvider === 'custom'
+                                                    ? 'bg-green-50 border-green-500 text-green-700'
+                                                    : 'bg-gray-50 border-gray-200 text-gray-600 hover:border-gray-300'
+                                                }`}
+                                        >
+                                            自定义
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-gray-400 leading-relaxed">
+                                        {apiProvider === 'gemini' && '使用 Google 官方 Gemini API（需要科学上网）'}
+                                        {apiProvider === 'yunwu' && '使用云雾 API 服务（国内可直接访问）'}
+                                        {apiProvider === 'custom' && '使用自定义代理服务器'}
+                                    </p>
+                                </div>
+
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-gray-700 block">API Key</label>
                                     <div className="relative group">
-                                        <input 
-                                            type={isVisible ? "text" : "password"} 
+                                        <input
+                                            type={isVisible ? "text" : "password"}
                                             value={apiKey}
                                             onChange={(e) => setApiKey(e.target.value)}
-                                            placeholder="sk-..." 
+                                            placeholder="sk-..."
                                             className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-all font-mono text-sm pr-10 hover:border-gray-300"
                                             autoFocus
                                         />
-                                        <button 
+                                        <button
                                             onClick={() => setIsVisible(!isVisible)}
                                             className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition p-1"
                                         >
@@ -111,43 +173,62 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                     </p>
                                 </div>
 
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium text-gray-700 block flex items-center gap-2">
-                                        API Proxy URL
-                                        <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">Optional</span>
-                                    </label>
-                                    <div className="relative group">
-                                        <input 
-                                            type="text" 
-                                            value={apiUrl}
-                                            onChange={(e) => setApiUrl(e.target.value)}
-                                            placeholder="https://generativelanguage.googleapis.com" 
-                                            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-all font-mono text-sm pr-10 hover:border-gray-300"
-                                        />
-                                        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 p-1">
-                                            <LinkIcon size={16} />
+                                {/* Only show URL input for custom provider */}
+                                {apiProvider === 'custom' && (
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-gray-700 block flex items-center gap-2">
+                                            自定义 API URL
+                                        </label>
+                                        <div className="relative group">
+                                            <input
+                                                type="text"
+                                                value={apiUrl}
+                                                onChange={(e) => setApiUrl(e.target.value)}
+                                                placeholder="https://your-proxy.com"
+                                                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-all font-mono text-sm pr-10 hover:border-gray-300"
+                                            />
+                                            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 p-1">
+                                                <LinkIcon size={16} />
+                                            </div>
+                                        </div>
+                                        <p className="text-xs text-gray-400 leading-relaxed">
+                                            请输入完整的基础 URL（例如：https://api.openai-proxy.com/google）。
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* Show provider info for yunwu */}
+                                {apiProvider === 'yunwu' && (
+                                    <div className="bg-purple-50 border border-purple-200 rounded-xl p-4">
+                                        <div className="flex items-start gap-3">
+                                            <div className="w-8 h-8 bg-purple-500 text-white rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+                                                <LinkIcon size={16} />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="text-sm font-bold text-purple-900 mb-1">云雾 API 主站</h4>
+                                                <p className="text-xs text-purple-700 font-mono mb-2 break-all">https://yunwu.ai</p>
+                                                <p className="text-xs text-purple-600 leading-relaxed">
+                                                    美国高防免费均衡选择，国内可直接访问
+                                                </p>
+                                            </div>
                                         </div>
                                     </div>
-                                    <p className="text-xs text-gray-400 leading-relaxed">
-                                        如果您使用的是中转/代理 API，请在此处输入完整的基础 URL（例如：https://api.openai-proxy.com/google）。
-                                    </p>
-                                </div>
+                                )}
                             </div>
 
                             {/* Footer */}
                             <div className="px-6 py-4 bg-gray-50/50 border-t border-gray-100 flex justify-end gap-3">
-                                <button 
+                                <button
                                     onClick={onClose}
                                     className="px-4 py-2.5 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition"
                                 >
                                     取消
                                 </button>
-                                <button 
+                                <button
                                     onClick={handleSave}
                                     disabled={!apiKey.trim() || isSaving}
-                                    className={`px-6 py-2.5 rounded-xl text-sm font-bold text-white shadow-lg shadow-blue-500/25 flex items-center gap-2 transition-all active:scale-95 ${
-                                        saveStatus === 'success' ? 'bg-green-500 border-green-500' : 'bg-black hover:bg-gray-900 border-transparent'
-                                    }`}
+                                    className={`px-6 py-2.5 rounded-xl text-sm font-bold text-white shadow-lg shadow-blue-500/25 flex items-center gap-2 transition-all active:scale-95 ${saveStatus === 'success' ? 'bg-green-500 border-green-500' : 'bg-black hover:bg-gray-900 border-transparent'
+                                        }`}
                                 >
                                     {isSaving ? (
                                         <>

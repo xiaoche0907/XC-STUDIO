@@ -42,6 +42,7 @@ export interface AgentTask {
     proposals?: AgentProposal[];
     assets?: GeneratedAsset[];
     skillCalls?: SkillCall[];
+    error?: any; // 添加错误字段支持
   };
   createdAt: number;
   updatedAt: number;

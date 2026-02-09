@@ -26,7 +26,7 @@ export const TaskProgress: React.FC<TaskProgressProps> = ({ task }) => {
       exit={{ opacity: 0, y: -10 }}
       className="flex items-center gap-3 p-3 bg-white/5 rounded-lg backdrop-blur-sm border border-white/10"
     >
-      <AgentAvatar agentId={task.agentId} size="sm" showBadge />
+      <AgentAvatar agentId={task.agentId} size="sm" />
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
