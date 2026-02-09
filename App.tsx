@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { HashRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Home from './pages/Home';
 import Workspace from './pages/Workspace';
 import WorkspaceNew from './pages/Workspace/WorkspaceNew';
