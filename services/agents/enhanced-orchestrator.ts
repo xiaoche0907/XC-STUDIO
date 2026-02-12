@@ -9,9 +9,7 @@ import { COCO_SYSTEM_PROMPT } from './prompts/coco.prompt';
 import { errorHandler, ErrorType } from '../../utils/error-handler';
 import { executeSkill } from '../skills';
 
-const ai = new GoogleGenAI({
-    apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY
-});
+
 
 /**
  * 路由配置
@@ -105,6 +103,8 @@ Analyze and route to appropriate agent. Return JSON with:
         // 使用错误处理包装器进行API调用
         const result = await errorHandler.withRetry(
             async () => {
+                const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+                const ai = new GoogleGenAI({ apiKey });
                 const response = await Promise.race([
                     ai.models.generateContent({
                         model: 'gemini-3-pro-preview',

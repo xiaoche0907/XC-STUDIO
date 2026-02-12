@@ -296,7 +296,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({
     );
 };
 
-const Projects: React.FC = () => {
+const Projects: React.FC<{ onExit?: () => void }> = ({ onExit }) => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -369,6 +369,15 @@ const Projects: React.FC = () => {
     <div className="min-h-screen pb-20 bg-gray-50/50">
       <Header />
       <Sidebar />
+      {onExit && (
+        <button
+          onClick={onExit}
+          className="fixed top-24 left-6 z-[60] px-4 py-2 bg-white backdrop-blur-md border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 hover:text-gray-900 transition-all font-medium text-sm flex items-center gap-2 shadow-sm"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+          返回主页
+        </button>
+      )}
       
       <main className="pt-24 px-[6%] max-w-[1600px] mx-auto transition-all duration-300">
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">

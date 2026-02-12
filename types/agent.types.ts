@@ -1,3 +1,5 @@
+import { ProjectContext } from './common';
+
 export type AgentType = 'coco' | 'vireo' | 'cameron' | 'poster' | 'package' | 'motion' | 'campaign';
 
 export interface AgentInfo {
@@ -59,18 +61,7 @@ export interface GeneratedAsset {
   };
 }
 
-export interface ProjectContext {
-  projectId: string;
-  projectTitle: string;
-  brandInfo?: {
-    name?: string;
-    colors?: string[];
-    fonts?: string[];
-    style?: string;
-  };
-  existingAssets: any[];
-  conversationHistory: any[];
-}
+
 
 export interface SkillCall {
   skillName: string;
