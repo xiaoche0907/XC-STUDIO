@@ -2,25 +2,25 @@
 import { GoogleGenAI, Chat, GenerateContentResponse, Part, Content, VideoGenerationReferenceImage, VideoGenerationReferenceType, Type } from "@google/genai";
 
 // Helper to get API Key dynamically
-const getApiKey = () => {
+export const getApiKey = () => {
     const win = window as any;
-    
+
     // 1. 优先使用 AI Studio 的 key
     if (win.aistudio && win.aistudio.getKey) {
         const key = win.aistudio.getKey();
         if (key) return key;
     }
-    
+
     // 2. 其次使用 localStorage 中用户设置的 key
     const localKey = localStorage.getItem('custom_api_key');
     if (localKey) return localKey;
-    
+
     // 3. 最后才使用环境变量（可选）
     const envKey = import.meta.env.VITE_GEMINI_API_KEY;
     if (envKey && envKey !== 'undefined') return envKey;
-    
-    // 4. 如果都没有，返回空字符串（不会报错，但API调用时会提示用户设置）
-    return '';
+
+    // 4. 如果都没有，返回 PLACEHOLDER 防止 crash
+    return 'PLACEHOLDER';
 };
 
 // Helper to get API Base URL dynamically
@@ -230,7 +230,7 @@ export const analyzeImageRegion = async (imageBase64: string): Promise<string> =
                         }
                     },
                     {
-                        text: "Analyze this specific cropped area of an image. Describe exactly what is visible in detail (e.g. facial features, object details, texture). Keep it concise."
+                        text: "请用中文简要描述这个画面区域的主体（例如：一只猫、红色杯子）。只输出主体名称，不要任何废话，不超过5个字。"
                     }
                 ]
             }

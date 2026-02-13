@@ -230,6 +230,7 @@ const Workspace: React.FC = () => {
     const [showFontPicker, setShowFontPicker] = useState(false);
     const [showModelPicker, setShowModelPicker] = useState(false);
     const [showRatioPicker, setShowRatioPicker] = useState(false);
+    const [isAnimating, setIsAnimating] = useState(false); // New state for smooth zoom transition
     const [showResPicker, setShowResPicker] = useState(false);
     const [showFastEdit, setShowFastEdit] = useState(false);
     const [fastEditPrompt, setFastEditPrompt] = useState('');
@@ -254,6 +255,7 @@ const Workspace: React.FC = () => {
 
     const activeBlockIdRef = useRef(activeBlockId);
     const selectionIndexRef = useRef(selectionIndex);
+    const canvasContentRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => { activeBlockIdRef.current = activeBlockId; }, [activeBlockId]);
     useEffect(() => { selectionIndexRef.current = selectionIndex; }, [selectionIndex]);
@@ -592,6 +594,24 @@ const Workspace: React.FC = () => {
             saveToHistory(newElements, newMarkers);
         }
     };
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Tab for Fast Edit
+            if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                const activeElement = document.activeElement;
+                const isInputActive = activeElement?.tagName === 'INPUT' || activeElement?.tagName === 'TEXTAREA';
+
+                if (!isInputActive && selectedElementId) {
+                    e.preventDefault();
+                    setShowFastEdit(true);
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [selectedElementId]);
 
     useEffect(() => {
         setShowFastEdit(false);
@@ -989,6 +1009,7 @@ const Workspace: React.FC = () => {
         const onWheel = (e: WheelEvent) => {
             if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
+                setIsAnimating(false);
                 const delta = e.deltaY > 0 ? -10 : 10;
                 setZoom(z => Math.max(10, Math.min(500, z + delta)));
             } else {
@@ -1020,16 +1041,11 @@ const Workspace: React.FC = () => {
             if (e.shiftKey && e.key === '1') { e.preventDefault(); fitToScreen(); return; }
             if (e.code === 'Space' && !e.repeat) { const isTyping = document.activeElement?.tagName === 'TEXTAREA' || document.activeElement?.tagName === 'INPUT' || document.activeElement?.getAttribute('contenteditable') === 'true'; if (!isTyping) { e.preventDefault(); setIsSpacePressed(true); } }
 
+            // Tab handled by separate effect
             if (e.key === 'Tab') {
-                e.preventDefault();
-                if (selectedElementId) {
-                    const el = elements.find(e => e.id === selectedElementId);
-                    if (el && (el.type === 'gen-image' || el.type === 'image') && el.url) {
-                        setShowFastEdit(prev => !prev);
-                        return;
-                    }
+                if (!document.activeElement?.tagName.match(/TEXTAREA|INPUT/)) {
+                    e.preventDefault();
                 }
-                textareaRef.current?.focus();
             }
 
             // Check for selected Chip deletion first to avoid deleting canvas elements
@@ -1238,7 +1254,26 @@ const Workspace: React.FC = () => {
 
     const handleContextMenu = (e: React.MouseEvent) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY }); };
     // Wheel handled by native listener in useEffect
-    const handleMouseDown = (e: React.MouseEvent) => { if (contextMenu) setContextMenu(null); if (activeTool === 'hand' || e.button === 1 || e.buttons === 4 || isSpacePressed) { setIsPanning(true); setDragStart({ x: e.clientX, y: e.clientY }); return; } if (e.target === containerRef.current) { setSelectedElementId(null); setEditingTextId(null); setIsPanning(true); setDragStart({ x: e.clientX, y: e.clientY }); setShowFontPicker(false); setShowModelPicker(false); setShowResPicker(false); setShowRatioPicker(false); } };
+    const handleMouseDown = (e: React.MouseEvent) => {
+        if (contextMenu) setContextMenu(null);
+        if (activeTool === 'hand' || e.button === 1 || e.buttons === 4 || isSpacePressed) {
+            setIsPanning(true);
+            setIsAnimating(false);
+            setDragStart({ x: e.clientX, y: e.clientY });
+            return;
+        }
+        if (e.target === containerRef.current) {
+            setSelectedElementId(null);
+            setEditingTextId(null);
+            setIsPanning(true);
+            setIsAnimating(false);
+            setDragStart({ x: e.clientX, y: e.clientY });
+            setShowFontPicker(false);
+            setShowModelPicker(false);
+            setShowResPicker(false);
+            setShowRatioPicker(false);
+        }
+    };
 
     const handleMouseMove = (e: React.MouseEvent) => {
         if (isResizing && selectedElementId) {
@@ -1328,14 +1363,19 @@ const Workspace: React.FC = () => {
 
             const newMarkerId = markers.length + 1;
 
+
             // Crop and Add to Input Box logic
             const el = elements.find(e => e.id === id);
             let cropUrl: string | undefined = undefined;
+            let markerWidth: number | undefined = undefined;
+            let markerHeight: number | undefined = undefined;
 
             if (el && (el.type === 'image' || el.type === 'gen-image') && el.url) {
                 // 固定选区大小 (像素)
                 const cropWidth = 300;
                 const cropHeight = 300;
+                markerWidth = cropWidth;
+                markerHeight = cropHeight;
 
                 const crop = await cropImageRegion(el.url, x, y, cropWidth, cropHeight);
                 if (crop) {
@@ -1365,15 +1405,43 @@ const Workspace: React.FC = () => {
                         imageHeight: el.height
                     };
 
+
                     // 使用 setTimeout 确保状态更新后再插入
                     setTimeout(() => {
                         insertInputFile(file);
                         console.log('File inserted:', file.name, 'Marker ID:', newMarkerId);
+
+                        // 自动分析逻辑
+                        (file as any).markerName = '分析中...';
+                        analyzeImageRegion(crop).then(analysis => {
+                            console.log('Marker Analysis Result:', analysis);
+                            // 简单的清理提取关键词
+                            let name = analysis.split('.')[0]; // 取第一句
+                            if (name.length > 10) name = name.substring(0, 10) + '...';
+                            (file as any).markerName = name;
+
+                            // 强制更新 inputBlocks 触发重绘
+                            setInputBlocks(prev => prev.map(b => {
+                                if (b.type === 'file' && (b.file as any).markerId === newMarkerId) {
+                                    return { ...b }; // 浅拷贝触发更新
+                                }
+                                return b;
+                            }));
+                        }).catch(err => {
+                            console.error('Marker analysis failed:', err);
+                            (file as any).markerName = '区域';
+                            setInputBlocks(prev => prev.map(b => {
+                                if (b.type === 'file' && (b.file as any).markerId === newMarkerId) {
+                                    return { ...b };
+                                }
+                                return b;
+                            }));
+                        });
                     }, 150);
                 }
             }
 
-            const newMarkers = [...markers, { id: newMarkerId, x, y, elementId: id, cropUrl }];
+            const newMarkers = [...markers, { id: newMarkerId, x, y, elementId: id, cropUrl, width: markerWidth, height: markerHeight }];
             setMarkers(newMarkers);
             saveToHistory(elements, newMarkers);
             return;
@@ -1424,8 +1492,31 @@ const Workspace: React.FC = () => {
             setInputBlocks([{ id: `text-${Date.now()}`, type: 'text', text: '' }]);
             setIsTyping(true);
 
+
             try {
-                const agentResult = await processMessage(textToSend, filesToSend);
+                // Extract marker metadata if present
+                const markerFiles = filesToSend.filter(f => (f as any).markerId);
+                let metadata: Record<string, any> | undefined = undefined;
+
+                if (markerFiles.length > 0) {
+                    const firstMarkerFile = markerFiles[0] as any;
+                    // Find the marker in current state
+                    const marker = markers.find(m => m.id === firstMarkerFile.markerId);
+                    if (marker) {
+                        metadata = {
+                            markerId: marker.id,
+                            markerInfo: {
+                                x: marker.x,
+                                y: marker.y,
+                                width: marker.width,
+                                height: marker.height
+                            }
+                        };
+                        console.log('[Workspace] Passing marker metadata to agent:', metadata);
+                    }
+                }
+
+                const agentResult = await processMessage(textToSend, filesToSend, metadata);
                 if (agentResult?.output?.message) {
                     setMessages(prev => [...prev, {
                         id: (Date.now() + 1).toString(),
@@ -1672,10 +1763,43 @@ const Workspace: React.FC = () => {
                                     {el.genAspectRatio || '1:1'} <ChevronDown size={10} className="opacity-50" />
                                 </button>
                                 {showRatioPicker && (
-                                    <div className="absolute bottom-full mb-2 right-0 w-28 bg-white rounded-xl shadow-xl border border-gray-100 p-1 z-[60]">
-                                        {['1:1', '4:3', '3:4', '16:9', '9:16'].map(r => (
-                                            <button key={r} onClick={() => { updateSelectedElement({ genAspectRatio: r }); setShowRatioPicker(false); }} className={`w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg text-xs transition ${el.genAspectRatio === r ? 'text-blue-600 font-bold bg-blue-50/30' : 'text-gray-600'}`}>
-                                                {r}
+
+                                    <div className="absolute bottom-full mb-2 right-0 w-48 bg-white rounded-xl shadow-xl border border-gray-100 p-1 z-[60] max-h-[320px] overflow-y-auto no-scrollbar">
+                                        <div className="px-3 py-2 text-[10px] text-gray-400 flex items-center gap-1">
+                                            格式 <Info size={10} />
+                                        </div>
+                                        {[
+                                            { label: '21:9', dim: '1568*672', w: 21, h: 9 },
+                                            { label: '16:9', dim: '1456*816', w: 16, h: 9 },
+                                            { label: '4:3', dim: '1232*928', w: 4, h: 3 },
+                                            { label: '3:2', dim: '1344*896', w: 3, h: 2 },
+                                            { label: '1:1', dim: '1024*1024', w: 1, h: 1 },
+                                            { label: '9:16', dim: '816*1456', w: 9, h: 16 },
+                                            { label: '3:4', dim: '928*1232', w: 3, h: 4 },
+                                            { label: '2:3', dim: '896*1344', w: 2, h: 3 },
+                                            { label: '5:4', dim: '1280*1024', w: 5, h: 4 },
+                                            { label: '4:5', dim: '1024*1280', w: 4, h: 5 },
+                                        ].map(r => (
+                                            <button
+                                                key={r.label}
+                                                onClick={() => { updateSelectedElement({ genAspectRatio: r.label }); setShowRatioPicker(false); }}
+                                                className={`w-full text-left px-2 py-2 hover:bg-gray-50 rounded-lg text-xs transition flex items-center gap-3 group ${el.genAspectRatio === r.label ? 'bg-gray-50' : ''}`}
+                                            >
+                                                {/* Ratio Icon */}
+                                                <div className={`w-6 h-6 rounded-md flex items-center justify-center bg-gray-100 ${el.genAspectRatio === r.label ? 'bg-blue-50 text-blue-500' : 'text-gray-400'}`}>
+                                                    <div
+                                                        className="border-2 border-current rounded-[1px]"
+                                                        style={{
+                                                            width: r.w > r.h ? '14px' : `${(r.w / r.h) * 14}px`,
+                                                            height: r.h > r.w ? '14px' : `${(r.h / r.w) * 14}px`
+                                                        }}
+                                                    ></div>
+                                                </div>
+
+                                                <span className={`font-semibold ${el.genAspectRatio === r.label ? 'text-gray-900' : 'text-gray-700'}`}>{r.label}</span>
+                                                <span className="text-[10px] text-gray-400 font-medium font-mono">{r.dim}</span>
+
+                                                {el.genAspectRatio === r.label && <Check size={14} className="text-gray-900 ml-auto" />}
                                             </button>
                                         ))}
                                     </div>
@@ -1687,8 +1811,8 @@ const Workspace: React.FC = () => {
                                 onClick={() => handleGenImage(el.id)}
                                 disabled={!el.genPrompt || el.isGenerating}
                                 className={`h-9 px-5 rounded-xl flex items-center gap-2 text-xs font-bold shadow-sm transition-all ${!el.genPrompt || el.isGenerating
-                                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                        : 'bg-gray-900 text-white hover:bg-black hover:scale-105 active:scale-95 shadow-lg shadow-gray-200'
+                                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                    : 'bg-gray-900 text-white hover:bg-black hover:scale-105 active:scale-95 shadow-lg shadow-gray-200'
                                     }`}
                             >
                                 {el.isGenerating ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} className="text-yellow-300 fill-yellow-300" />}
@@ -2251,6 +2375,28 @@ const Workspace: React.FC = () => {
                                         });
                                         return null;
                                     })()}
+                                    {currentTask?.output?.analysis && (
+                                        <div className="mb-6 border-b border-gray-100 pb-4">
+                                            <button
+                                                onClick={(e) => {
+                                                    const content = e.currentTarget.nextElementSibling;
+                                                    if (content) content.classList.toggle('hidden');
+                                                    e.currentTarget.querySelector('.chevron')?.classList.toggle('rotate-180');
+                                                }}
+                                                className="flex items-center gap-2 text-gray-500 hover:text-gray-800 transition-colors w-full group"
+                                            >
+                                                <div className="p-1 rounded-md group-hover:bg-gray-100 transition-colors">
+                                                    <Sparkles size={14} />
+                                                </div>
+                                                <span className="text-xs font-medium">图片分析</span>
+                                                <ChevronDown size={14} className="ml-auto chevron transition-transform duration-200" />
+                                            </button>
+                                            <div className="mt-3 text-sm text-gray-600 leading-relaxed text-justify px-1">
+                                                {currentTask.output.analysis}
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {currentTask?.output?.proposals && currentTask.output.proposals.length > 0 && (
                                         <div className="mt-4">
                                             <ProposalSelector
@@ -2258,13 +2404,22 @@ const Workspace: React.FC = () => {
                                                 onSelect={async (proposal: AgentProposal) => {
                                                     setIsTyping(true);
                                                     try {
+                                                        // 1. Capture context from current task metadata (reliable) or attachments (fallback)
+                                                        const metadata = currentTask.input.metadata || {};
+                                                        const attachments = currentTask.input.attachments;
+                                                        const primaryFile = attachments && attachments.length > 0 ? attachments[0] : null;
+
+                                                        const markerId = metadata.markerId || (primaryFile ? (primaryFile as any).markerId : null);
+                                                        const markerInfo = metadata.markerInfo || (primaryFile ? (primaryFile as any).markerInfo : null);
+
                                                         const task: AgentTask = {
                                                             id: `task-${Date.now()}`,
                                                             agentId: currentTask.agentId,
                                                             status: 'executing',
                                                             input: {
                                                                 message: `Execute proposal: ${proposal.id}`,
-                                                                context: projectContext
+                                                                context: projectContext,
+                                                                attachments: attachments // Pass attachments!
                                                             },
                                                             createdAt: Date.now(),
                                                             updatedAt: Date.now()
@@ -2275,15 +2430,36 @@ const Workspace: React.FC = () => {
                                                         if (result.output?.assets) {
                                                             result.output.assets.forEach(asset => {
                                                                 if (asset.type === 'image') {
+                                                                    // Default position
+                                                                    let targetX = 100;
+                                                                    let targetY = 100;
+                                                                    let targetW = 400;
+                                                                    let targetH = 400;
+
+                                                                    // Smart placement if marker info exists
+                                                                    if (markerId && markerInfo) {
+                                                                        const marker = markers.find(m => m.id === markerId);
+                                                                        if (marker) {
+                                                                            const parentEl = elements.find(e => e.id === marker.elementId);
+                                                                            if (parentEl) {
+                                                                                // markerInfo.x/y are pixel offsets relative to image top-left
+                                                                                targetX = parentEl.x + (markerInfo.x || 0);
+                                                                                targetY = parentEl.y + (markerInfo.y || 0);
+                                                                                targetW = markerInfo.width || 400;
+                                                                                targetH = markerInfo.height || 400;
+                                                                            }
+                                                                        }
+                                                                    }
+
                                                                     const newElement: CanvasElement = {
                                                                         id: `gen-${Date.now()}-${Math.random()}`,
                                                                         type: 'gen-image',
                                                                         url: asset.url,
-                                                                        x: 100,
-                                                                        y: 100,
-                                                                        width: 400,
-                                                                        height: 400,
-                                                                        zIndex: elements.length,
+                                                                        x: targetX,
+                                                                        y: targetY,
+                                                                        width: targetW,
+                                                                        height: targetH,
+                                                                        zIndex: elements.length + 10,
                                                                         genPrompt: asset.metadata.prompt,
                                                                         genModel: asset.metadata.model as any
                                                                     };
@@ -2384,10 +2560,46 @@ const Workspace: React.FC = () => {
                                                     <div
                                                         key={block.id}
                                                         className={`inline-flex items-center gap-1 rounded-lg pl-1 pr-1.5 py-1 cursor-default relative group flex-shrink-0 select-none h-7 transition-all ${isSelected
-                                                                ? 'bg-blue-100 ring-2 ring-blue-500'
-                                                                : 'bg-[#F3F4F6]'
+                                                            ? 'bg-blue-100 ring-2 ring-blue-500'
+                                                            : 'bg-[#F3F4F6]'
                                                             }`}
-                                                        onClick={() => setSelectedChipId(isSelected ? null : block.id)}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+
+                                                            if (isSelected) {
+                                                                // Smooth Zoom-to-Focus Logic
+                                                                if (markerInfo && markerInfo.x !== undefined && markerInfo.imageWidth) {
+                                                                    const m = markers.find(mark => mark.id === markerId);
+                                                                    if (m) {
+                                                                        const targetEl = elements.find(el => el.id === m.elementId);
+                                                                        if (targetEl) {
+                                                                            const pixelX = targetEl.x + (targetEl.width * m.x / 100);
+                                                                            const pixelY = targetEl.y + (targetEl.height * m.y / 100);
+
+                                                                            const targetZoom = Math.max(zoom, 100);
+                                                                            const scale = targetZoom / 100;
+
+                                                                            // container center (assuming full screen roughly)
+                                                                            const containerW = containerRef.current?.clientWidth || window.innerWidth;
+                                                                            const containerH = containerRef.current?.clientHeight || window.innerHeight;
+
+                                                                            const targetPanX = (containerW / 2) - (pixelX * scale);
+                                                                            const targetPanY = (containerH / 2) - (pixelY * scale);
+
+                                                                            // Enable smooth transition via Framer Motion
+                                                                            setIsAnimating(true);
+                                                                            setZoom(targetZoom);
+                                                                            setPan({ x: targetPanX, y: targetPanY });
+
+                                                                            // Disable smoothing after animation completes
+                                                                            setTimeout(() => setIsAnimating(false), 750);
+                                                                        }
+                                                                    }
+                                                                }
+                                                            } else {
+                                                                setSelectedChipId(block.id);
+                                                            }
+                                                        }}
                                                         onMouseEnter={() => setHoveredChipId(block.id)}
                                                         onMouseLeave={() => setHoveredChipId(null)}
                                                     >
@@ -2446,8 +2658,8 @@ const Workspace: React.FC = () => {
                                                     <div
                                                         key={block.id}
                                                         className={`inline-flex items-center gap-1.5 rounded-lg pl-1 pr-1.5 py-1 flex-shrink-0 select-none relative group h-7 cursor-default transition-all ${isSelected
-                                                                ? 'bg-blue-100 ring-2 ring-blue-500'
-                                                                : 'bg-[#F3F4F6]'
+                                                            ? 'bg-blue-100 ring-2 ring-blue-500'
+                                                            : 'bg-[#F3F4F6]'
                                                             }`}
                                                         onClick={() => setSelectedChipId(isSelected ? null : block.id)}
                                                     >
@@ -2620,8 +2832,8 @@ const Workspace: React.FC = () => {
                                             <button
                                                 onClick={() => setShowModeSelector(!showModeSelector)}
                                                 className={`h-8 px-3 rounded-full border flex items-center gap-1.5 text-xs font-medium transition ${creationMode === 'agent' ? 'bg-blue-50 border-[#3B82F6] text-[#3B82F6]' :
-                                                        creationMode === 'image' ? 'bg-blue-50 border-[#3B82F6] text-[#3B82F6]' :
-                                                            'bg-purple-50 border-purple-500 text-purple-600'
+                                                    creationMode === 'image' ? 'bg-blue-50 border-[#3B82F6] text-[#3B82F6]' :
+                                                        'bg-purple-50 border-purple-500 text-purple-600'
                                                     }`}
                                             >
                                                 {creationMode === 'agent' && <><Sparkles size={12} /> Agent</>}
@@ -2825,7 +3037,19 @@ const Workspace: React.FC = () => {
                     {renderShapeToolbar()}
                     {renderImageToolbar()}
                     {renderGenVideoToolbar()}
-                    <div className="absolute top-0 left-0 w-0 h-0 overflow-visible transition-transform duration-75 ease-out" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transformOrigin: '0 0' }}>
+                    <motion.div
+                        ref={canvasContentRef}
+                        className="absolute top-0 left-0 w-0 h-0 overflow-visible origin-top-left"
+                        animate={{
+                            x: pan.x,
+                            y: pan.y,
+                            scale: zoom / 100
+                        }}
+                        transition={{
+                            duration: isAnimating ? 0.7 : 0,
+                            ease: [0.25, 0.1, 0.25, 1]
+                        }}
+                    >
                         {elements.map((el) => {
                             const isSelected = selectedElementId === el.id;
                             return (
@@ -2883,13 +3107,13 @@ const Workspace: React.FC = () => {
                                                     )}
                                                 </>
                                             ) : (
-                                                <>
+                                                <div className="w-full h-full flex flex-col" style={{ transform: `scale(${100 / zoom})`, transformOrigin: 'top left', width: `${zoom}%`, height: `${zoom}%` }}>
                                                     <div className="flex items-center justify-between px-3 py-2 text-xs text-gray-500 border-b border-blue-100/50 whitespace-nowrap"><div className="flex items-center gap-2 font-medium"> <ImageIcon size={12} /> <span>Image...</span> </div><div className="font-mono opacity-70"> {Math.round(el.width)} × {Math.round(el.height)} </div></div>
                                                     <div className="flex-1 flex items-center justify-center relative group-hover:bg-blue-50/50 transition-colors">
                                                         {el.isGenerating ? (<div className="flex flex-col items-center gap-3"> <Loader2 size={32} className="animate-spin text-blue-500" /> <span className="text-xs text-blue-400 font-medium">Creating magic...</span> </div>) : (<div className="flex flex-col items-center gap-2 text-blue-200"> <ImageIcon size={48} strokeWidth={1.5} /> </div>)}
                                                         {el.genRefImage && !el.url && (<div className="absolute bottom-3 right-3 w-12 h-12 border-2 border-white shadow-sm rounded-lg overflow-hidden bg-gray-100"> <img src={el.genRefImage} className="w-full h-full object-cover opacity-80" /> </div>)}
                                                     </div>
-                                                </>
+                                                </div>
                                             )}
                                         </div>
                                     )}
@@ -2936,12 +3160,12 @@ const Workspace: React.FC = () => {
                                                     )}
                                                 </>
                                             ) : (
-                                                <>
+                                                <div className="w-full h-full flex flex-col" style={{ transform: `scale(${100 / zoom})`, transformOrigin: 'top left', width: `${zoom}%`, height: `${zoom}%` }}>
                                                     <div className="flex items-center justify-between px-3 py-2 text-xs text-gray-500 border-b border-blue-100/50 whitespace-nowrap"><div className="flex items-center gap-2 font-medium"> <Video size={12} /> <span>Video...</span> </div><div className="font-mono opacity-70"> {Math.round(el.width)} × {Math.round(el.height)} </div></div>
                                                     <div className="flex-1 flex items-center justify-center relative group-hover:bg-blue-50/50 transition-colors">
                                                         {el.isGenerating ? (<div className="flex flex-col items-center gap-3"> <Loader2 size={32} className="animate-spin text-blue-500" /> <span className="text-xs text-blue-400 font-medium">Creating magic...</span> </div>) : (<div className="flex flex-col items-center gap-2 text-blue-200"> <Film size={48} strokeWidth={1.5} /> </div>)}
                                                     </div>
-                                                </>
+                                                </div>
                                             )}
                                         </div>
                                     )}
@@ -2956,21 +3180,32 @@ const Workspace: React.FC = () => {
                             const pixelY = el.y + (el.height * marker.y / 100);
 
                             return (
-                                <div key={marker.id} style={{ left: pixelX, top: pixelY }} className="absolute z-50 group/marker -translate-x-1/2 -translate-y-full pb-1 cursor-default">
-                                    <div className="relative">
-                                        <div className="w-8 h-8 rounded-full bg-[#3B82F6] border-2 border-white shadow-lg flex items-center justify-center text-white font-bold text-sm relative z-10">
+                                <div
+                                    key={marker.id}
+                                    style={{
+                                        left: pixelX,
+                                        top: pixelY,
+                                        transform: `translate(-50%, -50%) scale(${100 / zoom})`, // Center and Counter-scale
+                                        transformOrigin: 'center center'
+                                    }}
+                                    className="absolute z-[100] group/marker cursor-default"
+                                >
+                                    {/* Marker Pin - Circle Style (Notification Badge) */}
+                                    <div className="relative transition-transform hover:scale-110 duration-200">
+                                        <div className="w-6 h-6 rounded-full bg-[#3B82F6] border-[2px] border-white shadow-md flex items-center justify-center text-white font-bold text-[11px] select-none relative z-10 box-border">
                                             {marker.id}
                                         </div>
-                                        <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-[#3B82F6]"></div>
                                     </div>
 
-                                    <div className="absolute left-full top-0 ml-2 bg-white rounded-xl shadow-xl border border-gray-100 px-3 py-2 whitespace-nowrap opacity-0 group-hover/marker:opacity-100 transition pointer-events-none flex flex-col gap-1 z-50">
-                                        <span className="text-xs font-bold text-gray-800">快捷编辑 <span className="text-[10px] font-normal text-gray-400 border border-gray-200 rounded px-1 ml-1">Tab</span></span>
+                                    {/* Tooltip Label - Quick Edit */}
+                                    <div className="absolute left-full top-2 ml-2 bg-white rounded-full shadow-lg border border-gray-100/50 px-3 py-1.5 whitespace-nowrap opacity-0 group-hover/marker:opacity-100 transition-all duration-200 pointer-events-none flex items-center gap-2 z-[101] translate-x-2 group-hover/marker:translate-x-0">
+                                        <span className="text-sm font-bold text-gray-800">快捷编辑</span>
+                                        <span className="text-[10px] font-medium text-gray-400 border border-gray-200 rounded px-1 min-w-[24px] text-center font-sans bg-gray-50">Tab</span>
                                     </div>
                                 </div>
                             )
                         })}
-                    </div>
+                    </motion.div>
                 </div>
             </div>
 

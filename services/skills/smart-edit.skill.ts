@@ -4,27 +4,35 @@ import { GoogleGenAI } from '@google/genai';
 
 export interface SmartEditParams {
   sourceUrl: string;
-  editType: 'background-remove' | 'object-remove' | 'upscale' | 'style-transfer' | 'extend';
+  editType: 'background-remove' | 'object-remove' | 'upscale' | 'style-transfer' | 'extend' | 'recolor' | 'replace';
   parameters?: Record<string, any>;
+  aspectRatio?: string;
 }
 
 export async function smartEditSkill(params: SmartEditParams): Promise<string | null> {
-  const editPrompts: Record<string, string> = {
-    'background-remove': 'Remove the background from this image, keep only the main subject with transparent background',
-    'object-remove': `Remove ${params.parameters?.object || 'the specified object'} from this image seamlessly`,
-    'upscale': 'Enhance and upscale this image to higher resolution while preserving all details',
-    'style-transfer': `Apply ${params.parameters?.style || 'artistic'} style to this image`,
-    'extend': `Extend this image ${params.parameters?.direction || 'outward'} naturally`
+  const getPrompt = () => {
+    switch (params.editType) {
+      case 'background-remove': return 'Remove all background, keep the main subject on a transparent background.';
+      case 'object-remove': return `Erase ${params.parameters?.object || 'the marked object'} from the image naturally.`;
+      case 'upscale': return 'Upscale and enhance details of this image.';
+      case 'style-transfer': return `Transform this image into ${params.parameters?.style || 'artistic'} style.`;
+      case 'extend': return `Extend the image boundaries ${params.parameters?.direction || 'outward'}.`;
+      case 'recolor': return `Change the color of ${params.parameters?.object || 'the object'} to ${params.parameters?.color || 'red'}. Maintain texture and lighting.`;
+      case 'replace': return `Replace ${params.parameters?.object || 'the object'} with ${params.parameters?.replacement || 'something else'}. Integrate naturally with lighting and shadows.`;
+      default: return 'Edit the image as requested.';
+    }
   };
 
-  const prompt = editPrompts[params.editType] || 'Edit this image';
-
   try {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-    if (!apiKey) {
-        console.warn('Smart edit skipped: No API Key');
-        return null;
+    const { GoogleGenAI } = await import('@google/genai');
+    // dynamic import to avoid env issues if possible, or just reuse existing patterns
+    const apiKey = (window as any).aistudio?.getKey() || localStorage.getItem('custom_api_key') || 'PLACEHOLDER';
+
+    if (!apiKey || apiKey === 'PLACEHOLDER') {
+      console.warn('Smart edit skipped: No API Key found');
+      return null;
     }
+
     const ai = new GoogleGenAI({ apiKey });
 
     const matches = params.sourceUrl.match(/^data:(.+);base64,(.+)$/);
@@ -34,11 +42,15 @@ export async function smartEditSkill(params: SmartEditParams): Promise<string | 
       model: 'gemini-3-pro-image-preview',
       contents: {
         parts: [
+          // Image First for editing/variations usually
           { inlineData: { mimeType: matches[1], data: matches[2] } },
-          { text: prompt }
+          { text: getPrompt() }
         ]
       },
-      config: { imageConfig: { aspectRatio: '1:1' } }
+      config: {
+        // For editing, we often want to respect the original aspect ratio unless specified
+        imageConfig: { aspectRatio: params.aspectRatio || '1:1' }
+      }
     });
 
     for (const part of response.candidates?.[0]?.content?.parts || []) {

@@ -8,6 +8,7 @@ import { AgentRoutingDecision, ProjectContext, AgentType } from '../../types/age
 import { COCO_SYSTEM_PROMPT } from './prompts/coco.prompt';
 import { errorHandler, ErrorType } from '../../utils/error-handler';
 import { executeSkill } from '../skills';
+import { getApiKey } from '../gemini';
 
 
 
@@ -103,7 +104,7 @@ Analyze and route to appropriate agent. Return JSON with:
         // 使用错误处理包装器进行API调用
         const result = await errorHandler.withRetry(
             async () => {
-                const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+                const apiKey = getApiKey();
                 const ai = new GoogleGenAI({ apiKey });
                 const response = await Promise.race([
                     ai.models.generateContent({

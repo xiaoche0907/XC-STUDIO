@@ -20,20 +20,20 @@ export interface CanvasElement {
   textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
   textDecoration?: 'none' | 'underline' | 'line-through';
   opacity?: number;
-  
+
   // Shape specific
   cornerRadius?: number;
   aspectRatioLocked?: boolean;
-  
+
   // Gen Image/Video specific
   genPrompt?: string;
   genModel?: 'Nano Banana' | 'Nano Banana Pro' | 'Veo 3.1' | 'Veo 3.1 Fast';
   genAspectRatio?: string;
   genResolution?: '1K' | '2K' | '4K';
-  
+
   // Image Gen Reference
   genRefImage?: string;
-  
+
   // Video Gen Specifics
   genStartFrame?: string;
   genEndFrame?: string;
@@ -57,6 +57,8 @@ export interface Marker {
   elementId: string;
   cropUrl?: string; // The zoomed-in image data of the marked area
   analysis?: string; // AI analysis result
+  width?: number; // Optional width of the marked region
+  height?: number; // Optional height of the marked region
 }
 
 export interface Project {

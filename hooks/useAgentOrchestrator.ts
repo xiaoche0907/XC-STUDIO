@@ -17,7 +17,8 @@ export function useAgentOrchestrator(projectContext: ProjectContext) {
 
   const processMessage = useCallback(async (
     message: string,
-    attachments?: File[]
+    attachments?: File[],
+    metadata?: Record<string, any>
   ): Promise<AgentTask | null> => {
     if (!isAgentMode || !message.trim()) return null;
 
@@ -47,9 +48,10 @@ export function useAgentOrchestrator(projectContext: ProjectContext) {
         agentId: decision.targetAgent,
         status: 'pending',
         input: {
-          message,
+          message: decision.handoffMessage ? `${message}\n\n[System Directive]: ${decision.handoffMessage}` : message,
           attachments,
-          context: updatedContext
+          context: updatedContext,
+          metadata
         },
         createdAt: Date.now(),
         updatedAt: Date.now()

@@ -1,4 +1,5 @@
 import { ProjectContext } from './common';
+export type { ProjectContext };
 
 export type AgentType = 'coco' | 'vireo' | 'cameron' | 'poster' | 'package' | 'motion' | 'campaign';
 
@@ -37,6 +38,7 @@ export interface AgentTask {
     message: string;
     attachments?: File[];
     context: ProjectContext;
+    metadata?: Record<string, any>; // Support arbitrary metadata like marker info
   };
   output?: {
     message: string;
