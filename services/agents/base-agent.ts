@@ -1,5 +1,5 @@
 import { Chat, Type } from '@google/genai';
-import { createChatSession } from '../gemini';
+import { createChatSession, getClient } from '../gemini';
 import { AgentTask, AgentInfo, ProjectContext, GeneratedAsset } from '../../types/agent.types';
 import { executeSkill } from '../skills';
 
@@ -15,8 +15,7 @@ export abstract class BaseAgent {
 
   async execute(task: AgentTask): Promise<AgentTask> {
     try {
-      const { GoogleGenAI } = await import('@google/genai');
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY });
+      const ai = getClient();
 
       const { message, context } = task.input;
       const fullPrompt = `${this.systemPrompt}

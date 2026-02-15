@@ -15,6 +15,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     const [apiKey, setApiKey] = useState('');
     const [apiUrl, setApiUrl] = useState('');
     const [apiProvider, setApiProvider] = useState<ApiProvider>('gemini');
+    const [replicateKey, setReplicateKey] = useState('');
+    const [klingKey, setKlingKey] = useState('');
     const [isVisible, setIsVisible] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'success'>('idle');
@@ -27,6 +29,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             setApiKey(currentKey);
             setApiUrl(currentUrl);
             setApiProvider(currentProvider);
+            setReplicateKey(localStorage.getItem('replicate_api_key') || '');
+            setKlingKey(localStorage.getItem('kling_api_key') || '');
             setSaveStatus('idle');
         }
     }, [isOpen]);
@@ -44,7 +48,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
     const handleSave = () => {
         setIsSaving(true);
-        // Simulate a brief validation/save process
         setTimeout(() => {
             localStorage.setItem('custom_api_key', apiKey);
             localStorage.setItem('api_provider', apiProvider);
@@ -55,6 +58,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 localStorage.setItem('custom_api_url', apiUrl.trim());
             } else {
                 localStorage.removeItem('custom_api_url');
+            }
+
+            // Save additional provider keys
+            if (replicateKey.trim()) {
+                localStorage.setItem('replicate_api_key', replicateKey.trim());
+            } else {
+                localStorage.removeItem('replicate_api_key');
+            }
+            if (klingKey.trim()) {
+                localStorage.setItem('kling_api_key', klingKey.trim());
+            } else {
+                localStorage.removeItem('kling_api_key');
             }
 
             setIsSaving(false);
@@ -214,6 +229,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                         </div>
                                     </div>
                                 )}
+
+                                {/* Divider */}
+                                <div className="border-t border-gray-100 pt-4">
+                                    <h3 className="text-sm font-bold text-gray-700 mb-3">扩展模型（可选）</h3>
+                                </div>
+
+                                {/* Replicate API Key */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-gray-700 block">Replicate API Key</label>
+                                    <input
+                                        type="password"
+                                        value={replicateKey}
+                                        onChange={(e) => setReplicateKey(e.target.value)}
+                                        placeholder="r8_..."
+                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-all font-mono text-sm hover:border-gray-300"
+                                    />
+                                    <p className="text-xs text-gray-400">用于 Flux Schnell、SDXL 等图像模型</p>
+                                </div>
+
+                                {/* Kling API Key */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-gray-700 block">可灵 API Key</label>
+                                    <input
+                                        type="password"
+                                        value={klingKey}
+                                        onChange={(e) => setKlingKey(e.target.value)}
+                            placeholder="kling-..."
+                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-all font-mono text-sm hover:border-gray-300"
+                                    />
+                                    <p className="text-xs text-gray-400">用于可灵 AI 视频生成</p>
+                                </div>
                             </div>
 
                             {/* Footer */}

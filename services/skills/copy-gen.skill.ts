@@ -1,6 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
-
-
+import { getClient } from '../gemini';
 
 export interface CopyGenSkillParams {
   copyType: 'headline' | 'tagline' | 'body' | 'slogan' | 'description';
@@ -25,13 +23,7 @@ ${params.maxLength ? `Max Length: ${params.maxLength} characters` : ''}
 Return only the text variations as a JSON array of strings.`;
 
   try {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-    if (!apiKey) {
-      console.warn('Skipping copy generation: No API Key provided');
-      return [];
-    }
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
+    const response = await getClient().models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: { parts: [{ text: prompt }] },
       config: {

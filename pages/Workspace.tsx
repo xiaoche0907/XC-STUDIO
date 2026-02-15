@@ -31,10 +31,27 @@ import { AgentSelector } from '../components/agents/AgentSelector';
 import { ProposalSelector } from '../components/agents/ProposalSelector';
 import { TaskProgress } from '../components/agents/TaskProgress';
 import { AgentType, AgentProposal, AgentTask } from '../types/agent.types';
-const SmartMessageRenderer = ({ text, onGenerate }: { text: string, onGenerate: (prompt: string) => void }) => {
+import { imageGenSkill } from '../services/skills/image-gen.skill';
+import { videoGenSkill } from '../services/skills/video-gen.skill';
+import { smartEditSkill } from '../services/skills/smart-edit.skill';
+import { touchEditSkill } from '../services/skills/touch-edit.skill';
+import { exportSkill } from '../services/skills/export.skill';
+const SmartMessageRenderer = ({ text, onGenerate, onAction }: { text: string, onGenerate: (prompt: string) => void, onAction?: (action: string) => void }) => {
+    // Extract agent images and actions if present
+    let mainText = text;
+    let agentImages: string[] = [];
+    let agentActions: string[] = [];
+
+    const imagesMatch = text.match(/\n\n---AGENT_IMAGES---\n([\s\S]*?)\n---AGENT_ACTIONS---\n([\s\S]*)$/);
+    if (imagesMatch) {
+        mainText = text.substring(0, text.indexOf('\n\n---AGENT_IMAGES---'));
+        agentImages = imagesMatch[1].split('\n').filter(u => u.trim());
+        agentActions = imagesMatch[2].split('|').filter(a => a.trim());
+    }
+
     // Split by code blocks, capturing language (optional) and content
     // Regex: ```(optional lang)\n(content)```
-    const parts = text.split(/```([a-zA-Z0-9:-]*)\n?([\s\S]*?)```/g);
+    const parts = mainText.split(/```([a-zA-Z0-9:-]*)\n?([\s\S]*?)```/g);
 
     if (parts.length === 1) return <div className="whitespace-pre-wrap">{text}</div>;
 
@@ -111,7 +128,33 @@ const SmartMessageRenderer = ({ text, onGenerate }: { text: string, onGenerate: 
         }
     }
 
-    return <div className="whitespace-pre-wrap font-sans">{elements}</div>;
+    return (
+        <div className="whitespace-pre-wrap font-sans">
+            {elements}
+            {agentImages.length > 0 && (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                    {agentImages.map((url, idx) => (
+                        <div key={`ai-img-${idx}`} className="rounded-xl overflow-hidden border border-gray-200 shadow-sm">
+                            <img src={url} className="w-full h-auto object-cover" alt={`生成结果 ${idx + 1}`} />
+                        </div>
+                    ))}
+                </div>
+            )}
+            {agentActions.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                    {agentActions.map((action, idx) => (
+                        <button
+                            key={`action-${idx}`}
+                            onClick={() => onAction?.(action.trim())}
+                            className="px-3 py-1.5 bg-gray-50 hover:bg-blue-50 border border-gray-200 hover:border-blue-300 rounded-full text-xs font-medium text-gray-600 hover:text-blue-600 transition-all"
+                        >
+                            {action.trim()}
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
 };
 
 const TEMPLATES: Template[] = [
@@ -343,10 +386,45 @@ const Workspace: React.FC = () => {
     const [eraserMode, setEraserMode] = useState(false);
     const [brushSize, setBrushSize] = useState(30);
 
-    const handleUpscaleSelect = (factor: number) => {
+    // Touch Edit States
+    const [touchEditMode, setTouchEditMode] = useState(false);
+    const [touchEditPopup, setTouchEditPopup] = useState<{
+        analysis: string; x: number; y: number; elementId: string;
+    } | null>(null);
+    const [touchEditInstruction, setTouchEditInstruction] = useState('');
+    const [isTouchEditing, setIsTouchEditing] = useState(false);
+
+    // Export States
+    const [showExportMenu, setShowExportMenu] = useState(false);
+
+    const handleUpscaleSelect = async (factor: number) => {
         setUpscaleMenuOpen(false);
-        // Trigger Agent or specific API here
-        console.log(`Upscaling to ${factor}x`);
+        if (!selectedElementId) return;
+        const el = elements.find(e => e.id === selectedElementId);
+        if (!el || !el.url) return;
+        setElements(prev => prev.map(e => e.id === selectedElementId ? { ...e, isGenerating: true } : e));
+        try {
+            const base64Ref = await urlToBase64(el.url);
+            const result = await smartEditSkill({
+                sourceUrl: base64Ref,
+                editType: 'upscale',
+                parameters: { factor }
+            });
+            if (result) {
+                const img = new Image();
+                img.src = result;
+                img.onload = () => {
+                    const updated = elements.map(e => e.id === selectedElementId ? { ...e, isGenerating: false, url: result } : e);
+                    setElements(updated);
+                    saveToHistory(updated, markers);
+                };
+            } else {
+                setElements(prev => prev.map(e => e.id === selectedElementId ? { ...e, isGenerating: false } : e));
+            }
+        } catch (e) {
+            console.error('Upscale failed:', e);
+            setElements(prev => prev.map(e => e.id === selectedElementId ? { ...e, isGenerating: false } : e));
+        }
     };
 
     const handleUndoEraser = () => {
@@ -360,6 +438,80 @@ const Workspace: React.FC = () => {
     const handleExecuteEraser = () => {
         setEraserMode(false);
         console.log('Execute erase');
+    };
+
+    // Touch Edit Handler
+    const handleTouchEditClick = async (elementId: string, clickX: number, clickY: number, screenX: number, screenY: number) => {
+        const el = elements.find(e => e.id === elementId);
+        if (!el || !el.url || !touchEditMode) return;
+        setIsTouchEditing(true);
+        try {
+            const base64Ref = await urlToBase64(el.url);
+            const result = await touchEditSkill({
+                imageData: base64Ref,
+                regionX: clickX,
+                regionY: clickY,
+                regionWidth: 128,
+                regionHeight: 128,
+                editInstruction: ''
+            });
+            setTouchEditPopup({
+                analysis: result.analysis,
+                x: screenX,
+                y: screenY,
+                elementId
+            });
+        } catch (e) {
+            console.error('Touch edit analysis failed:', e);
+        } finally {
+            setIsTouchEditing(false);
+        }
+    };
+
+    const handleTouchEditExecute = async () => {
+        if (!touchEditPopup || !touchEditInstruction.trim()) return;
+        const el = elements.find(e => e.id === touchEditPopup.elementId);
+        if (!el || !el.url) return;
+        setIsTouchEditing(true);
+        setElements(prev => prev.map(e => e.id === touchEditPopup.elementId ? { ...e, isGenerating: true } : e));
+        try {
+            const base64Ref = await urlToBase64(el.url);
+            const result = await touchEditSkill({
+                imageData: base64Ref,
+                regionX: 0, regionY: 0, regionWidth: el.width, regionHeight: el.height,
+                editInstruction: touchEditInstruction
+            });
+            if (result.editedImage) {
+                const updated = elements.map(e => e.id === touchEditPopup.elementId ? { ...e, isGenerating: false, url: result.editedImage! } : e);
+                setElements(updated);
+                saveToHistory(updated, markers);
+            } else {
+                setElements(prev => prev.map(e => e.id === touchEditPopup.elementId ? { ...e, isGenerating: false } : e));
+            }
+        } catch (e) {
+            console.error('Touch edit execute failed:', e);
+            setElements(prev => prev.map(e => e.id === touchEditPopup.elementId ? { ...e, isGenerating: false } : e));
+        } finally {
+            setIsTouchEditing(false);
+            setTouchEditPopup(null);
+            setTouchEditInstruction('');
+        }
+    };
+
+    // Export Handler
+    const handleExport = async (format: 'png' | 'jpg' | 'pdf' | 'svg' | 'json') => {
+        setShowExportMenu(false);
+        try {
+            const dataUrl = await exportSkill({ elements, format, scale: 2 });
+            const link = document.createElement('a');
+            link.download = `xc-studio-${projectTitle || 'export'}.${format}`;
+            link.href = dataUrl;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (e) {
+            console.error('Export failed:', e);
+        }
     };
 
     const handleSmartGenerate = async (prompt: string) => {
@@ -386,7 +538,7 @@ const Workspace: React.FC = () => {
         setSelectedElementId(id); // Select the newly generated element
 
         try {
-            const resultUrl = await generateImage({
+            const resultUrl = await imageGenSkill({
                 prompt: prompt,
                 model: 'Nano Banana',
                 aspectRatio: '1:1'
@@ -701,13 +853,10 @@ const Workspace: React.FC = () => {
 
         try {
             const base64Ref = await urlToBase64(el.url);
-            // Using "Nano Banana Pro" (gemini-3-pro-image-preview) with 4K size for upscale
-            const resultUrl = await generateImage({
-                prompt: "Upscale this image to 4K resolution, maintain original details.",
-                model: 'Nano Banana Pro',
-                aspectRatio: el.genAspectRatio || '1:1',
-                imageSize: '4K',
-                referenceImage: base64Ref,
+            const resultUrl = await smartEditSkill({
+                sourceUrl: base64Ref,
+                editType: 'upscale',
+                parameters: { factor: 4 }
             });
 
             if (resultUrl) {
@@ -738,11 +887,9 @@ const Workspace: React.FC = () => {
 
         try {
             const base64Ref = await urlToBase64(el.url);
-            const resultUrl = await generateImage({
-                prompt: "Remove the background of this image, keep the main subject isolated on a pure white background.",
-                model: 'Nano Banana Pro', // Pro typically handles complex editing prompts better
-                aspectRatio: el.genAspectRatio || '1:1',
-                referenceImage: base64Ref,
+            const resultUrl = await smartEditSkill({
+                sourceUrl: base64Ref,
+                editType: 'background-remove',
             });
 
             if (resultUrl) {
@@ -811,7 +958,7 @@ const Workspace: React.FC = () => {
 
         try {
             const base64Ref = await urlToBase64(el.url);
-            const resultUrl = await generateImage({
+            const resultUrl = await imageGenSkill({
                 prompt: editPrompt,
                 model: 'Nano Banana Pro',
                 aspectRatio: el.genAspectRatio || '1:1',
@@ -844,9 +991,9 @@ const Workspace: React.FC = () => {
         setElements(update1);
         try {
             const base64Ref = await urlToBase64(el.url);
-            const resultUrl = await generateImage({
+            const resultUrl = await imageGenSkill({
                 prompt: fastEditPrompt,
-                model: el.genModel as any || 'Nano Banana Pro',
+                model: (el.genModel as any) || 'Nano Banana Pro',
                 aspectRatio: el.genAspectRatio || '1:1',
                 referenceImage: base64Ref,
             });
@@ -1108,7 +1255,7 @@ const Workspace: React.FC = () => {
         const currentAspectRatio = getClosestAspectRatio(el.width, el.height);
         const model: 'Nano Banana' | 'Nano Banana Pro' = (el.genModel === 'Nano Banana' || el.genModel === 'Nano Banana Pro') ? el.genModel : 'Nano Banana Pro';
         try {
-            const resultUrl = await generateImage({
+            const resultUrl = await imageGenSkill({
                 prompt: el.genPrompt,
                 model: model,
                 aspectRatio: currentAspectRatio,
@@ -1147,7 +1294,7 @@ const Workspace: React.FC = () => {
                 startFrame = el.genVideoRefs[0];
             }
 
-            const resultUrl = await generateVideo({
+            const resultUrl = await videoGenSkill({
                 prompt: el.genPrompt,
                 aspectRatio: el.genAspectRatio as any || '16:9',
                 model: el.genModel as any || 'Veo 3.1 Fast',
@@ -1413,27 +1560,101 @@ const Workspace: React.FC = () => {
         const derivedFiles = inputBlocks.filter(b => b.type === 'file' && b.file).map(b => b.file!) as File[];
 
         const textToSend = textOverride !== undefined ? textOverride : derivedText;
-        const filesToSend = attachmentsOverride !== undefined ? attachmentsOverride : derivedFiles;
+        let filesToSend = attachmentsOverride !== undefined ? attachmentsOverride : derivedFiles;
 
         if ((!textToSend.trim() && filesToSend.length === 0 && markers.length === 0) || isTyping) return;
 
         // Agent mode handling
         if (agentMode && isAgentMode && textToSend.trim()) {
-            const newUserMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: textToSend, timestamp: Date.now() };
+            // Include selected element context for agent
+            let agentText = textToSend;
+            const selEl = selectedElementId ? elements.find(e => e.id === selectedElementId) : null;
+            if (selEl?.url) {
+                agentText += ` [参考画布上选中的${selEl.type === 'video' || selEl.type === 'gen-video' ? '视频' : '图片'}: ${Math.round(selEl.width || 0)}×${Math.round(selEl.height || 0)}]`;
+                try {
+                    const resp = await fetch(selEl.url);
+                    const blob = await resp.blob();
+                    const selFile = new File([blob], `selected.${blob.type.split('/')[1] || 'png'}`, { type: blob.type });
+                    filesToSend.push(selFile);
+                } catch (_) { /* ignore */ }
+            }
+
+            const newUserMsg: ChatMessage = {
+                id: Date.now().toString(), role: 'user',
+                text: textToSend + (selEl ? ` [已选中${selEl.type === 'video' || selEl.type === 'gen-video' ? '视频' : '图片'}]` : ''),
+                timestamp: Date.now(),
+                attachments: selEl?.url ? [selEl.url] : undefined
+            };
             setMessages(prev => [...prev, newUserMsg]);
             setInputBlocks([{ id: `text-${Date.now()}`, type: 'text', text: '' }]);
             setIsTyping(true);
 
             try {
-                const agentResult = await processMessage(textToSend, filesToSend);
-                if (agentResult?.output?.message) {
-                    setMessages(prev => [...prev, {
-                        id: (Date.now() + 1).toString(),
-                        role: 'model',
-                        text: agentResult.output.message,
-                        timestamp: Date.now()
-                    }]);
+                const agentResult = await processMessage(agentText, filesToSend);
+
+                // Auto-execute skillCalls and generate images to canvas
+                let generatedUrls: string[] = [];
+                if (agentResult?.output?.skillCalls && agentResult.output.skillCalls.length > 0) {
+                    for (const call of agentResult.output.skillCalls) {
+                        if (call.result && typeof call.result === 'string' && call.result.startsWith('data:')) {
+                            generatedUrls.push(call.result);
+                        }
+                    }
                 }
+
+                // If agent returned proposals with skillCalls, try executing them
+                if (generatedUrls.length === 0 && agentResult?.output?.proposals) {
+                    for (const proposal of agentResult.output.proposals) {
+                        if (proposal.skillCalls) {
+                            for (const sc of proposal.skillCalls) {
+                                if (sc.skillName === 'generateImage' && sc.params?.prompt) {
+                                    try {
+                                        const url = await imageGenSkill({
+                                            prompt: sc.params.prompt,
+                                            model: sc.params.model || 'Nano Banana',
+                                            aspectRatio: sc.params.aspectRatio || '1:1'
+                                        });
+                                        if (url) generatedUrls.push(url);
+                                    } catch (_) { /* skip failed */ }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Place generated images on canvas
+                if (generatedUrls.length > 0) {
+                    const containerW = window.innerWidth - (showAssistant ? 400 : 0);
+                    const containerH = window.innerHeight;
+                    const baseCX = (containerW / 2 - pan.x) / (zoom / 100);
+                    const baseCY = (containerH / 2 - pan.y) / (zoom / 100);
+
+                    const newEls: CanvasElement[] = generatedUrls.map((url, idx) => ({
+                        id: `agent-gen-${Date.now()}-${idx}`,
+                        type: 'image' as const,
+                        url,
+                        x: baseCX - 256 + idx * 40,
+                        y: baseCY - 256 + idx * 40,
+                        width: 512, height: 512,
+                        zIndex: elements.length + 10 + idx
+                    }));
+                    setElements(prev => [...prev, ...newEls]);
+                    if (newEls.length > 0) setSelectedElementId(newEls[0].id);
+                    saveToHistory([...elements, ...newEls], markers);
+                }
+
+                // Build response message with adjustment options
+                const msgId = (Date.now() + 1).toString();
+                const responseText = agentResult?.output?.message || '已完成处理';
+                const hasImages = generatedUrls.length > 0;
+
+                setMessages(prev => [...prev, {
+                    id: msgId,
+                    role: 'model',
+                    text: responseText + (hasImages ? `\n\n---AGENT_IMAGES---\n${generatedUrls.join('\n')}\n---AGENT_ACTIONS---\n调整构图|更换风格|修改配色|添加文字|放大画质` : ''),
+                    timestamp: Date.now(),
+                    attachments: hasImages ? generatedUrls : undefined
+                }]);
             } catch (error) {
                 setMessages(prev => [...prev, { id: (Date.now() + 2).toString(), role: 'model', text: `Error: ${error instanceof Error ? error.message : 'Unknown'}`, timestamp: Date.now() }]);
             } finally {
@@ -1443,6 +1664,21 @@ const Workspace: React.FC = () => {
         }
 
         let fullMessage = textToSend;
+
+        // Attach selected element context if an element is selected on canvas
+        const selectedEl = selectedElementId ? elements.find(e => e.id === selectedElementId) : null;
+        if (selectedEl?.url) {
+            fullMessage += ` [Editing selected ${selectedEl.type}: ${Math.round(selectedEl.width || 0)}×${Math.round(selectedEl.height || 0)}]`;
+            // Convert selected element to file attachment so AI can see it
+            try {
+                const resp = await fetch(selectedEl.url);
+                const blob = await resp.blob();
+                const selFile = new File([blob], `selected-${selectedEl.type}.${blob.type.split('/')[1] || 'png'}`, { type: blob.type });
+                filesToSend.push(selFile);
+            } catch (e) {
+                console.warn('Could not attach selected element image:', e);
+            }
+        }
 
         // Check if there are marker attachments and append context
         const markerFiles = filesToSend.filter(f => (f as any).markerId);
@@ -1478,44 +1714,69 @@ const Workspace: React.FC = () => {
         if (activeTool === 'hand') NavIcon = Hand;
         if (activeTool === 'mark') NavIcon = MapPin;
         return (
-            <div className="absolute left-4 top-1/2 -translate-y-1/2 bg-white rounded-xl shadow-lg border border-gray-200 p-2 flex flex-col gap-2 z-50 animate-in fade-in slide-in-from-left-4 duration-300 items-center w-12">
+            <div className="absolute left-4 top-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-lg border border-gray-200/80 p-1.5 flex flex-col gap-0.5 z-50 animate-in fade-in slide-in-from-left-4 duration-300 items-center w-11">
+                {/* 1. Select / Hand / Mark */}
                 <div className="relative group/nav">
                     <button className={`p-2 rounded-xl transition ${['select', 'hand', 'mark'].includes(activeTool) ? 'bg-gray-100 text-black' : 'text-gray-400 hover:text-black hover:bg-gray-50'}`}><NavIcon size={18} /></button>
-                    <div className="absolute left-full top-0 ml-2 w-40 bg-white rounded-xl shadow-xl border border-gray-100 p-1.5 z-50 hidden group-hover/nav:flex flex-col gap-0.5 animate-in fade-in slide-in-from-left-2 duration-200">
-                        <button onClick={() => setActiveTool('select')} className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm transition ${activeTool === 'select' ? 'bg-gray-100 text-black' : 'text-gray-600 hover:bg-gray-50'}`}><div className="flex items-center gap-3"><MousePointer2 size={16} /> Select</div><span className="text-xs text-gray-400 font-medium">V</span></button>
-                        <button onClick={() => setActiveTool('hand')} className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm transition ${activeTool === 'hand' ? 'bg-gray-100 text-black' : 'text-gray-600 hover:bg-gray-50'}`}><div className="flex items-center gap-3"><Hand size={16} /> Hand tool</div><span className="text-xs text-gray-400 font-medium">H</span></button>
-                        <button onClick={() => setActiveTool('mark')} className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm transition ${activeTool === 'mark' ? 'bg-gray-100 text-black' : 'text-gray-600 hover:bg-gray-50'}`}><div className="flex items-center gap-3"><MapPin size={16} /> Mark</div><span className="text-xs text-gray-400 font-medium">M</span></button>
+                    <div className="absolute left-full top-0 pl-1 z-50 hidden group-hover/nav:block">
+                        <div className="w-44 bg-white rounded-xl shadow-xl border border-gray-100 p-1.5 flex flex-col gap-0.5 animate-in fade-in slide-in-from-left-2 duration-200">
+                            <button onClick={() => setActiveTool('select')} className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm transition ${activeTool === 'select' ? 'bg-gray-100 text-black' : 'text-gray-600 hover:bg-gray-50'}`}><div className="flex items-center gap-3"><MousePointer2 size={16} /> Select</div><span className="text-xs text-gray-400 font-medium">V</span></button>
+                            <button onClick={() => setActiveTool('hand')} className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm transition ${activeTool === 'hand' ? 'bg-gray-100 text-black' : 'text-gray-600 hover:bg-gray-50'}`}><div className="flex items-center gap-3"><Hand size={16} /> Hand Tool</div><span className="text-xs text-gray-400 font-medium">H</span></button>
+                            <button onClick={() => setActiveTool('mark')} className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm transition ${activeTool === 'mark' ? 'bg-gray-100 text-black' : 'text-gray-600 hover:bg-gray-50'}`}><div className="flex items-center gap-3"><MapPin size={16} /> Mark</div><span className="text-xs text-gray-400 font-medium">M</span></button>
+                        </div>
                     </div>
                 </div>
-                <div className="relative group/menu">
-                    <button className={`p-2 rounded-xl transition ${showShapeMenu ? 'bg-gray-100 text-black' : 'text-gray-400 hover:text-black hover:bg-gray-50'}`} onMouseEnter={handleShapeMenuMouseEnter} onMouseLeave={handleShapeMenuMouseLeave}><Square size={18} /></button>
-                    {showShapeMenu && (
-                        <div className="absolute left-full top-0 ml-2 bg-white rounded-xl shadow-xl border border-gray-100 p-2 grid grid-cols-2 gap-1 animate-in fade-in slide-in-from-left-2 duration-200 z-50 w-20" onMouseEnter={handleShapeMenuMouseEnter} onMouseLeave={handleShapeMenuMouseLeave}>
-                            <ShapeMenuItem icon={Square} onClick={() => addShape('square')} />
-                            <ShapeMenuItem icon={CircleIcon} onClick={() => addShape('circle')} />
-                            <ShapeMenuItem icon={Triangle} onClick={() => addShape('triangle')} />
-                            <ShapeMenuItem icon={Star} onClick={() => addShape('star')} />
-                            <ShapeMenuItem icon={MessageSquare} onClick={() => addShape('bubble')} />
-                            <ShapeMenuItem icon={ArrowLeft} onClick={() => addShape('arrow-left')} />
-                            <ShapeMenuItem icon={ArrowRight} onClick={() => addShape('arrow-right')} />
+                {/* 2. Insert */}
+                <div className="relative group/ins">
+                    <button className="p-2 rounded-xl transition text-gray-400 hover:text-black hover:bg-gray-50"><Plus size={18} /></button>
+                    <div className="absolute left-full top-0 pl-1 z-50 hidden group-hover/ins:block">
+                        <div className="w-44 bg-white rounded-xl shadow-xl border border-gray-100 p-1.5 flex flex-col gap-0.5 animate-in fade-in slide-in-from-left-2 duration-200">
+                            <label className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50 cursor-pointer transition"><ImagePlus size={16} /> 上传图片 <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'image')} /></label>
+                            <label className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50 cursor-pointer transition"><Film size={16} /> 上传视频 <input type="file" accept="video/*" className="hidden" onChange={(e) => handleFileUpload(e, 'video')} /></label>
                         </div>
-                    )}
+                    </div>
                 </div>
+                {/* 3. Shape */}
+                <div className="relative group/shp">
+                    <button className="p-2 rounded-xl transition text-gray-400 hover:text-black hover:bg-gray-50"><Square size={18} /></button>
+                    <div className="absolute left-full top-0 pl-1 z-50 hidden group-hover/shp:block">
+                        <div className="bg-white rounded-xl shadow-xl border border-gray-100 p-3 flex flex-col gap-2 animate-in fade-in slide-in-from-left-2 duration-200 w-48">
+                            <div className="text-[11px] font-medium text-gray-400">形状</div>
+                            <div className="grid grid-cols-5 gap-1">
+                                <ShapeMenuItem icon={Square} onClick={() => addShape('square')} />
+                                <ShapeMenuItem icon={CircleIcon} onClick={() => addShape('circle')} />
+                                <ShapeMenuItem icon={Triangle} onClick={() => addShape('triangle')} />
+                                <ShapeMenuItem icon={Star} onClick={() => addShape('star')} />
+                                <ShapeMenuItem icon={MessageSquare} onClick={() => addShape('bubble')} />
+                            </div>
+                            <div className="text-[11px] font-medium text-gray-400 mt-1">箭头</div>
+                            <div className="grid grid-cols-5 gap-1">
+                                <ShapeMenuItem icon={ArrowLeft} onClick={() => addShape('arrow-left')} />
+                                <ShapeMenuItem icon={ArrowRight} onClick={() => addShape('arrow-right')} />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {/* 4. Text */}
                 <TooltipButton icon={Type} label="Text (T)" onClick={addText} />
-                <TooltipButton icon={ImagePlus} label="AI Image Gen" onClick={() => addGenImage()} />
-                <TooltipButton icon={Video} label="AI Video Gen" onClick={() => addGenVideo()} />
-                <div className="relative group/menu">
-                    <button className={`p-2 rounded-xl transition ${showInsertMenu ? 'bg-gray-100 text-black' : 'text-gray-400 hover:text-black hover:bg-gray-50'}`} onMouseEnter={handleMenuMouseEnter} onMouseLeave={handleMenuMouseLeave}><Plus size={18} /></button>
-                    {showInsertMenu && (
-                        <div className="absolute left-full top-0 ml-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 p-2 z-50 animate-in fade-in slide-in-from-left-2 duration-200 flex flex-col gap-1" onMouseEnter={handleMenuMouseEnter} onMouseLeave={handleMenuMouseLeave}>
-                            <label className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-sm text-gray-700 cursor-pointer transition"><ImageIcon size={16} /> Image <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'image')} /></label>
-                            <label className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-sm text-gray-700 cursor-pointer transition"><Video size={16} /> Video <input type="file" accept="video/*" className="hidden" onChange={(e) => handleFileUpload(e, 'video')} /></label>
+                {/* 5. Touch Edit */}
+                <TooltipButton icon={Scan} label="Touch Edit" onClick={() => { setTouchEditMode(!touchEditMode); setActiveTool(touchEditMode ? 'select' : 'mark'); }} active={touchEditMode} />
+                {/* 6. AI Image Gen */}
+                <TooltipButton icon={ImageIcon} label="图像生成器" onClick={() => addGenImage()} />
+                {/* 7. AI Video Gen */}
+                <TooltipButton icon={Video} label="视频生成器" onClick={() => addGenVideo()} />
+                {/* 8. Export */}
+                <div className="relative group/exp">
+                    <button className="p-2 rounded-xl transition text-gray-400 hover:text-black hover:bg-gray-50"><Download size={18} /></button>
+                    <div className="absolute left-full top-0 pl-1 z-50 hidden group-hover/exp:block">
+                        <div className="w-36 bg-white rounded-xl shadow-xl border border-gray-100 p-1.5 flex flex-col gap-0.5 animate-in fade-in slide-in-from-left-2 duration-200">
+                            <button onClick={() => handleExport('png')} className="px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition text-left">PNG</button>
+                            <button onClick={() => handleExport('jpg')} className="px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition text-left">JPG</button>
+                            <button onClick={() => handleExport('svg')} className="px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition text-left">SVG</button>
+                            <button onClick={() => handleExport('pdf')} className="px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition text-left">PDF</button>
                         </div>
-                    )}
+                    </div>
                 </div>
-                <div className="h-px w-6 bg-gray-200 my-1 self-center"></div>
-                <TooltipButton icon={Undo2} label="Undo (Ctrl+Z)" onClick={undo} showTooltipOnHover={true} />
-                <TooltipButton icon={Redo2} label="Redo (Ctrl+Y)" onClick={redo} showTooltipOnHover={true} />
             </div>
         );
     };
@@ -2171,23 +2432,23 @@ const Workspace: React.FC = () => {
 
                                     {/* Skills List - Lovart Style (more compact) */}
                                     <div className="flex flex-col gap-5 w-full">
-                                        <button onClick={() => setPrompt("Amazon Product Listing Kit")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
+                                        <button onClick={() => handleSend("Amazon Product Listing Kit")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
                                             <Store size={18} className="text-gray-600" strokeWidth={1.5} />
                                             <span className="text-gray-700 font-medium text-sm group-hover:text-black">Amazon Product Listing Kit</span>
                                         </button>
-                                        <button onClick={() => setPrompt("Logo & Brand Design")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
+                                        <button onClick={() => handleSend("Logo & Brand Design")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
                                             <Layout size={18} className="text-gray-600" strokeWidth={1.5} />
                                             <span className="text-gray-700 font-medium text-sm group-hover:text-black">Logo & Brand Design</span>
                                         </button>
-                                        <button onClick={() => setPrompt("Marketing Brochures")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
+                                        <button onClick={() => handleSend("Marketing Brochures")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
                                             <FileText size={18} className="text-gray-600" strokeWidth={1.5} />
                                             <span className="text-gray-700 font-medium text-sm group-hover:text-black">Marketing Brochures</span>
                                         </button>
-                                        <button onClick={() => setPrompt("Social Media Visual Assets")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
+                                        <button onClick={() => handleSend("Social Media Visual Assets")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
                                             <Globe size={18} className="text-gray-600" strokeWidth={1.5} />
                                             <span className="text-gray-700 font-medium text-sm group-hover:text-black">Social Media Visual Assets</span>
                                         </button>
-                                        <button onClick={() => setPrompt("Narrative Storyboards")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
+                                 <button onClick={() => handleSend("Narrative Storyboards")} className="flex items-center gap-3 text-left group transition hover:translate-x-1">
                                             <Copy size={18} className="text-gray-600" strokeWidth={1.5} />
                                             <span className="text-gray-700 font-medium text-sm group-hover:text-black">Narrative Storyboards</span>
                                         </button>
@@ -2206,7 +2467,7 @@ const Workspace: React.FC = () => {
                                                 <AgentAvatar agentId={currentTask.agentId} size="sm" />
                                             )}
                                             <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-none'}`}>
-                                                <SmartMessageRenderer text={msg.text} onGenerate={handleSmartGenerate} />
+                                                <SmartMessageRenderer text={msg.text} onGenerate={handleSmartGenerate} onAction={(action) => handleSend(action)} />
                                                 {msg.attachments && msg.attachments.length > 0 && (
                                                     <div className="mt-2 grid grid-cols-2 gap-2">
                                                         {msg.attachments.map((att, i) => (
@@ -2321,6 +2582,39 @@ const Workspace: React.FC = () => {
                         {/* Input Area - Lovart Style with Mode Support */}
                         <div className="p-4 bg-white/50 backdrop-blur-sm z-20">
                             <div className="bg-white rounded-[20px] border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 relative group focus-within:ring-2 focus-within:ring-black/5 focus-within:border-gray-300 flex flex-col">
+
+                                {/* Selected Element Reference */}
+                                {selectedElementId && (() => {
+                                    const selEl = elements.find(e => e.id === selectedElementId);
+                                    if (!selEl || !selEl.url) return null;
+                                    return (
+                                        <div className="px-4 pt-3 pb-1">
+                                            <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-2 py-1.5 group/ref">
+                                                <div className="w-10 h-10 rounded-lg overflow-hidden border border-gray-200 flex-shrink-0 bg-gray-100">
+                                                    {selEl.type === 'video' || selEl.type === 'gen-video' ? (
+                                                        <video src={selEl.url} className="w-full h-full object-cover" muted />
+                                                    ) : (
+                                                        <img src={selEl.url} className="w-full h-full object-cover" alt="" />
+                                                    )}
+                                                </div>
+                                        <div className="flex flex-col min-w-0">
+                                                    <span className="text-xs font-medium text-gray-700 truncate max-w-[120px]">
+                                                        {selEl.type === 'video' || selEl.type === 'gen-video' ? '视频' : '图片'}
+                                                    </span>
+                                                    <span className="text-[10px] text-gray-400">
+                                                        {Math.round(selEl.width || 0)}×{Math.round(selEl.height || 0)}
+                                                    </span>
+                                                </div>
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); setSelectedElementId(null); }}
+                                                    className="w-5 h-5 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition opacity-0 group-hover/ref:opacity-100"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
 
                                 {/* Image Mode: Upload Area */}
                                 {creationMode === 'image' && (
@@ -2974,6 +3268,49 @@ const Workspace: React.FC = () => {
                 </div>
             </div>
 
+            {/* Touch Edit Mode Indicator */}
+            {touchEditMode && (
+                <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 text-sm font-medium">
+                    <Scan size={16} />
+                    <span>Touch Edit 模式 — 点击图片区域进行编辑</span>
+                    <button onClick={() => setTouchEditMode(false)} className="ml-2 w-5 h-5 bg-white/20 rounded-full flex items-center justify-center hover:bg-white/30 transition">
+                        <X size={12} />
+                    </button>
+                </div>
+            )}
+
+            {/* Touch Edit Popup */}
+            {touchEditPopup && (
+                <div
+                    className="fixed bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-72 z-[60] animate-in fade-in duration-200"
+                    style={{ left: Math.min(touchEditPopup.x, window.innerWidth - 300), top: Math.min(touchEditPopup.y, window.innerHeight - 250) }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 text-gray-700 font-medium text-sm">
+                            <Scan size={14} /> 区域分析
+                        </div>
+                        <button onClick={() => { setTouchEditPopup(null); setTouchEditInstruction(''); }} className="text-gray-400 hover:text-gray-600 transition">
+                            <X size={14} />
+                        </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mb-3 leading-relaxed">{touchEditPopup.analysis}</p>
+                    <input
+                        value={touchEditInstruction}
+                        onChange={(e) => setTouchEditInstruction(e.target.value)}
+                        placeholder="输入编辑指令，如：换成红色"
+                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-smine-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 mb-2"
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleTouchEditExecute(); }}
+                    />
+                    <button
+                        onClick={handleTouchEditExecute}
+                        disabled={!touchEditInstruction.trim() || isTouchEditing}
+                        className="w-full py-2 bg-black text-white rounded-lg text-sm font-medium hover:bg-gray-900 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                        {isTouchEditing ? <><Loader2 size={14} className="animate-spin" /> 处理中...</> : '执行编辑'}
+                    </button>
+                </div>
+            )}
 
         </div>
     );

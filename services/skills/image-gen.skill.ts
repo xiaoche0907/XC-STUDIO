@@ -1,4 +1,4 @@
-import { generateImage } from '../gemini';
+import { generateImageWithProvider } from '../providers';
 import { ImageGenSkillParams } from '../../types/skill.types';
 
 export async function imageGenSkill(params: ImageGenSkillParams): Promise<string | null> {
@@ -12,13 +12,13 @@ export async function imageGenSkill(params: ImageGenSkillParams): Promise<string
     enhancedPrompt += `, style: ${params.brandContext.style}`;
   }
 
-  const result = await generateImage({
-    prompt: enhancedPrompt,
-    model: params.model,
-    aspectRatio: params.aspectRatio,
-    imageSize: params.imageSize || '2K',
-    referenceImage: params.referenceImage
-  });
-
-  return result;
+  return generateImageWithProvider(
+    {
+      prompt: enhancedPrompt,
+      aspectRatio: params.aspectRatio,
+      imageSize: params.imageSize || '2K',
+      referenceImage: params.referenceImage,
+    },
+    params.model
+  );
 }

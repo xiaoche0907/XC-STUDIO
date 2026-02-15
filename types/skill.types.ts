@@ -1,6 +1,9 @@
+export type ImageModel = 'Nano Banana' | 'Nano Banana Pro' | 'Flux Schnell' | 'SDXL';
+export type VideoModel = 'Veo 3.1' | 'Veo 3.1 Fast' | 'Kling Standard' | 'Kling Pro';
+
 export interface ImageGenSkillParams {
   prompt: string;
-  model: 'Nano Banana' | 'Nano Banana Pro';
+  model: ImageModel;
   aspectRatio: string;
   imageSize?: '1K' | '2K' | '4K';
   referenceImage?: string;
@@ -12,7 +15,7 @@ export interface ImageGenSkillParams {
 
 export interface VideoGenSkillParams {
   prompt: string;
-  model: 'Veo 3.1' | 'Veo 3.1 Fast';
+  model: VideoModel;
   aspectRatio: string;
   startFrame?: string;
   endFrame?: string;
@@ -26,4 +29,13 @@ export interface TextExtractSkillParams {
 export interface RegionAnalyzeSkillParams {
   imageData: string;
   regionPrompt: string;
+}
+
+export interface TouchEditSkillParams {
+  imageData: string;
+  regionX: number;
+  regionY: number;
+  regionWidth: number;
+  regionHeight: number;
+  editInstruction: string;
 }

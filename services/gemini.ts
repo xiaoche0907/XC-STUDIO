@@ -45,7 +45,7 @@ const getApiUrl = () => {
 };
 
 // Initialize the GenAI client with dynamic key and url
-const getClient = () => {
+export const getClient = () => {
     const config: any = { apiKey: getApiKey() };
     const baseUrl = getApiUrl();
     if (baseUrl) {

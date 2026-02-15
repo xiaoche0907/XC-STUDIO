@@ -1,8 +1,6 @@
-import { GoogleGenAI } from '@google/genai';
+import { getClient } from '../gemini';
 import { AgentRoutingDecision, ProjectContext } from '../../types/agent.types';
 import { COCO_SYSTEM_PROMPT } from './prompts/coco.prompt';
-
-
 
 export async function routeToAgent(
   message: string,
@@ -26,19 +24,8 @@ Analyze and route to appropriate agent. Return JSON with: action, targetAgent, t
 
   try {
     console.log('[Orchestrator] Routing message:', message.substring(0, 50));
-    console.log('[Orchestrator] API Key exists:', !!process.env.GEMINI_API_KEY);
 
-    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-    console.log('[Orchestrator] API Key exists:', !!apiKey);
-    
-    if (!apiKey) {
-      console.warn('Orchestrator skipped: No API Key');
-      return null;
-    }
-
-    const ai = new GoogleGenAI({ apiKey });
-
-    const response = await ai.models.generateContent({
+    const response = await getClient().models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: { parts: [{ text: prompt }] },
       config: {

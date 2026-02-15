@@ -1,6 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
-
-
+import { getClient } from '../gemini';
 
 export interface SmartEditParams {
   sourceUrl: string;
@@ -20,17 +18,10 @@ export async function smartEditSkill(params: SmartEditParams): Promise<string | 
   const prompt = editPrompts[params.editType] || 'Edit this image';
 
   try {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-    if (!apiKey) {
-        console.warn('Smart edit skipped: No API Key');
-        return null;
-    }
-    const ai = new GoogleGenAI({ apiKey });
-
     const matches = params.sourceUrl.match(/^data:(.+);base64,(.+)$/);
     if (!matches) return null;
 
-    const response = await ai.models.generateContent({
+    const response = await getClient().models.generateContent({
       model: 'gemini-3-pro-image-preview',
       contents: {
         parts: [

@@ -5,8 +5,9 @@ import { regionAnalyzeSkill } from './region-analyze.skill';
 import { copyGenSkill } from './copy-gen.skill';
 import { smartEditSkill } from './smart-edit.skill';
 import { exportSkill } from './export.skill';
+import { touchEditSkill } from './touch-edit.skill';
 
-export { imageGenSkill, videoGenSkill, textExtractSkill, regionAnalyzeSkill, copyGenSkill, smartEditSkill, exportSkill };
+export { imageGenSkill, videoGenSkill, textExtractSkill, regionAnalyzeSkill, copyGenSkill, smartEditSkill, exportSkill, touchEditSkill };
 
 export const AVAILABLE_SKILLS = {
   generateImage: imageGenSkill,
@@ -15,7 +16,8 @@ export const AVAILABLE_SKILLS = {
   analyzeRegion: regionAnalyzeSkill,
   generateCopy: copyGenSkill,
   smartEdit: smartEditSkill,
-  export: exportSkill
+  export: exportSkill,
+  touchEdit: touchEditSkill
 };
 
 export async function executeSkill(skillName: string, params: any): Promise<any> {
