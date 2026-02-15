@@ -4,7 +4,7 @@
  */
 
 import { Chat, Type } from '@google/genai';
-import { createChatSession } from '../gemini';
+import { createChatSession, getApiKey } from '../gemini';
 import {
     AgentTask,
     AgentInfo,
@@ -155,7 +155,7 @@ export abstract class EnhancedBaseAgent {
         const { message, context } = task.input;
 
         // 1. 分析任务并生成执行计划
-        const plan = await this.analyzeAndPlan(message, context);
+        const plan = await this.analyzeAndPlan(message, context, task.input.attachments);
 
         // 2. 如果有建议方案，返回供用户选择
         if (plan.proposals && plan.proposals.length > 0) {
@@ -172,7 +172,7 @@ export abstract class EnhancedBaseAgent {
         }
 
         // 3. 执行Skills
-        const skillResults = await this.executeSkills(plan.skillCalls || []);
+        const skillResults = await this.executeSkills(plan.skillCalls || [], task);
 
         // 4. 提取生成的资产
         const assets = this.extractAssets(skillResults);
@@ -195,12 +195,13 @@ export abstract class EnhancedBaseAgent {
      */
     private async analyzeAndPlan(
         message: string,
-        context: ProjectContext
+        context: ProjectContext,
+        attachments?: File[]
     ): Promise<any> {
         try {
             const { GoogleGenAI } = await import('@google/genai');
             const ai = new GoogleGenAI({
-                apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY
+                apiKey: getApiKey()
             });
 
             const fullPrompt = `${this.systemPrompt}
@@ -210,7 +211,33 @@ Project Context:
 - Brand: ${JSON.stringify(context.brandInfo || {})}
 - Existing Assets: ${context.existingAssets.length}
 
+Attached Assets:
+${(attachments || []).map((file, index) => {
+                const info = (file as any).markerInfo;
+                if (info) {
+                    const ratio = (info.width / info.height).toFixed(2);
+                    return `- Attachment ${index + 1}: [Marker Region] (Dimensions: ${info.width}x${info.height}, Ratio: ${ratio}). Use this as the reference image for generation and strictly maintain this aspect ratio. To use this image as a reference, set referenceImage param to 'ATTACHMENT_${index}'.`;
+                }
+                return `- Attachment ${index + 1}: ${file.name} (${file.type}). To use this file, set param to 'ATTACHMENT_${index}'.`;
+            }).join('\n')}
+
 Available Skills: ${this.preferredSkills.join(', ')}
+
+SPECIAL SKILL: smartEdit
+Use 'smartEdit' for ANY modification to an existing image (marker/attachment), such as:
+- Removing objects ('object-remove')
+- Removing background ('background-remove')
+- Changing colors ('recolor')
+- Replacing objects ('replace')
+- Upscaling ('upscale')
+
+Params for smartEdit:
+- sourceUrl: "ATTACHMENT_X" (The image to edit)
+- editType: One of the types above
+- parameters: { "object": "target name", "color": "target color", "replacement": "new object name", "style": "target style" }
+
+Example: To change a green bag to red, use:
+{"skillName": "smartEdit", "params": {"sourceUrl": "ATTACHMENT_0", "editType": "recolor", "parameters": {"object": "green bag", "color": "red"}}}
 
 User Request: ${message}
 
@@ -264,7 +291,7 @@ Analyze the request and respond with JSON containing:
     /**
      * 执行Skills（带完善错误处理）
      */
-    protected async executeSkills(skillCalls: any[]): Promise<any[]> {
+    protected async executeSkills(skillCalls: any[], task: AgentTask): Promise<any[]> {
         const results: any[] = [];
 
         for (const call of skillCalls) {
@@ -272,6 +299,43 @@ Analyze the request and respond with JSON containing:
                 // 验证技能存在
                 if (!AVAILABLE_SKILLS[call.skillName as keyof typeof AVAILABLE_SKILLS]) {
                     throw new Error(`Skill ${call.skillName} not found`);
+                }
+
+                // 解析 attachment引用
+                if (call.skillName === 'generateImage' || call.skillName === 'generateVideo' || call.skillName === 'smartEdit') {
+                    // Check for referenceImage (gen) or sourceUrl (edit)
+                    const paramKey = call.skillName === 'smartEdit' ? 'sourceUrl' : 'referenceImage';
+
+                    if (call.params[paramKey] && typeof call.params[paramKey] === 'string' && call.params[paramKey].startsWith('ATTACHMENT_')) {
+                        const index = parseInt(call.params[paramKey].split('_')[1]);
+                        const availableAttachments = task.input.attachments || [];
+                        if (availableAttachments[index]) {
+                            const file = availableAttachments[index];
+                            const reader = new FileReader();
+                            const base64 = await new Promise<string>((resolve) => {
+                                reader.onload = () => {
+                                    const res = reader.result as string;
+                                    resolve(res);
+                                };
+                                reader.readAsDataURL(file);
+                            });
+                            call.params[paramKey] = base64;
+
+                            // For smartEdit, inject aspect ratio if available
+                            if (call.skillName === 'smartEdit' && (file as any).markerInfo) {
+                                const info = (file as any).markerInfo;
+                                // Simple ratio mapping
+                                const ratio = info.width / info.height;
+                                let aspect = '1:1';
+                                if (ratio > 1.5) aspect = '16:9';
+                                else if (ratio < 0.7) aspect = '9:16';
+                                else if (ratio > 1.2) aspect = '4:3';
+                                else if (ratio < 0.8) aspect = '3:4';
+
+                                call.params.aspectRatio = aspect;
+                            }
+                        }
+                    }
                 }
 
                 const result = await executeSkill(call.skillName, call.params);
