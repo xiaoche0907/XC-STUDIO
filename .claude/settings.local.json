@@ -14,7 +14,8 @@
       "Bash(npm run build)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(node -e \"\nconst fs = require\\(''fs''\\);\nconst lines = fs.readFileSync\\(''pages/Workspace.tsx'', ''utf-8''\\).split\\(''\\\\n''\\);\n\n// SmartMessageRenderer is lines 39-158 \\(1-indexed\\), so index 38-157\nconst before = lines.slice\\(0, 38\\);\nconst after = lines.slice\\(158\\);\n\nconst newRenderer = [\n''const SmartMessageRenderer = \\({ text, onGenerate, onAction }: { text: string, onGenerate: \\(prompt: string\\) => void, onAction?: \\(action: string\\) => void }\\) => {'',\n''    const cleanText = text.replace\\(/\\\\n\\\\n---AGENT_IMAGES---[\\\\s\\\\S]*$/, \\\\''\\\\''\\).trim\\(\\);'',\n''    if \\(!cleanText\\) return <div className=\"\"whitespace-pre-wrap\"\">{text}</div>;'',\n''    return <div className=\"\"whitespace-pre-wrap\"\">{cleanText}</div>;'',\n''};'',\n''''\n];\n\nconst result = [...before, ...newRenderer, ...after].join\\(''\\\\n''\\);\nfs.writeFileSync\\(''pages/Workspace.tsx'', result, ''utf-8''\\);\nconsole.log\\(''Done, total lines:'', result.split\\(''\\\\n''\\).length\\);\n\")"
     ]
   }
 }

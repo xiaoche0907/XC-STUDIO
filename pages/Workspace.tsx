@@ -28,134 +28,20 @@ import { getAgentInfo, executeAgentTask } from '../services/agents';
 import { AgentAvatar } from '../components/agents/AgentAvatar';
 import { assetsToCanvasElementsAtCenter } from '../utils/canvas-helpers';
 import { AgentSelector } from '../components/agents/AgentSelector';
-import { ProposalSelector } from '../components/agents/ProposalSelector';
 import { TaskProgress } from '../components/agents/TaskProgress';
-import { AgentType, AgentProposal, AgentTask } from '../types/agent.types';
+import { AgentType } from '../types/agent.types';
 import { imageGenSkill } from '../services/skills/image-gen.skill';
 import { videoGenSkill } from '../services/skills/video-gen.skill';
 import { smartEditSkill } from '../services/skills/smart-edit.skill';
 import { touchEditSkill } from '../services/skills/touch-edit.skill';
 import { exportSkill } from '../services/skills/export.skill';
 const SmartMessageRenderer = ({ text, onGenerate, onAction }: { text: string, onGenerate: (prompt: string) => void, onAction?: (action: string) => void }) => {
-    // Extract agent images and actions if present
-    let mainText = text;
-    let agentImages: string[] = [];
-    let agentActions: string[] = [];
-
-    const imagesMatch = text.match(/\n\n---AGENT_IMAGES---\n([\s\S]*?)\n---AGENT_ACTIONS---\n([\s\S]*)$/);
-    if (imagesMatch) {
-        mainText = text.substring(0, text.indexOf('\n\n---AGENT_IMAGES---'));
-        agentImages = imagesMatch[1].split('\n').filter(u => u.trim());
-        agentActions = imagesMatch[2].split('|').filter(a => a.trim());
-    }
-
-    // Split by code blocks, capturing language (optional) and content
-    // Regex: ```(optional lang)\n(content)```
-    const parts = mainText.split(/```([a-zA-Z0-9:-]*)\n?([\s\S]*?)```/g);
-
-    if (parts.length === 1) return <div className="whitespace-pre-wrap">{text}</div>;
-
-    const elements = [];
-    for (let i = 0; i < parts.length; i += 3) {
-        // 1. Preceding Text
-        if (parts[i]) elements.push(<span key={`text-${i}`}>{parts[i]}</span>);
-
-        // 2. Code Block logic
-        if (i + 2 < parts.length) {
-            const lang = parts[i + 1]?.trim().toLowerCase();
-            const content = parts[i + 2];
-            let renderedCard = false;
-
-            // Attempt to treat as Generation Card if json or json:generation
-            if (lang === 'json:generation' || lang === 'json') {
-                try {
-                    // Try parsing JSON (stripping potential trailing commas or minor errors if possible, but strict for now)
-                    const data = JSON.parse(content.trim());
-                    // Check schema
-                    if (data.title && data.prompt) {
-                        elements.push(
-                            <div key={`card-${i}`} className="my-3 p-0 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all group select-none block max-w-full">
-                                <div className="bg-gradient-to-r from-gray-50 to-white px-4 py-3 border-b border-gray-100 flex justify-between items-center gap-3">
-                                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                                        <div className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)] shrink-0"></div>
-                                        <h4 className="font-bold text-gray-900 text-sm truncate" title={data.title}>{data.title}</h4>
-                                    </div>
-                                    <div className="flex gap-2 shrink-0">
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                navigator.clipboard.writeText(data.prompt);
-                                                // Optional: show toast
-                                            }}
-                                            className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition"
-                                            title="Copy Prompt"
-                                        >
-                                            <Copy size={12} />
-                                        </button>
-                                        <button
-                                            onClick={() => onGenerate(data.prompt)}
-                                            className="bg-black hover:bg-gray-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-md hover:shadow-lg active:scale-95 shrink-0"
-                                        >
-                                            <Sparkles size={12} className="text-yellow-300 fill-yellow-300" /> 生成
-                                        </button>
-                                    </div>
-                                </div>
-                                <div className="p-4 bg-white/50">
-                                    <p className="text-xs text-gray-600 mb-3 leading-relaxed">{data.description || data.prompt}</p>
-                                    <div className="bg-gray-50/80 rounded-lg p-2.5 border border-gray-100 flex gap-2 items-start group/prompt cursor-help hover:border-blue-100 transition" title={data.prompt}>
-                                        <div className="text-[10px] text-blue-500 font-bold mt-0.5 shrink-0 select-none">PROMPT</div>
-                                        <div className="text-[11px] text-gray-500 font-medium italic flex-1 line-clamp-3 leading-relaxed">{data.prompt}</div>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                        renderedCard = true;
-                    }
-                } catch (e) {
-                    // JSON Parse failed, fall through to code block
-                }
-            }
-
-            if (!renderedCard) {
-                // Render as standard code block
-                elements.push(
-                    <div key={`code-${i}`} className="my-2 bg-gray-900 text-gray-100 p-3 rounded-lg text-xs font-mono overflow-auto relative group/code max-h-60">
-                        <div className="absolute top-2 right-2 opacity-0 group-hover/code:opacity-100 text-[10px] text-gray-400 uppercase select-none">{lang || 'text'}</div>
-                        <pre className="whitespace-pre-wrap break-all">{content}</pre>
-                    </div>
-                );
-            }
-        }
-    }
-
-    return (
-        <div className="whitespace-pre-wrap font-sans">
-            {elements}
-            {agentImages.length > 0 && (
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                    {agentImages.map((url, idx) => (
-                        <div key={`ai-img-${idx}`} className="rounded-xl overflow-hidden border border-gray-200 shadow-sm">
-                            <img src={url} className="w-full h-auto object-cover" alt={`生成结果 ${idx + 1}`} />
-                        </div>
-                    ))}
-                </div>
-            )}
-            {agentActions.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                    {agentActions.map((action, idx) => (
-                        <button
-                            key={`action-${idx}`}
-                            onClick={() => onAction?.(action.trim())}
-                            className="px-3 py-1.5 bg-gray-50 hover:bg-blue-50 border border-gray-200 hover:border-blue-300 rounded-full text-xs font-medium text-gray-600 hover:text-blue-600 transition-all"
-                        >
-                            {action.trim()}
-                        </button>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
+    // Simple text renderer - agent structured data handled by agentData in message rendering
+    const cleanText = text.replace(/---AGENT_IMAGES---[\s\S]*$/m, '').trim();
+    if (!cleanText) return <div className="whitespace-pre-wrap">{text}</div>;
+    return <div className="whitespace-pre-wrap">{cleanText}</div>;
 };
+
 
 const TEMPLATES: Template[] = [
     { id: '1', title: 'Wine List', description: 'Mimic this effect to generate a poster of ...', image: 'https://picsum.photos/80/80?random=10' },
@@ -291,8 +177,8 @@ const Workspace: React.FC = () => {
     // prompt/attachments legacy states replaced by inputBlocks effectively, 
     // but keeping 'prompt' sync for other potential uses if needed, or simply deriving in handleSend.
     // We will ignore 'prompt' and 'attachments' state for the INPUT area.
-    const [modelMode, setModelMode] = useState<'thinking' | 'fast'>('fast');
-    const [webEnabled, setWebEnabled] = useState(true);
+    const [modelMode, setModelMode] = useState<'thinking' | 'fast'>('thinking');
+    const [webEnabled, setWebEnabled] = useState(false);
     const [imageModelEnabled, setImageModelEnabled] = useState(false);
 
     const activeBlockIdRef = useRef(activeBlockId);
@@ -379,7 +265,7 @@ const Workspace: React.FC = () => {
     const [videoEndFrame, setVideoEndFrame] = useState<File | null>(null);
 
     // Legacy agent mode (keeping for compatibility)
-    const [agentMode, setAgentMode] = useState(false);
+    const [agentMode, setAgentMode] = useState(true);
 
     // Image Toolbar States
     const [upscaleMenuOpen, setUpscaleMenuOpen] = useState(false);
@@ -396,6 +282,60 @@ const Workspace: React.FC = () => {
 
     // Export States
     const [showExportMenu, setShowExportMenu] = useState(false);
+
+    // Mode Switch Confirmation Dialog
+    const [showModeSwitchDialog, setShowModeSwitchDialog] = useState(false);
+    const [pendingModelMode, setPendingModelMode] = useState<'thinking' | 'fast' | null>(null);
+    const [dontAskModeSwitch, setDontAskModeSwitch] = useState(false);
+
+    // Model Preference Panel
+    const [showModelPreference, setShowModelPreference] = useState(false);
+    const [modelPreferenceTab, setModelPreferenceTab] = useState<'image' | 'video' | '3d'>('image');
+    const [autoModelSelect, setAutoModelSelect] = useState(true);
+    const [preferredImageModel, setPreferredImageModel] = useState('Nano Banana Pro');
+    const [preferredVideoModel, setPreferredVideoModel] = useState('Veo 3.1');
+    const [preferred3DModel, setPreferred3DModel] = useState('Auto');
+
+    // Drag-and-drop state
+    const [isDragOver, setIsDragOver] = useState(false);
+
+    // Mode switch handler
+    const handleModeSwitch = (newMode: 'thinking' | 'fast') => {
+        if (newMode === modelMode) return;
+        if (dontAskModeSwitch) {
+            setModelMode(newMode);
+            setMessages([]);
+            return;
+        }
+        setPendingModelMode(newMode);
+        setShowModeSwitchDialog(true);
+    };
+
+    const confirmModeSwitch = () => {
+        if (pendingModelMode) {
+            setModelMode(pendingModelMode);
+            setMessages([]);
+        }
+        setShowModeSwitchDialog(false);
+        setPendingModelMode(null);
+    };
+
+    // Model preference data
+    const MODEL_OPTIONS = {
+        image: [
+            { id: 'Nano Banana Pro', name: 'Nano Banana Pro', desc: '高质量图像生成，细节丰富', time: '~20s' },
+            { id: 'GPT Image 1.5', name: 'GPT Image 1.5', desc: '创意图像生成，风格多样', time: '~120s' },
+            { id: 'Flux.2 Max', name: 'Flux.2 Max', desc: '快速图像生成，效率优先', time: '~10s' },
+        ],
+        video: [
+            { id: 'Veo 3.1', name: 'Veo 3.1', desc: '高质量视频生成', time: '~60s' },
+            { id: 'Veo 3.1 Fast', name: 'Veo 3.1 Fast', desc: '快速视频生成', time: '~30s' },
+            { id: 'Kling 2.0', name: 'Kling 2.0', desc: '运动流畅的视频生成', time: '~45s' },
+        ],
+        '3d': [
+            { id: 'Auto', name: 'Auto', desc: '自动选择最佳3D模型', time: '~30s' },
+        ]
+    };
 
     const handleUpscaleSelect = async (factor: number) => {
         setUpscaleMenuOpen(false);
@@ -1581,7 +1521,7 @@ const Workspace: React.FC = () => {
 
             const newUserMsg: ChatMessage = {
                 id: Date.now().toString(), role: 'user',
-                text: textToSend + (selEl ? ` [已选中${selEl.type === 'video' || selEl.type === 'gen-video' ? '视频' : '图片'}]` : ''),
+                text: textToSend,
                 timestamp: Date.now(),
                 attachments: selEl?.url ? [selEl.url] : undefined
             };
@@ -1592,32 +1532,19 @@ const Workspace: React.FC = () => {
             try {
                 const agentResult = await processMessage(agentText, filesToSend);
 
-                // Auto-execute skillCalls and generate images to canvas
+                // Collect generated image URLs from assets (base-agent already auto-generates)
                 let generatedUrls: string[] = [];
-                if (agentResult?.output?.skillCalls && agentResult.output.skillCalls.length > 0) {
-                    for (const call of agentResult.output.skillCalls) {
-                        if (call.result && typeof call.result === 'string' && call.result.startsWith('data:')) {
-                            generatedUrls.push(call.result);
-                        }
+                if (agentResult?.output?.assets && agentResult.output.assets.length > 0) {
+                    for (const asset of agentResult.output.assets) {
+                        if (asset.url) generatedUrls.push(asset.url);
                     }
                 }
 
-                // If agent returned proposals with skillCalls, try executing them
+                // Fallback: check proposals for generatedUrl
                 if (generatedUrls.length === 0 && agentResult?.output?.proposals) {
                     for (const proposal of agentResult.output.proposals) {
-                        if (proposal.skillCalls) {
-                            for (const sc of proposal.skillCalls) {
-                                if (sc.skillName === 'generateImage' && sc.params?.prompt) {
-                                    try {
-                                        const url = await imageGenSkill({
-                                            prompt: sc.params.prompt,
-                                            model: sc.params.model || 'Nano Banana',
-                                            aspectRatio: sc.params.aspectRatio || '1:1'
-                                        });
-                                        if (url) generatedUrls.push(url);
-                                    } catch (_) { /* skip failed */ }
-                                }
-                            }
+                        if ((proposal as any).generatedUrl) {
+                            generatedUrls.push((proposal as any).generatedUrl);
                         }
                     }
                 }
@@ -1643,17 +1570,34 @@ const Workspace: React.FC = () => {
                     saveToHistory([...elements, ...newEls], markers);
                 }
 
-                // Build response message with adjustment options
-                const msgId = (Date.now() + 1).toString();
-                const responseText = agentResult?.output?.message || '已完成处理';
-                const hasImages = generatedUrls.length > 0;
+                // Get first proposal info for display
+                const firstProposal = agentResult?.output?.proposals?.[0];
+                const adjustments = agentResult?.output?.adjustments || ['调整构图', '更换风格', '修改配色', '添加文字', '放大画质'];
+                const usedModel = (firstProposal as any)?.model || 'Nano Banana Pro';
 
+                // Extract display message: prefer analysis (agent's reasoning), then message, then fallback
+                const analysis = agentResult?.output?.analysis || '';
+                const rawMsg = agentResult?.output?.message || '';
+                // Use analysis as the main display text (Lovart shows agent's thinking process)
+                // Fall back to message if analysis is empty, skip if it looks like raw JSON
+                let displayMsg = analysis || rawMsg;
+                if (displayMsg.startsWith('{') || displayMsg.startsWith('[')) {
+                    displayMsg = firstProposal ? `已为您生成「${(firstProposal as any).title || '设计方案'}」` : '已完成处理';
+                }
+
+                // Build structured agent message (Lovart style)
                 setMessages(prev => [...prev, {
-                    id: msgId,
+                    id: (Date.now() + 1).toString(),
                     role: 'model',
-                    text: responseText + (hasImages ? `\n\n---AGENT_IMAGES---\n${generatedUrls.join('\n')}\n---AGENT_ACTIONS---\n调整构图|更换风格|修改配色|添加文字|放大画质` : ''),
+                    text: displayMsg,
                     timestamp: Date.now(),
-                    attachments: hasImages ? generatedUrls : undefined
+                    agentData: {
+                        model: usedModel,
+                        title: (firstProposal as any)?.title || undefined,
+                        description: (firstProposal as any)?.description || undefined,
+                        imageUrls: generatedUrls.length > 0 ? generatedUrls : undefined,
+                        adjustments,
+                    }
                 }]);
             } catch (error) {
                 setMessages(prev => [...prev, { id: (Date.now() + 2).toString(), role: 'model', text: `Error: ${error instanceof Error ? error.message : 'Unknown'}`, timestamp: Date.now() }]);
@@ -2269,6 +2213,29 @@ const Workspace: React.FC = () => {
                     <img src={previewUrl} className="max-w-full max-h-full object-contain rounded-lg shadow-2xl cursor-default" onClick={(e) => e.stopPropagation()} />
                 </div>
             )}
+
+            {/* Mode Switch Confirmation Dialog */}
+            {showModeSwitchDialog && (
+                <div className="fixed inset-0 z-[200] bg-black/40 flex items-center justify-center backdrop-blur-sm animate-in fade-in duration-150" onClick={() => { setShowModeSwitchDialog(false); setPendingModelMode(null); }}>
+                    <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-[360px] p-6 animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                        <h3 className="text-lg font-semibold text-gray-900 mb-2">新建对话?</h3>
+                        <p className="text-sm text-gray-500 mb-5">切换模式会新建对话。您可以随时从历史列表中访问此对话。</p>
+                        <label className="flex items-center gap-2 mb-5 cursor-pointer select-none">
+                            <div
+                                onClick={() => setDontAskModeSwitch(!dontAskModeSwitch)}
+                                className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer ${dontAskModeSwitch ? 'bg-black' : 'bg-gray-300'}`}
+                            >
+                                <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${dontAskModeSwitch ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                            </div>
+                            <span className="text-sm text-gray-600">不再询问</span>
+                        </label>
+                        <div className="flex gap-3">
+                            <button onClick={() => { setShowModeSwitchDialog(false); setPendingModelMode(null); }} className="flex-1 h-10 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition">取消</button>
+                            <button onClick={confirmModeSwitch} className="flex-1 h-10 rounded-xl bg-black text-white text-sm font-medium hover:bg-gray-800 transition">新建</button>
+                        </div>
+                    </div>
+                </div>
+            )}
             <AnimatePresence>
                 {showLayersPanel && (
                     <motion.div
@@ -2463,26 +2430,96 @@ const Workspace: React.FC = () => {
                                             key={msg.id}
                                             className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                                         >
-                                            {msg.role === 'model' && currentTask && (
-                                                <AgentAvatar agentId={currentTask.agentId} size="sm" />
-                                            )}
-                                            <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-none'}`}>
-                                                <SmartMessageRenderer text={msg.text} onGenerate={handleSmartGenerate} onAction={(action) => handleSend(action)} />
-                                                {msg.attachments && msg.attachments.length > 0 && (
-                                                    <div className="mt-2 grid grid-cols-2 gap-2">
-                                                        {msg.attachments.map((att, i) => (
-                                                            <div key={i} className="relative group/att">
-                                                                <img src={att} className="rounded-lg border border-gray-200" />
-                                                                {msg.relatedMarkerId && (
-                                                                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 bg-[#3B82F6] rounded-full flex items-center justify-center text-white text-xs font-bold border-2 border-white shadow-sm">
-                                                                        {msg.relatedMarkerId}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        ))}
+                                            {msg.role === 'user' ? (
+                                                <div className="max-w-[85%] rounded-2xl rounded-tr-none px-4 py-3 text-sm shadow-sm bg-blue-600 text-white">
+                                                    <div className="whitespace-pre-wrap">{msg.text}</div>
+                                                    {msg.attachments && msg.attachments.length > 0 && (
+                                                        <div className="mt-2 grid grid-cols-2 gap-2">
+                                                            {msg.attachments.map((att, i) => (
+                                                                <img key={i} src={att} className="rounded-lg border border-white/20" />
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ) : msg.agentData ? (
+                                                /* Lovart-style agent response card */
+                                                <div className="w-full max-w-[95%]">
+                                                    {/* Message text (short summary, not full analysis) */}
+                                                    <div className="text-sm text-gray-700 mb-3 leading-relaxed whitespace-pre-wrap">
+                                                        {msg.text}
                                                     </div>
-                                                )}
-                                            </div>
+
+                                                    {/* Model badge + Title row */}
+                                                    {(msg.agentData.model || msg.agentData.title) && (
+                                                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                                            {msg.agentData.model && (
+                                                                <div className="inline-flex items-center gap-1.5 bg-gray-100 rounded-full px-2.5 py-1">
+                                                                    <div className="w-3.5 h-3.5 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full" />
+                                                                    <span className="text-[11px] font-medium text-gray-600">{msg.agentData.model}</span>
+                                                                </div>
+                                                            )}
+                                                            {msg.agentData.title && (
+                                                                <span className="text-sm font-semibold text-gray-900">{msg.agentData.title}</span>
+                                                            )}
+                                                        </div>
+                                                    )}
+
+                                                    {/* Generated images - grid for multiple */}
+                                                    {msg.agentData.imageUrls && msg.agentData.imageUrls.length > 0 && (
+                                                        <div className={`mb-3 ${msg.agentData.imageUrls.length === 1 ? '' : 'grid grid-cols-2 gap-2'}`}>
+                                                            {msg.agentData.imageUrls.map((url, i) => (
+                                                                <img
+                                                                    key={i}
+                                                                    src={url}
+                                                                    className="w-full rounded-xl border border-gray-200 cursor-pointer hover:shadow-lg transition"
+                                                                    onClick={() => setPreviewUrl(url)}
+                                                                />
+                                                            ))}
+                                                        </div>
+                                                    )}
+
+                                                    {/* Description */}
+                                                    {msg.agentData.description && (
+                                                        <p className="text-xs text-gray-500 mb-3 leading-relaxed">{msg.agentData.description}</p>
+                                                    )}
+
+                                                    {/* Adjustment buttons */}
+                                                    {msg.agentData.adjustments && msg.agentData.adjustments.length > 0 && (
+                                                        <div className="flex flex-wrap gap-1.5 mb-3">
+                                                            {msg.agentData.adjustments.map((adj, i) => (
+                                                                <button
+                                                                    key={i}
+                                                                 onClick={() => handleSend(adj)}
+                                                                    className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-full transition hover:text-gray-900"
+                                                                >
+                                                                    {adj}
+                                                                </button>
+                                                            ))}
+                                                    </div>
+                                                    )}
+
+                                                    {/* Feedback buttons */}
+                                                    <div className="flex items-center gap-2 pt-1">
+                                                        <button className="p-1.5 text-gray-300 hover:text-gray-600 transition rounded-lg hover:bg-gray-50">
+                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"/></svg>
+                                                        </button>
+                                                        <button className="p-1.5 text-gray-300 hover:text-gray-600 transition rounded-lg hover:bg-gray-50">
+                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22h0a3.13 3.13 0 0 1-3-3.88Z"/></svg>
+                                                        </button>
+                                                        <button
+                                                            onClick={() => navigator.clipboard.writeText(msg.text)}
+                                                            className="p-1.5 text-gray-300 hover:text-gray-600 transition rounded-lg hover:bg-gray-50"
+                                                        >
+                                                            <Copy size={14} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                /* Regular model message */
+                                                <div className="max-w-[85%] rounded-2xl rounded-tl-none px-4 py-3 text-sm shadow-sm bg-white border border-gray-100 text-gray-800">
+                                                    <SmartMessageRenderer text={msg.text} onGenerate={handleSmartGenerate} onAction={(action) => handleSend(action)} />
+                                                </div>
+                                            )}
                                         </motion.div>
                                     ))}
                                     {isTyping && (
@@ -2500,78 +2537,6 @@ const Workspace: React.FC = () => {
                                         <TaskProgress task={currentTask} />
                                     )}
 
-                                    {/* Proposal Selector */}
-                                    {(() => {
-                                        console.log('[Workspace] Checking proposals:', {
-                                            hasCurrentTask: !!currentTask,
-                                            taskStatus: currentTask?.status,
-                                            hasOutput: !!currentTask?.output,
-                                            hasProposals: !!currentTask?.output?.proposals,
-                                            proposalsLength: currentTask?.output?.proposals?.length,
-                                            proposals: currentTask?.output?.proposals
-                                        });
-                                        return null;
-                                    })()}
-                                    {currentTask?.output?.proposals && currentTask.output.proposals.length > 0 && (
-                                        <div className="mt-4">
-                                            <ProposalSelector
-                                                proposals={currentTask.output.proposals}
-                                                onSelect={async (proposal: AgentProposal) => {
-                                                    setIsTyping(true);
-                                                    try {
-                                                        const task: AgentTask = {
-                                                            id: `task-${Date.now()}`,
-                                                            agentId: currentTask.agentId,
-                                                            status: 'executing',
-                                                            input: {
-                                                                message: `Execute proposal: ${proposal.id}`,
-                                                                context: projectContext
-                                                            },
-                                                            createdAt: Date.now(),
-                                                            updatedAt: Date.now()
-                                                        };
-
-                                                        const result = await executeAgentTask(task);
-
-                                                        if (result.output?.assets) {
-                                                            result.output.assets.forEach(asset => {
-                                                                if (asset.type === 'image') {
-                                                                    const newElement: CanvasElement = {
-                                                                        id: `gen-${Date.now()}-${Math.random()}`,
-                                                                        type: 'gen-image',
-                                                                        url: asset.url,
-                                                                        x: 100,
-                                                                        y: 100,
-                                                                        width: 400,
-                                                                        height: 400,
-                                                                        zIndex: elements.length,
-                                                                        genPrompt: asset.metadata.prompt,
-                                                                        genModel: asset.metadata.model as any
-                                                                    };
-                                                                    setElements((prev: CanvasElement[]) => [...prev, newElement]);
-                                                                }
-                                                            });
-                                                        }
-
-                                                        if (result.output?.message) {
-                                                            setMessages((prev: ChatMessage[]) => [...prev, {
-                                                                id: `msg-${Date.now()}`,
-                                                                role: 'model',
-                                                                text: result.output.message,
-                                                                timestamp: Date.now()
-                                                            }]);
-                                                        }
-                                                    } catch (error) {
-                                                        console.error('Proposal execution error:', error);
-                                                    } finally {
-                                                        setIsTyping(false);
-                                                    }
-                                                }}
-                                                isExecuting={isTyping}
-                                            />
-                                        </div>
-                                    )}
-
                                     <div ref={messagesEndRef} />
                                 </div>
                             )}
@@ -2581,40 +2546,32 @@ const Workspace: React.FC = () => {
 
                         {/* Input Area - Lovart Style with Mode Support */}
                         <div className="p-4 bg-white/50 backdrop-blur-sm z-20">
-                            <div className="bg-white rounded-[20px] border border-gray-200 shadow-lg hover:shadow-xl transition-all duration-300 relative group focus-within:ring-2 focus-within:ring-black/5 focus-within:border-gray-300 flex flex-col">
-
-                                {/* Selected Element Reference */}
-                                {selectedElementId && (() => {
-                                    const selEl = elements.find(e => e.id === selectedElementId);
-                                    if (!selEl || !selEl.url) return null;
-                                    return (
-                                        <div className="px-4 pt-3 pb-1">
-                                            <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-2 py-1.5 group/ref">
-                                                <div className="w-10 h-10 rounded-lg overflow-hidden border border-gray-200 flex-shrink-0 bg-gray-100">
-                                                    {selEl.type === 'video' || selEl.type === 'gen-video' ? (
-                                                        <video src={selEl.url} className="w-full h-full object-cover" muted />
-                                                    ) : (
-                                                        <img src={selEl.url} className="w-full h-full object-cover" alt="" />
-                                                    )}
-                                                </div>
-                                        <div className="flex flex-col min-w-0">
-                                                    <span className="text-xs font-medium text-gray-700 truncate max-w-[120px]">
-                                                        {selEl.type === 'video' || selEl.type === 'gen-video' ? '视频' : '图片'}
-                                                    </span>
-                                                    <span className="text-[10px] text-gray-400">
-                                                        {Math.round(selEl.width || 0)}×{Math.round(selEl.height || 0)}
-                                                    </span>
-                                                </div>
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); setSelectedElementId(null); }}
-                                                    className="w-5 h-5 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition opacity-0 group-hover/ref:opacity-100"
-                                                >
-                                                    <X size={12} />
-                                                </button>
-                                            </div>
+                            <div
+                                className={`bg-white rounded-[20px] border shadow-lg hover:shadow-xl transition-all duration-300 relative group focus-within:ring-2 focus-within:ring-black/5 focus-within:border-gray-300 flex flex-col ${isDragOver ? 'border-blue-400 ring-2 ring-blue-100 bg-blue-50/30' : 'border-gray-200'}`}
+                                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }}
+                                onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); }}
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setIsDragOver(false);
+                                    if (e.dataTransfer.files.length > 0) {
+                                        Array.from(e.dataTransfer.files).forEach(f => {
+                                            if (f.type.startsWith('image/') || f.type.startsWith('video/')) {
+                                                insertInputFile(f);
+                                            }
+                                        });
+                                    }
+                                }}
+                            >
+                                {/* Drag overlay */}
+                                {isDragOver && (
+                                    <div className="absolute inset-0 z-30 rounded-[20px] bg-blue-50/80 border-2 border-dashed border-blue-400 flex items-center justify-center pointer-events-none">
+                                        <div className="flex flex-col items-center gap-2">
+                                            <ImageIcon size={24} className="text-blue-500" />
+                                            <span className="text-sm font-medium text-blue-600">将文件拖拽至此处添加到对话</span>
                                         </div>
-                                    );
-                                })()}
+                                    </div>
+                                )}
 
                                 {/* Image Mode: Upload Area */}
                                 {creationMode === 'image' && (
@@ -2655,6 +2612,34 @@ const Workspace: React.FC = () => {
                                     const el = document.getElementById(`input-block-${activeBlockId}`) || document.getElementById(`input-block-${lastId}`);
                                     el?.focus();
                                 }}>
+                                    {/* Inline Selected Element Reference - Lovart style */}
+                                    {selectedElementId && (() => {
+                                        const selEl = elements.find(e => e.id === selectedElementId);
+                                        if (!selEl || !selEl.url) return null;
+                                        return (
+                                            <div
+                                                className="inline-flex items-center gap-1.5 bg-black/5 backdrop-blur-sm rounded-lg px-1.5 py-1 flex-shrink-0 group/selref cursor-default transition-all hover:bg-black/10 border border-black/5"
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                <div className="w-7 h-7 rounded-md overflow-hidden flex-shrink-0 opacity-80">
+                                                    {selEl.type === 'video' || selEl.type === 'gen-video' ? (
+                                                        <video src={selEl.url} className="w-full h-full object-cover" muted />
+                                                    ) : (
+                                                        <img src={selEl.url} className="w-full h-full object-cover" alt="" />
+                                                    )}
+                                                </div>
+                                                <span className="text-xs text-gray-500 max-w-[60px] truncate">
+                                         {selEl.type === 'video' || selEl.type === 'gen-video' ? '视频' : '图片'}
+                                                </span>
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); setSelectedElementId(null); }}
+                                                    className="w-4 h-4 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-black/10 transition opacity-0 group-hover/selref:opacity-100"
+                                                >
+                                                    <X size={10} />
+                                                </button>
+                                            </div>
+                                        );
+                                    })()}
                                     {inputBlocks.map((block, i) => {
                                         if (block.type === 'file' && block.file) {
                                             const file = block.file;
@@ -3032,27 +3017,107 @@ const Workspace: React.FC = () => {
                                             </>
                                         )}
 
-                                        {/* Agent Mode: Original Icons */}
+                                        {/* Agent Mode: Enhanced Controls */}
                                         {creationMode === 'agent' && (
                                             <>
-                                                <div className="h-8 bg-gray-100 rounded-full flex items-center p-1 gap-1 border border-gray-200">
-                                                    <button
-                                                        onClick={() => setModelMode('thinking')}
-                                                        className={`w-6 h-6 flex items-center justify-center rounded-full transition-all ${modelMode === 'thinking' ? 'bg-white shadow-sm text-black ring-1 ring-black/5' : 'text-gray-400 hover:text-gray-600'}`}
-                                                        title="思考模式 (gemini-3-pro-preview)"
-                                                    >
-                                                        <Lightbulb size={14} strokeWidth={2} />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setModelMode('fast')}
-                                                        className={`w-6 h-6 flex items-center justify-center rounded-full transition-all ${modelMode === 'fast' ? 'bg-white shadow-sm text-black ring-1 ring-black/5' : 'text-gray-400 hover:text-gray-600'}`}
-                                                        title="快速模式 (gemini-3-flash-preview)"
-                                                    >
-                                                        <Zap size={14} strokeWidth={2} />
-                                                    </button>
+                                                <div className="h-8 bg-gray-100 rounded-full flex items-center p-1 gap-1 border border-gray-200 relative">
+                                                    <div className="relative group/think">
+                                                        <button
+                                                            onClick={() => handleModeSwitch('thinking')}
+                                                            className={`w-6 h-6 flex items-center justify-center rounded-full transition-all ${modelMode === 'thinking' ? 'bg-white shadow-sm text-black ring-1 ring-black/5' : 'text-gray-400 hover:text-gray-600'}`}
+                                                        >
+                                                            <Lightbulb size={14} strokeWidth={2} />
+                                                        </button>
+                                                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover/think:opacity-100 transition pointer-events-none z-50 shadow-lg">
+                                                            <div className="font-medium mb-0.5">思考模式</div>
+                                                            <div className="text-gray-400 text-[10px]">制定复杂任务并自主执行</div>
+                                                            <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 w-2 h-2 bg-gray-900 rotate-45"></div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="relative group/fast">
+                                                        <button
+                                                            onClick={() => handleModeSwitch('fast')}
+                                                            className={`w-6 h-6 flex items-center justify-center rounded-full transition-all ${modelMode === 'fast' ? 'bg-white shadow-sm text-black ring-1 ring-black/5' : 'text-gray-400 hover:text-gray-600'}`}
+                                                        >
+                                                            <Zap size={14} strokeWidth={2} />
+                                                        </button>
+                                                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover/fast:opacity-100 transition pointer-events-none z-50 shadow-lg">
+                                                            <div className="font-medium mb-0.5">快速模式</div>
+                                                            <div className="text-gray-400 text-[10px]">快速制定和执行任务</div>
+                                                            <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 w-2 h-2 bg-gray-900 rotate-45"></div>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <button onClick={() => setWebEnabled(!webEnabled)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${webEnabled ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-black/5 bg-white'}`}><Globe size={16} strokeWidth={1.5} /></button>
-                                                <button onClick={() => setImageModelEnabled(!imageModelEnabled)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${imageModelEnabled ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-black/5 bg-white'}`}><Box size={16} strokeWidth={2} /></button>
+                                                <div className="relative group/web">
+                                                    <button onClick={() => setWebEnabled(!webEnabled)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${webEnabled ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-black/5 bg-white'}`}><Globe size={16} strokeWidth={1.5} /></button>
+                                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover/web:opacity-100 transition pointer-events-none z-50 shadow-lg">
+                                                        <div className="font-medium">联网搜索</div>
+                                                        <div className="text-gray-400 text-[10px]">{webEnabled ? '已开启' : '已关闭'}</div>
+                                                        <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 w-2 h-2 bg-gray-900 rotate-45"></div>
+                                                    </div>
+                                                </div>
+                                                <div className="relative">
+                                                    <div className="relative group/model">
+                                                        <button onClick={() => setShowModelPreference(!showModelPreference)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${showModelPreference ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-black/5 bg-white'}`}><Box size={16} strokeWidth={2} /></button>
+                                                        {!showModelPreference && (
+                                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover/model:opacity-100 transition pointer-events-none z-50 shadow-lg">
+                                                             <div className="font-medium">模型偏好</div>
+                                                                <div className="text-gray-400 text-[10px]">{autoModelSelect ? '自动' : preferredImageModel}</div>
+                                                                <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 w-2 h-2 bg-gray-900 rotate-45"></div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    {/* Model Preference Panel */}
+                                                    {showModelPreference && (
+                                                        <div className="absolute bottom-full right-0 mb-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 z-50 animate-in fade-in zoom-in-95 duration-150 overflow-hidden" onClick={e => e.stopPropagation()}>
+                                                            <div className="p-4 pb-3">
+                                                                <div className="flex items-center justify-between mb-3">
+                                                                    <span className="text-sm font-semibold text-gray-900">模型偏好</span>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="text-xs text-gray-500">自动</span>
+                                                                        <div
+                                                                            onClick={() => setAutoModelSelect(!autoModelSelect)}
+                                                                            className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer ${autoModelSelect ? 'bg-black' : 'bg-gray-300'}`}
+                                                              >
+                                                                            <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${autoModelSelect ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5 mb-3">
+                                                                    {(['image', 'video', '3d'] as const).map(tab => (
+                                                                        <button key={tab} onClick={() => setModelPreferenceTab(tab)} className={`flex-1 py-1.5 text-xs font-medium rounded-md transition ${modelPreferenceTab === tab ? 'bg-white shadow-sm text-black' : 'text-gray-500 hover:text-gray-700'}`}>
+                                                                            {tab === 'image' ? 'Image' : tab === 'video' ? 'Video' : '3D'}
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                            <div className="px-4 pb-4 space-y-1.5 max-h-48 overflow-y-auto">
+                                                                {MODEL_OPTIONS[modelPreferenceTab].map(model => {
+                                                                    const isSelected = modelPreferenceTab === 'image' ? preferredImageModel === model.id : modelPreferenceTab === 'video' ? preferredVideoModel === model.id : preferred3DModel === model.id;
+                                                                    return (
+                                                                        <div
+                                                                            key={model.id}
+                                                                            onClick={() => {
+                                                                                if (modelPreferenceTab === 'image') setPreferredImageModel(model.id);
+                                                                                else if (modelPreferenceTab === 'video') setPreferredVideoModel(model.id);
+                                                                                else setPreferred3DModel(model.id);
+                                                                                setAutoModelSelect(false);
+                                                                            }}
+                                                                            className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition ${isSelected && !autoModelSelect ? 'bg-blue-50 border border-blue-200' : 'hover:bg-gray-50 border border-transparent'}`}
+                                                                        >
+                                                                            <div className="flex-1 min-w-0">
+                                                                                <div className="text-sm font-medium text-gray-900">{model.name}</div>
+                                                                                <div className="text-[11px] text-gray-500">{model.desc}</div>
+                                                                            </div>
+                                                                            <span className="text-[10px] text-gray-400 shrink-0">{model.time}</span>
+                                                                            {isSelected && !autoModelSelect && <Check size={14} className="text-blue-500 shrink-0" />}
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
                                                 <button onClick={() => handleSend()} disabled={inputBlocks.every(b => (b.type === 'text' && !b.text) || (b.type === 'file' && !b.file))} className={`w-8 h-8 rounded-full flex items-center justify-center transition shadow-sm ${(inputBlocks.every(b => (b.type === 'text' && !b.text) || (b.type === 'file' && !b.file))) ? 'bg-gray-200 text-gray-400' : 'bg-blue-500 text-white hover:scale-105'}`}><ArrowUp size={16} strokeWidth={2.5} /></button>
                                             </>
                                         )}

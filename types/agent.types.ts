@@ -38,6 +38,7 @@ export interface AgentTask {
     message: string;
     attachments?: File[];
     context: ProjectContext;
+    metadata?: Record<string, any>;
   };
   output?: {
     message: string;
@@ -45,6 +46,7 @@ export interface AgentTask {
     proposals?: AgentProposal[];
     assets?: GeneratedAsset[];
     skillCalls?: SkillCall[];
+    adjustments?: string[];
     error?: any; // 添加错误字段支持
   };
   createdAt: number;

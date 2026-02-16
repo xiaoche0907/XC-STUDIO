@@ -77,6 +77,15 @@ export interface ChatMessage {
   timestamp: number;
   attachments?: string[]; // Array of base64 images
   relatedMarkerId?: number;
+  // Agent structured data (Lovart-style)
+  agentData?: {
+    model?: string;
+    title?: string;
+    description?: string;
+    imageUrls?: string[];
+    adjustments?: string[];
+    analysis?: string;
+  };
 }
 
 export interface Template {

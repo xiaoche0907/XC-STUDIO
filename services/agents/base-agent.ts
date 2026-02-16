@@ -17,7 +17,7 @@ export abstract class BaseAgent {
     try {
       const ai = getClient();
 
-      const { message, context } = task.input;
+      const { message, attachments, context } = task.input;
       const fullPrompt = `${this.systemPrompt}
 
 Project Context:
@@ -25,11 +25,38 @@ Project Context:
 - Brand: ${JSON.stringify(context.brandInfo || {})}
 - Existing Assets: ${context.existingAssets.length}
 
-User Request: ${message}`;
+User Request: ${message}
+
+IMPORTANT: You are a design AI agent. When the user asks to generate, edit, or adjust an image, you MUST return skillCalls with generateImage skill. Each proposal MUST include a "prompt" field with a detailed English image generation prompt following Imagen best practices (50-150 words, specific subject + style + lighting + quality).
+
+If the user selected an image and wants modifications, analyze what they want and create new generation prompts that incorporate the changes.
+
+Always return at least 1 proposal with a generation prompt. Return your response as JSON.`;
+
+      // Build content parts - text + optional image attachments
+      const parts: any[] = [{ text: fullPrompt }];
+
+      // Add image attachments if present
+      if (attachments && attachments.length > 0) {
+        for (const file of attachments) {
+          try {
+            const buffer = await file.arrayBuffer();
+            const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+            parts.push({
+              inlineData: {
+                mimeType: file.type || 'image/png',
+                data: base64
+              }
+            });
+          } catch (e) {
+            console.warn('[Agent] Failed to attach file:', e);
+          }
+        }
+      }
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
-        contents: { parts: [{ text: fullPrompt }] },
+        contents: { parts },
         config: {
           temperature: 0.7,
           responseMimeType: 'application/json',
@@ -44,13 +71,36 @@ User Request: ${message}`;
                   properties: {
                     id: { type: Type.STRING },
                     title: { type: Type.STRING },
-                    description: { type: Type.STRING }
+                    description: { type: Type.STRING },
+                    prompt: { type: Type.STRING },
+                    aspectRatio: { type: Type.STRING },
+                    model: { type: Type.STRING }
                   }
                 }
               },
-              skillCalls: { type: Type.ARRAY },
+              skillCalls: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    skillName: { type: Type.STRING },
+                    params: {
+                      type: Type.OBJECT,
+                      properties: {
+                        prompt: { type: Type.STRING },
+                        model: { type: Type.STRING },
+                        aspectRatio: { type: Type.STRING }
+                      }
+                    }
+                  }
+                }
+              },
               message: { type: Type.STRING },
-              concept: { type: Type.STRING }
+              concept: { type: Type.STRING },
+              adjustments: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+              }
             }
           }
         }
@@ -64,13 +114,41 @@ User Request: ${message}`;
 
       if (parsed.proposals && Array.isArray(parsed.proposals)) {
         console.log('[Agent] Found proposals:', parsed.proposals.length);
+
+        // Auto-execute image generation for proposals that have prompts
+        const generatedAssets: GeneratedAsset[] = [];
+        for (const proposal of parsed.proposals) {
+          if (proposal.prompt) {
+            try {
+              const url = await executeSkill('generateImage', {
+                prompt: proposal.prompt,
+                model: proposal.model || 'Nano Banana',
+                aspectRatio: proposal.aspectRatio || '1:1'
+              });
+              if (url) {
+                generatedAssets.push({
+                  id: `asset-${Date.now()}-${Math.random()}`,
+                  type: 'image',
+                  url,
+                  metadata: { prompt: proposal.prompt, model: proposal.model || 'Nano Banana', agentId: this.agentInfo.id }
+                });
+                proposal.generatedUrl = url;
+              }
+            } catch (e) {
+              console.warn('[Agent] Skill execution failed for proposal:', proposal.title, e);
+            }
+          }
+        }
+
         return {
           ...task,
           status: 'completed',
           output: {
-            message: parsed.analysis || '我为您准备了以下设计方案，请选择一个',
+            message: parsed.analysis || parsed.message || '已为您生成设计方案',
             analysis: parsed.analysis,
-            proposals: parsed.proposals
+            proposals: parsed.proposals,
+            assets: generatedAssets,
+            adjustments: parsed.adjustments || ['调整构图', '更换风格', '修改配色', '添加文字', '放大画质']
           },
           updatedAt: Date.now()
         };
