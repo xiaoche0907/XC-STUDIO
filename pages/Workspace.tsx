@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -77,8 +78,8 @@ const VIDEO_RATIOS = [
 type ToolType = 'select' | 'hand' | 'mark';
 
 // Utility to convert Base64 to File
-const dataURLtoFile = (dataurl: string, filename: string): File => {
-    const arr = dataurl.split(',');
+const dataURLtoFile = (dataUrl: string, filename: string): File => {
+    const arr = dataUrl.split(',');
     const mime = arr[0].match(/:(.*?);/)?.[1];
     const bstr = atob(arr[1]);
     let n = bstr.length;
@@ -137,7 +138,7 @@ interface ConversationSession {
 }
 
 const CONVERSATIONS_KEY = 'xc_studio_conversations';
-const ACTIVE_CONV_KEY = 'xc_studio_active_conversation';
+const ACTIVE_CONVERSATION_KEY = 'xc_studio_active_conversation';
 
 function loadConversations(): ConversationSession[] {
     try {
@@ -146,8 +147,8 @@ function loadConversations(): ConversationSession[] {
     } catch { return []; }
 }
 
-function saveConversations(convs: ConversationSession[]) {
-    localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(convs));
+function saveConversations(conversations: ConversationSession[]) {
+    localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations));
 }
 
 const Workspace: React.FC = () => {
@@ -200,7 +201,7 @@ const Workspace: React.FC = () => {
     const [isTyping, setIsTyping] = useState(false);
     // 对话历史管理
     const [conversations, setConversations] = useState<ConversationSession[]>(() => loadConversations());
-    const [activeConvId, setActiveConvId] = useState<string>(() => localStorage.getItem(ACTIVE_CONV_KEY) || '');
+    const [activeConversationId, setActiveConversationId] = useState<string>(() => localStorage.getItem(ACTIVE_CONVERSATION_KEY) || '');
     const [historySearch, setHistorySearch] = useState('');
     const [showAssistant, setShowAssistant] = useState(true);
     const [inputBlocks, setInputBlocks] = useState<InputBlock[]>([{ id: 'init', type: 'text', text: '' }]);
@@ -322,7 +323,7 @@ const Workspace: React.FC = () => {
     // Mode Switch Confirmation Dialog
     const [showModeSwitchDialog, setShowModeSwitchDialog] = useState(false);
     const [pendingModelMode, setPendingModelMode] = useState<'thinking' | 'fast' | null>(null);
-    const [dontAskModeSwitch, setDontAskModeSwitch] = useState(false);
+    const [doNotAskModeSwitch, setDoNotAskModeSwitch] = useState(false);
 
     // Model Preference Panel
     const [showModelPreference, setShowModelPreference] = useState(false);
@@ -338,7 +339,7 @@ const Workspace: React.FC = () => {
     // Mode switch handler
     const handleModeSwitch = (newMode: 'thinking' | 'fast') => {
         if (newMode === modelMode) return;
-        if (dontAskModeSwitch) {
+        if (doNotAskModeSwitch) {
             setModelMode(newMode);
             setMessages([]);
             return;
@@ -1117,18 +1118,18 @@ const Workspace: React.FC = () => {
     useEffect(() => {
         if (messages.length === 0) return;
         setConversations(prev => {
-            let convId = activeConvId;
+            let conversationId = activeConversationId;
             let updated = [...prev];
-            if (!convId) {
+            if (!conversationId) {
                 // 创建新会话
-                convId = `conv-${Date.now()}`;
+                conversationId = `conversation-${Date.now()}`;
                 const firstUserMsg = messages.find(m => m.role === 'user');
                 const title = firstUserMsg?.text?.substring(0, 30) || '新对话';
-                updated.push({ id: convId, title, messages, createdAt: Date.now(), updatedAt: Date.now() });
-                setActiveConvId(convId);
-                localStorage.setItem(ACTIVE_CONV_KEY, convId);
+                updated.push({ id: conversationId, title, messages, createdAt: Date.now(), updatedAt: Date.now() });
+                setActiveConversationId(conversationId);
+                localStorage.setItem(ACTIVE_CONVERSATION_KEY, conversationId);
             } else {
-                const idx = updated.findIndex(c => c.id === convId);
+                const idx = updated.findIndex(c => c.id === conversationId);
                 if (idx >= 0) {
                     updated[idx] = { ...updated[idx], messages, updatedAt: Date.now() };
                     // 更新标题（取第一条用户消息）
@@ -1635,7 +1636,7 @@ const Workspace: React.FC = () => {
 
                         const file = dataURLtoFile(crop, `marker-${newMarkerId}.png`);
                         (file as any).markerId = newMarkerId;
-                        (file as any).markerName = '区域';
+                        (file as any).markerName = '识别中...';
                         (file as any).markerInfo = {
                             fullImageUrl: el.url,
                             x: (x / 100) * el.width - cropWidth / 2,
@@ -1649,6 +1650,16 @@ const Workspace: React.FC = () => {
                         setTimeout(() => {
                             insertInputFile(file);
                         }, 150);
+
+                        // 异步识别裁剪区域内容，识别完成后更新 chip 名称
+                        analyzeImageRegion(crop).then(name => {
+                            const trimmed = name.trim().slice(0, 10);
+                            if (trimmed && trimmed !== 'Could not analyze selection.' && trimmed !== 'Analysis failed.') {
+                                (file as any).markerName = trimmed;
+                                // 触发 inputBlocks 重新渲染
+                                setInputBlocks(prev => [...prev]);
+                            }
+                        }).catch(() => {});
                     }
                 }
             } catch (err) {
@@ -2502,10 +2513,10 @@ const Workspace: React.FC = () => {
                         <p className="text-sm text-gray-500 mb-5">切换模式会新建对话。您可以随时从历史列表中访问此对话。</p>
                         <label className="flex items-center gap-2 mb-5 cursor-pointer select-none">
                             <div
-                                onClick={() => setDontAskModeSwitch(!dontAskModeSwitch)}
-                                className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer ${dontAskModeSwitch ? 'bg-black' : 'bg-gray-300'}`}
+                                onClick={() => setDoNotAskModeSwitch(!doNotAskModeSwitch)}
+                                className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer ${doNotAskModeSwitch ? 'bg-black' : 'bg-gray-300'}`}
                             >
-                                <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${dontAskModeSwitch ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${doNotAskModeSwitch ? 'translate-x-4' : 'translate-x-0.5'}`} />
                             </div>
                             <span className="text-sm text-gray-600">不再询问</span>
                         </label>
@@ -2568,7 +2579,7 @@ const Workspace: React.FC = () => {
                             <div className="flex items-center gap-1 relative">
                                 {/* 1. New Chat */}
                                 <button
-                                    onClick={() => { setActiveConvId(''); localStorage.removeItem(ACTIVE_CONV_KEY); setMessages([]); setPrompt(''); setCreationMode('agent'); }}
+                                    onClick={() => { setActiveConversationId(''); localStorage.removeItem(ACTIVE_CONVERSATION_KEY); setMessages([]); setPrompt(''); setCreationMode('agent'); }}
                                     className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all"
                                     title="新建对话"
                                 >
@@ -2599,7 +2610,7 @@ const Workspace: React.FC = () => {
                                             </div>
                                             <div className="space-y-0.5 max-h-[300px] overflow-y-auto no-scrollbar">
                                                 <div
-                                                    onClick={() => { setActiveConvId(''); localStorage.removeItem(ACTIVE_CONV_KEY); setMessages([]); setShowHistoryPopover(false); }}
+                                                    onClick={() => { setActiveConversationId(''); localStorage.removeItem(ACTIVE_CONVERSATION_KEY); setMessages([]); setShowHistoryPopover(false); }}
                                                     className="p-2 py-2.5 bg-gray-50 rounded-lg text-xs text-gray-500 hover:bg-gray-100 cursor-pointer transition text-center font-medium"
                                                 >
                                                     + 新对话
@@ -2607,29 +2618,29 @@ const Workspace: React.FC = () => {
                                                 {[...conversations]
                                                     .filter(c => !historySearch || c.title.toLowerCase().includes(historySearch.toLowerCase()))
                                                     .sort((a, b) => b.updatedAt - a.updatedAt)
-                                                    .map(conv => (
+                                                    .map(conversation => (
                                                     <div
-                                                        key={conv.id}
+                                                        key={conversation.id}
                                                         onClick={() => {
-                                                            setActiveConvId(conv.id);
-                                                            localStorage.setItem(ACTIVE_CONV_KEY, conv.id);
-                                                            setMessages(conv.messages);
+                                                            setActiveConversationId(conversation.id);
+                                                            localStorage.setItem(ACTIVE_CONVERSATION_KEY, conversation.id);
+                                                            setMessages(conversation.messages);
                                                             setShowHistoryPopover(false);
                                                         }}
-                                                        className={`p-2 rounded-lg cursor-pointer transition flex items-center gap-2 ${activeConvId === conv.id ? 'bg-blue-50 border border-blue-100' : 'hover:bg-gray-50'}`}
+                                                        className={`p-2 rounded-lg cursor-pointer transition flex items-center gap-2 ${activeConversationId === conversation.id ? 'bg-blue-50 border border-blue-100' : 'hover:bg-gray-50'}`}
                                                     >
                                                         <MessageSquare size={13} className="text-gray-400 flex-shrink-0" />
                                                         <div className="flex-1 min-w-0">
-                                                            <div className="text-xs font-medium text-gray-700 truncate">{conv.title}</div>
-                                                            <div className="text-[10px] text-gray-400 mt-0.5">{new Date(conv.updatedAt).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                                                            <div className="text-xs font-medium text-gray-700 truncate">{conversation.title}</div>
+                                                            <div className="text-[10px] text-gray-400 mt-0.5">{new Date(conversation.updatedAt).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
                                                         </div>
                                                         <button
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
-                                                                const updated = conversations.filter(c => c.id !== conv.id);
+                                                                const updated = conversations.filter(c => c.id !== conversation.id);
                                                                 setConversations(updated);
                                                                 saveConversations(updated);
-                                                                if (activeConvId === conv.id) { setActiveConvId(''); setMessages([]); }
+                                                                if (activeConversationId === conversation.id) { setActiveConversationId(''); setMessages([]); }
                                                             }}
                                                             className="text-gray-300 hover:text-red-400 transition flex-shrink-0"
                                                         >
@@ -2726,10 +2737,10 @@ const Workspace: React.FC = () => {
                         <div className="flex-1 overflow-y-auto px-6 py-6 no-scrollbar relative">
                             {messages.length === 0 ? (
                                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-                                    {/* XcAISTUDIO Logo */}
+                                    {/* XcAI Studio Logo */}
                                     <div className="flex items-center gap-2.5 mb-6">
                                         <div className="w-8 h-8 bg-gray-900 rounded-lg flex items-center justify-center text-white font-bold text-[10px] tracking-wide shadow-sm">XC</div>
-                                        <span className="font-bold text-base text-gray-900 tracking-tight">XcAISTUDIO</span>
+                                        <span className="font-bold text-base text-gray-900 tracking-tight">XcAI Studio</span>
                                     </div>
 
                                     <h3 className="text-xl font-bold text-gray-900 leading-tight mb-2">试试这些 XcAI Skills</h3>
@@ -2994,8 +3005,12 @@ const Workspace: React.FC = () => {
                                             if (markerId) {
                                                 // 标记区域chip - 图2样式 with hover preview
                                                 return (
-                                                    <div
+                                                    <motion.div
                                                         key={block.id}
+                                                        id={`marker-chip-${block.id}`}
+                                                        initial={{ scale: 0, opacity: 0 }}
+                                                        animate={{ scale: 1, opacity: 1 }}
+                                                        transition={{ type: 'spring', stiffness: 400, damping: 20 }}
                                                         className={`inline-flex items-center gap-1 rounded-lg pl-1 pr-1.5 py-1 cursor-default relative group flex-shrink-0 select-none h-7 transition-all ${isSelected
                                                                 ? 'bg-blue-100 ring-2 ring-blue-500'
                                                                 : 'bg-[#F3F4F6]'
@@ -3014,44 +3029,43 @@ const Workspace: React.FC = () => {
                                                         <ChevronDown size={12} className="text-gray-400" />
                                                         <button onClick={(e) => { e.stopPropagation(); removeInputBlock(block.id); setSelectedChipId(null); }} className="absolute -top-1.5 -right-1.5 bg-gray-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition shadow-sm z-20 hover:bg-gray-700"><X size={8} /></button>
 
-                                                        {/* Hover Preview Tooltip */}
-                                                        {isHovered && markerInfo?.fullImageUrl && (
-                                                            <div
-                                                                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 z-50 animate-in fade-in zoom-in-95 duration-150"
-                                                                onClick={(e) => e.stopPropagation()}
-                                                            >
-                                                                <div className="bg-white rounded-xl shadow-2xl border border-gray-200 p-2 min-w-[180px] max-w-[240px]">
-                                                                    {/* Preview image with marker highlight */}
-                                                                    <div className="relative rounded-lg overflow-hidden">
-                                                                        <img
-                                                                            src={markerInfo.fullImageUrl}
-                                                                            className="w-full h-auto rounded-lg"
-                                                                            style={{ maxHeight: '160px', objectFit: 'contain' }}
-                                                                        />
-                                                                        {/* Marker overlay */}
-                                                                        {markerInfo.x !== undefined && markerInfo.imageWidth && (
-                                                                            <div
-                                                                                className="absolute border-2 border-blue-500 rounded-sm pointer-events-none"
-                                                                                style={{
-                                                                                    left: `${(markerInfo.x / markerInfo.imageWidth) * 100}%`,
-                                                                                    top: `${(markerInfo.y! / markerInfo.imageHeight!) * 100}%`,
-                                                                                    width: `${(markerInfo.width! / markerInfo.imageWidth) * 100}%`,
-                                                                                    height: `${(markerInfo.height! / markerInfo.imageHeight!) * 100}%`,
-                                                                                }}
-                                                                            >
-                                                                                {/* Marker badge */}
-                                                                                <div className="absolute -top-2 -right-2 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center text-white text-[10px] font-bold shadow-lg">
-                                                                                    {markerId}
-                                                                                </div>
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                                {/* Triangle pointer */}
-                                                                <div className="absolute left-1/2 -translate-x-1/2 -bottom-1.5 w-3 h-3 bg-white border-r border-b border-gray-200 transform rotate-45"></div>
-                                                            </div>
-                                                        )}
-                                                    </div>
+                                                        {/* Hover Preview Tooltip - portal, 向左弹出避免被对话框遮挡 */}
+                                                        {isHovered && markerInfo?.fullImageUrl && (() => {
+                                                            const chipEl = document.getElementById(`marker-chip-${block.id}`);
+                                                            const chipRect = chipEl?.getBoundingClientRect();
+                                                            const tooltipW = 280;
+                                                            const tooltipH = 200;
+                                                            const ttLeft = chipRect ? chipRect.left - tooltipW - 12 : 0;
+                                                            const ttTop = chipRect ? chipRect.top + chipRect.height / 2 - tooltipH / 2 : 0;
+                                                            const ox = markerInfo.x !== undefined && markerInfo.imageWidth ? ((markerInfo.x + markerInfo.width! / 2) / markerInfo.imageWidth) * 100 : 50;
+                                                            const oy = markerInfo.y !== undefined && markerInfo.imageHeight ? ((markerInfo.y! + markerInfo.height! / 2) / markerInfo.imageHeight!) * 100 : 50;
+                                                            const zoomOrigin = `${ox}% ${oy}%`;
+                                                            const zoomTransition = { duration: 0.8, ease: [0.25, 0.46, 0.45, 0.94] as const, delay: 0.3 };
+                                                            return ReactDOM.createPortal(
+                                                                <div className="fixed z-[9999] pointer-events-none" style={{ left: ttLeft, top: ttTop, width: tooltipW }}>
+                                                                    <motion.div initial={{ opacity: 0, scale: 0.95, x: 10 }} animate={{ opacity: 1, scale: 1, x: 0 }} transition={{ duration: 0.2 }} className="bg-white rounded-xl shadow-2xl border border-gray-200 p-2 overflow-hidden relative">
+                                                                        <div className="relative rounded-lg overflow-hidden" style={{ height: 170 }}>
+                                                                            <motion.div className="absolute inset-0" initial={{ scale: 1 }} animate={{ scale: 2.5 }} transition={zoomTransition} style={{ transformOrigin: zoomOrigin }}>
+                                                                                <img src={markerInfo.fullImageUrl} className="w-full h-full object-cover" />
+                                                                            </motion.div>
+                                                                            {markerInfo.x !== undefined && markerInfo.imageWidth && (
+                                                                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: 0.9 }} className="absolute inset-0 pointer-events-none">
+                                                                                    <motion.div initial={{ scale: 1 }} animate={{ scale: 2.5 }} transition={zoomTransition} className="absolute inset-0" style={{ transformOrigin: zoomOrigin }}>
+                                                                                        <div className="absolute border-2 border-blue-500 rounded-sm" style={{ left: `${(markerInfo.x / markerInfo.imageWidth) * 100}%`, top: `${(markerInfo.y! / markerInfo.imageHeight!) * 100}%`, width: `${(markerInfo.width! / markerInfo.imageWidth) * 100}%`, height: `${(markerInfo.height! / markerInfo.imageHeight!) * 100}%` }}>
+                                                                                            <div className="absolute -top-2 -right-2 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center text-white text-[10px] font-bold shadow-lg">{markerId}</div>
+                                                                                        </div>
+                                                                                    </motion.div>
+                                                                                </motion.div>
+                                                                            )}
+                                                                        </div>
+                                                                        {/* Arrow pointing right */}
+                                                                        <div className="absolute top-1/2 -right-[6px] -translate-y-1/2 w-3 h-3 bg-white border-r border-b border-gray-200 rotate-[-45deg]"></div>
+                                                                    </motion.div>
+                                                                </div>,
+                                                                document.body
+                                                            );
+                                                        })()}
+                                                    </motion.div>
                                                 );
                                             } else {
                                                 // 普通文件chip - Lovart style
@@ -3727,7 +3741,7 @@ const Workspace: React.FC = () => {
                         value={touchEditInstruction}
                         onChange={(e) => setTouchEditInstruction(e.target.value)}
                         placeholder="输入编辑指令，如：换成红色"
-                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-smine-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 mb-2"
+                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 mb-2"
                         onKeyDown={(e) => { if (e.key === 'Enter') handleTouchEditExecute(); }}
                     />
                     <button
