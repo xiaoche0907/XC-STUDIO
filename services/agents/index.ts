@@ -24,11 +24,13 @@ export function getAgentInfo(agentId: AgentType): AgentInfo {
 }
 
 export async function executeAgentTask(task: AgentTask): Promise<AgentTask> {
-  const agent = AGENT_REGISTRY[task.agentId];
+  // Normalize agent ID to lowercase (LLM may return "Campaign" instead of "campaign")
+  const normalizedId = task.agentId.toLowerCase() as AgentType;
+  const agent = AGENT_REGISTRY[normalizedId];
   if (!agent) {
     throw new Error(`Agent ${task.agentId} not found`);
   }
-  return agent.execute(task);
+  return agent.execute({ ...task, agentId: normalizedId });
 }
 
 // 导出基础版本（向后兼容）

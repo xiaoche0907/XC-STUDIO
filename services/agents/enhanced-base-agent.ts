@@ -4,7 +4,7 @@
  */
 
 import { Chat, Type } from '@google/genai';
-import { createChatSession, getApiKey } from '../gemini';
+import { createChatSession, getApiKey, getClient } from '../gemini';
 import {
     AgentTask,
     AgentInfo,
@@ -25,7 +25,7 @@ interface ExecutionConfig {
 
 const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
     maxRetries: 2,
-    timeout: 60000,
+    timeout: 300000,
     enableCache: true
 };
 
@@ -157,27 +157,106 @@ export abstract class EnhancedBaseAgent {
         // 1. 分析任务并生成执行计划
         const plan = await this.analyzeAndPlan(message, context, task.input.attachments);
 
-        // 2. 如果有建议方案，返回供用户选择
-        if (plan.proposals && plan.proposals.length > 0) {
+        console.log(`[${this.agentInfo.id}] Plan received:`, {
+            hasProposals: !!(plan.proposals && plan.proposals.length),
+            proposalCount: plan.proposals?.length || 0,
+            hasSkillCalls: !!(plan.skillCalls && plan.skillCalls.length),
+            skillCallCount: plan.skillCalls?.length || 0,
+            proposalSkillCalls: plan.proposals?.map((p: any) => p.skillCalls?.length || 0)
+        });
+
+        // 2. 检测用户是否请求了多张图
+        const multiImageMatch = message.match(/(\d+)\s*张|(\d+)\s*images?|一套|一组|系列/i);
+        const requestedCount = multiImageMatch ? (parseInt(multiImageMatch[1] || multiImageMatch[2]) || 5) : 0;
+
+        // 3. 如果有 proposals 且 proposals 内含 skillCalls，自动执行
+        let effectiveProposals = plan.proposals && plan.proposals.length > 0 ? plan.proposals : [];
+
+        // 4. 如果 proposals 为空或 proposals 内没有 skillCalls，但顶层有 skillCalls，尝试修复
+        const proposalsHaveSkills = effectiveProposals.some((p: any) => p.skillCalls && p.skillCalls.length > 0);
+
+        if (!proposalsHaveSkills && plan.skillCalls && plan.skillCalls.length > 0) {
+            console.log(`[${this.agentInfo.id}] Proposals missing skillCalls, restructuring from top-level skillCalls`);
+
+            if (requestedCount > 1 && plan.skillCalls.length === 1) {
+                // 用户要求多张图但只有1个 skillCall — 需要基于原始 prompt 生成多个变体
+                const baseCall = plan.skillCalls[0];
+                const basePrompt = baseCall.params?.prompt || '';
+                const ecommerceVariants = [
+                    { title: '产品信息图', suffix: ', clean white background, product infographic with feature callout annotations, e-commerce listing style, professional, 8K' },
+                    { title: '多角度展示', suffix: ', studio product photography, 3/4 angle view, even soft lighting, commercial quality, white gradient background, 8K' },
+                    { title: '场景应用图', suffix: ', lifestyle photography, product in natural real-use setting, warm natural lighting, editorial quality, aspirational, 8K' },
+                    { title: '细节特写图', suffix: ', macro product photography, extreme close-up of texture and material detail, sharp focus, studio lighting, premium quality, 8K' },
+                    { title: '尺寸包装图', suffix: ', product with size reference objects, flat lay composition, what-is-in-the-box layout, clean informative style, 8K' },
+                ];
+
+                effectiveProposals = [];
+                for (let i = 0; i < requestedCount && i < ecommerceVariants.length; i++) {
+                    effectiveProposals.push({
+                        id: String(i + 1),
+                        title: ecommerceVariants[i].title,
+                        description: ecommerceVariants[i].title,
+                        skillCalls: [{
+                            skillName: 'generateImage',
+                            params: {
+                                prompt: basePrompt + ecommerceVariants[i].suffix,
+                                aspectRatio: baseCall.params?.aspectRatio || '1:1',
+                                model: baseCall.params?.model || 'Nano Banana Pro'
+                            }
+                        }]
+                    });
+                }
+                console.log(`[${this.agentInfo.id}] Created ${effectiveProposals.length} variant proposals from single skillCall`);
+            } else {
+                // 将每个顶层装成一个 proposal
+                effectiveProposals = plan.skillCalls.map((call: any, idx: number) => ({
+                    id: String(idx + 1),
+                    title: `方案 ${idx + 1}`,
+                    description: call.params?.prompt?.substring(0, 80) || '',
+                    skillCalls: [call]
+                }));
+            }
+        }
+
+        // 5. 执行所有 proposals 的 skillCalls
+        if (effectiveProposals.length > 0) {
+            const generatedAssets: GeneratedAsset[] = [];
+
+            for (const proposal of effectiveProposals) {
+                if (proposal.skillCalls && Array.isArray(proposal.skillCalls)) {
+                    console.log(`[${this.agentInfo.id}] Executing proposal "${proposal.title}" with ${proposal.skillCalls.length} skill calls`);
+                    const results = await this.executeSkills(proposal.skillCalls, task);
+                    const assets = this.extractAssets(results);
+                    generatedAssets.push(...assets);
+                    if (assets.length > 0) {
+                        proposal.generatedUrl = assets[0].url;
+                    }
+                }
+            }
+
+            console.log(`[${this.agentInfo.id}] Total generated assets: ${generatedAssets.length}`);
+
             return {
                 ...task,
                 status: 'completed',
                 output: {
-                    message: plan.analysis || '我为您准备了以下方案',
+                    message: plan.analysis || '已为您生成设计方案',
                     analysis: plan.analysis,
-                    proposals: plan.proposals
+                    proposals: effectiveProposals,
+                    assets: generatedAssets,
+                    adjustments: ['调整构图', '更换风格', '修改配色', '添加文字', '放大画质']
                 },
                 updatedAt: Date.now()
             };
         }
 
-        // 3. 执行Skills
+        // 6. Fallback: 执行顶层 Skills（无 proposals 的情况）
         const skillResults = await this.executeSkills(plan.skillCalls || [], task);
 
-        // 4. 提取生成的资产
+        // 7. 提取生成的资产
         const assets = this.extractAssets(skillResults);
 
-        // 5. 组装最终输出
+        // 8. 组装最终输出
         return {
             ...task,
             status: 'completed',
@@ -199,83 +278,90 @@ export abstract class EnhancedBaseAgent {
         attachments?: File[]
     ): Promise<any> {
         try {
-            const { GoogleGenAI } = await import('@google/genai');
-            const ai = new GoogleGenAI({
-                apiKey: getApiKey()
-            });
+            const ai = getClient();
 
             const fullPrompt = `${this.systemPrompt}
 
-Project Context:
-- Title: ${context.projectTitle}
-- Brand: ${JSON.stringify(context.brandInfo || {})}
-- Existing Assets: ${context.existingAssets.length}
+【语言要求】你必须用中文回复所有内容（analysis、message、title、description 等字段全部用中文）。只有 prompt 字段用英文（因为图片生成模型需要英文 prompt）。
 
-Attached Assets:
+项目信息:
+- 项目名称: ${context.projectTitle}
+- 品牌信息: ${JSON.stringify(context.brandInfo || {})}
+- 已有素材数量: ${context.existingAssets.length}
+
+附件列表:
 ${(attachments || []).map((file, index) => {
                 const info = (file as any).markerInfo;
                 if (info) {
                     const ratio = (info.width / info.height).toFixed(2);
-                    return `- Attachment ${index + 1}: [Marker Region] (Dimensions: ${info.width}x${info.height}, Ratio: ${ratio}). Use this as the reference image for generation and strictly maintain this aspect ratio. To use this image as a reference, set referenceImage param to 'ATTACHMENT_${index}'.`;
+                    return `- 附件 ${index + 1}: [画布选区] (尺寸: ${info.width}x${info.height}, 比例: ${ratio})。这是用户的产品图片，必须作为参考图使用。设置 referenceImage 为 'ATTACHMENT_${index}'。`;
                 }
-                return `- Attachment ${index + 1}: ${file.name} (${file.type}). To use this file, set param to 'ATTACHMENT_${index}'.`;
+                return `- 附件 ${index + 1}: ${file.name} (${file.type})。引用方式: 'ATTACHMENT_${index}'`;
             }).join('\n')}
 
-Available Skills: ${this.preferredSkills.join(', ')}
+可用技能: ${this.preferredSkills.join(', ')}
 
-SPECIAL SKILL: smartEdit
-Use 'smartEdit' for ANY modification to an existing image (marker/attachment), such as:
-- Removing objects ('object-remove')
-- Removing background ('background-remove')
-- Changing colors ('recolor')
-- Replacing objects ('replace')
-- Upscaling ('upscale')
+特殊技能 smartEdit（图片编辑）:
+- 删除物体: editType='object-remove', parameters: {"object": "目标名称"}
+- 去除背景: editType='background-remove'
+- 更换颜色: editType='recolor', parameters: {"object": "目标", "color": "颜色"}
+- 替换物体: editType='replace', parameters: {"object": "原物体", "replacement": "新物体"}
+- 放大画质: editType='upscale'
+- sourceUrl 设为 "ATTACHMENT_X"
 
-Params for smartEdit:
-- sourceUrl: "ATTACHMENT_X" (The image to edit)
-- editType: One of the types above
-- parameters: { "object": "target name", "color": "target color", "replacement": "new object name", "style": "target style" }
+用户请求: ${message}
 
-Example: To change a green bag to red, use:
-{"skillName": "smartEdit", "params": {"sourceUrl": "ATTACHMENT_0", "editType": "recolor", "parameters": {"object": "green bag", "color": "red"}}}
+【产品识别 - 最高优先级】
+- 如果用户附带了图片（附件），这些图片就是用户的产品/素材。你必须仔细观察每张图片，识别出产品的具体类型、颜色、材质、形状、品牌元素等细节。
+- 在每个 generateImage 的 prompt 中，必须以产品的精确英文描述开头（例如 "A matte black stainless steel water bottle with bamboo lid and minimalist logo" 而不是 "a water bottle"）。
+- 所有生成的图片必须围绕这些具体产品，不能生成无关的随机产品。
+- 如果没有附件图片，根据用户的文字描述来理解产品。
+- 重要：每个 generateImage 的 params 中必须包含 "referenceImage": "ATTACHMENT_N"（N 是附件索引，从0开始）。如果只有1张附件，所有 proposal 都用 "ATTACHMENT_0"；如果有多张附件，每个 proposal 可以引用不同的附件（如 ATTACHMENT_0, ATTACHMENT_1, ATTACHMENT_2...）。
 
-User Request: ${message}
+【任务拆解规则】
+- 如果用户要求多张图（如"5张副图"、"一套图"、"3张海报"），必须返回对应数量的 proposals，每个 proposal 的内容/角度/用途各不相同。
+- 每个 proposal 必须包含自己的 skillCalls 数组。
+- 电商套图（亚马逊副图）应包含：白底主图、信息图、场景图、细节特写、尺寸包装图等。
+- 不能返回少于用户要求数量的 proposals。
 
-Analyze the request and respond with JSON containing:
+请分析用户需求，返回以下 JSON 格式:
 {
-  "analysis": "Brief analysis",
-  "proposals": [{"id": "...", "title": "...", "description": "...", "skillCalls": [...]}],
+  "analysis": "用中文简要分析用户需求",
+  "proposals": [{"id": "1", "title": "中文标题", "description": "中文描述", "skillCalls": [{"skillName": "generateImage", "params": {"prompt": "English prompt describing the EXACT product...", "referenceImage": "ATTACHMENT_0", "aspectRatio": "1:1", "model": "Nano Banana Pro"}}]}],
   "skillCalls": [{"skillName": "...", "params": {...}}],
-  "message": "Response message",
-  "concept": "Creative concept"
+  "message": "用中文回复用户",
+  "concept": "用中文描述创意概念"
 }`;
+
+            // Build content parts - text + image attachments for visual understanding
+            const parts: any[] = [{ text: fullPrompt }];
+
+            // Add image attachments so Gemini can SEE the product
+            if (attachments && attachments.length > 0) {
+                for (const file of attachments) {
+                    try {
+                        if (file.type && file.type.startsWith('image/')) {
+                            const buffer = await file.arrayBuffer();
+                            const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+                            parts.push({
+                                inlineData: {
+                                    mimeType: file.type || 'image/png',
+                                    data: base64
+                                }
+                            });
+                        }
+                    } catch (e) {
+                        console.warn(`[${this.agentInfo.id}] Failed to attach file:`, e);
+                    }
+                }
+            }
 
             const response = await ai.models.generateContent({
                 model: 'gemini-3-pro-preview',
-                contents: { parts: [{ text: fullPrompt }] },
+                contents: { parts },
                 config: {
                     temperature: 0.7,
-                    responseMimeType: 'application/json',
-                    responseSchema: {
-                        type: Type.OBJECT,
-                        properties: {
-                            analysis: { type: Type.STRING },
-                            proposals: {
-                                type: Type.ARRAY,
-                                items: {
-                                    type: Type.OBJECT,
-                                    properties: {
-                                        id: { type: Type.STRING },
-                                        title: { type: Type.STRING },
-                                        description: { type: Type.STRING }
-                                    }
-                                }
-                            },
-                            skillCalls: { type: Type.ARRAY },
-                            message: { type: Type.STRING },
-                            concept: { type: Type.STRING }
-                        }
-                    }
+                    responseMimeType: 'application/json'
                 }
             });
 
@@ -294,8 +380,25 @@ Analyze the request and respond with JSON containing:
     protected async executeSkills(skillCalls: any[], task: AgentTask): Promise<any[]> {
         const results: any[] = [];
 
+        // Skill name alias mapping (Gemini may return old-style names)
+        const SKILL_ALIASES: Record<string, string> = {
+            'imageGenSkill': 'generateImage',
+            'videoGenSkill': 'generateVideo',
+            'copyGenSkill': 'generateCopy',
+            'textExtractSkill': 'extractText',
+            'regionAnalyzeSkill': 'analyzeRegion',
+            'smartEditSkill': 'smartEdit',
+            'exportSkill': 'export',
+            'touchEditSkill': 'touchEdit',
+        };
+
         for (const call of skillCalls) {
             try {
+                // Normalize skill name via alias
+                if (SKILL_ALIASES[call.skillName]) {
+                    call.skillName = SKILL_ALIASES[call.skillName];
+                }
+
                 // 验证技能存在
                 if (!AVAILABLE_SKILLS[call.skillName as keyof typeof AVAILABLE_SKILLS]) {
                     throw new Error(`Skill ${call.skillName} not found`);
@@ -305,6 +408,19 @@ Analyze the request and respond with JSON containing:
                 if (call.skillName === 'generateImage' || call.skillName === 'generateVideo' || call.skillName === 'smartEdit') {
                     // Check for referenceImage (gen) or sourceUrl (edit)
                     const paramKey = call.skillName === 'smartEdit' ? 'sourceUrl' : 'referenceImage';
+
+                    // 自动注入产品参考图：如果有附件但 Gemini 没设置 referenceImage，自动注入
+                    if (call.skillName === 'generateImage' && !call.params[paramKey] && task.input.attachments && task.input.attachments.length > 0) {
+                        const imageAttachments = task.input.attachments.filter(f => f.type && f.type.startsWith('image/'));
+                        if (imageAttachments.length > 0) {
+                            // 如果只有一张图，所有 proposal 都用它；多张图时按 proposal 索引分配
+                            const callIndex = skillCalls.indexOf(call);
+                            const attachIdx = imageAttachments.length === 1 ? 0 : Math.min(callIndex, imageAttachments.length - 1);
+                            const actualIdx = task.input.attachments.indexOf(imageAttachments[attachIdx]);
+                            call.params[paramKey] = `ATTACHMENT_${actualIdx}`;
+                            console.log(`[${this.agentInfo.id}] Auto-injected referenceImage=ATTACHMENT_${actualIdx} for proposal #${callIndex}`);
+                        }
+                    }
 
                     if (call.params[paramKey] && typeof call.params[paramKey] === 'string' && call.params[paramKey].startsWith('ATTACHMENT_')) {
                         const index = parseInt(call.params[paramKey].split('_')[1]);

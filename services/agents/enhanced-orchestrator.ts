@@ -8,7 +8,7 @@ import { AgentRoutingDecision, ProjectContext, AgentType } from '../../types/age
 import { COCO_SYSTEM_PROMPT } from './prompts/coco.prompt';
 import { errorHandler, ErrorType } from '../../utils/error-handler';
 import { executeSkill } from '../skills';
-import { getApiKey } from '../gemini';
+import { getApiKey, getClient } from '../gemini';
 
 
 
@@ -61,7 +61,8 @@ export async function routeToAgent(
         }
 
         // 检查API密钥
-        if (!process.env.GEMINI_API_KEY && !process.env.API_KEY) {
+        const apiKeyCheck = getApiKey();
+        if (!apiKeyCheck || apiKeyCheck === 'PLACEHOLDER') {
             throw errorHandler.createError(
                 ErrorType.API,
                 'API密钥未配置，请在设置中配置',
@@ -104,8 +105,7 @@ Analyze and route to appropriate agent. Return JSON with:
         // 使用错误处理包装器进行API调用
         const result = await errorHandler.withRetry(
             async () => {
-                const apiKey = getApiKey();
-                const ai = new GoogleGenAI({ apiKey });
+                const ai = getClient();
                 const response = await Promise.race([
                     ai.models.generateContent({
                         model: 'gemini-3-pro-preview',
@@ -155,7 +155,7 @@ Analyze and route to appropriate agent. Return JSON with:
 
         // 返回增强的路由决策
         return {
-            targetAgent: parsed.targetAgent,
+            targetAgent: (parsed.targetAgent || '').toLowerCase(),
             taskType: parsed.taskType || 'general',
             complexity: parsed.complexity || 'simple',
             handoffMessage: parsed.handoffMessage || '正在处理您的请求...',

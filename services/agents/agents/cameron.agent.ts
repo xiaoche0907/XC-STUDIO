@@ -12,9 +12,9 @@ export class CameronAgent extends EnhancedBaseAgent {
 
   get preferredSkills() {
     return [
-      'imageGenSkill',
-      'copyGenSkill',
-      'regionAnalyzeSkill'
+      'generateImage',
+      'generateCopy',
+      'analyzeRegion'
     ];
   }
 }

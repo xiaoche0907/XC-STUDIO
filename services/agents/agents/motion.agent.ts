@@ -12,9 +12,9 @@ export class MotionAgent extends EnhancedBaseAgent {
 
   get preferredSkills() {
     return [
-      'videoGenSkill',
-      'imageGenSkill',
-      'smartEditSkill'
+      'generateVideo',
+      'generateImage',
+      'smartEdit'
     ];
   }
 }

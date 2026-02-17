@@ -12,9 +12,9 @@ export class PackageAgent extends EnhancedBaseAgent {
 
   get preferredSkills() {
     return [
-      'imageGenSkill',
-      'smartEditSkill',
-      'exportSkill'
+      'generateImage',
+      'smartEdit',
+      'export'
     ];
   }
 }

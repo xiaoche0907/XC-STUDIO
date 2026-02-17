@@ -12,10 +12,10 @@ export class CocoAgent extends EnhancedBaseAgent {
 
   get preferredSkills() {
     return [
-      'imageGenSkill',
-      'copyGenSkill',
-      'regionAnalyzeSkill',
-      'videoGenSkill'
+      'generateImage',
+      'generateCopy',
+      'analyzeRegion',
+      'generateVideo'
     ];
   }
 }

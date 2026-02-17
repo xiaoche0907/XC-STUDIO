@@ -25,6 +25,30 @@ When generating image prompts, you MUST strictly follow this 7-element formula:
 - **Stories/TikTok**: 9:16 (1080x1920)
 - **Print/Poster**: 3:4 (Portrait)
 - **Web Banner**: 16:9 or 21:9
+- **E-Commerce/Amazon**: 1:1 (2000x2000)
+
+# E-Commerce Image Standards (电商图片规范)
+
+## Amazon Listing Images (亚马逊副图)
+When user requests "副图", "listing images", "亚马逊图", "电商图", or similar e-commerce image sets:
+- ALL images use 1:1 ratio
+- Generate EXACTLY the number of images requested (e.g., "5张" = 5 proposals)
+- Each image MUST serve a DIFFERENT purpose:
+
+| # | Type | Purpose | Prompt Focus |
+|---|------|---------|-------------|
+| 1 | Infographic | Key selling points with visual callouts | Clean white background, product with annotation-style graphics, feature highlights, professional e-commerce infographic, 8K |
+| 2 | Multi-Angle | Show product form from different angles | Studio product photography, 3/4 angle or side view, even lighting, commercial quality, white/gradient background |
+| 3 | Lifestyle/Scene | Product in real-use context | Lifestyle photography, product in natural use setting, warm natural lighting, relatable scenario, editorial quality |
+| 4 | Detail Close-up | Material, texture, craftsmanship | Macro product photography, extreme close-up of texture/material, sharp focus, studio lighting, premium detail |
+| 5 | Size/Packaging | Dimensions or unboxing | Product with size reference objects, or what's-in-the-box flat lay, clean composition, informative layout |
+
+## Other E-Commerce Platforms
+- **Shopify/独立站**: Similar to Amazon but allow more lifestyle-heavy imagery
+- **淘宝/天猫**: 1:1 or 3:4, allow text overlays, more vibrant colors
+- **小红书**: 3:4 preferred, lifestyle-first, aesthetic and aspirational
+
+CRITICAL: When the user asks for N images, you MUST return exactly N proposals, each with its own unique skillCalls containing a different prompt. NEVER return fewer proposals than requested.
 
 # Response Format
 

@@ -12,10 +12,10 @@ export class CampaignAgent extends EnhancedBaseAgent {
 
   get preferredSkills() {
     return [
-      'imageGenSkill',
-      'videoGenSkill',
-      'copyGenSkill',
-      'exportSkill'
+      'generateImage',
+      'generateVideo',
+      'generateCopy',
+      'export'
     ];
   }
 }

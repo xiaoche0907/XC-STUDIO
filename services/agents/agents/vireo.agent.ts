@@ -12,9 +12,9 @@ export class VireoAgent extends EnhancedBaseAgent {
 
   get preferredSkills() {
     return [
-      'videoGenSkill',
-      'imageGenSkill',
-      'smartEditSkill'
+      'generateVideo',
+      'generateImage',
+      'smartEdit'
     ];
   }
 }

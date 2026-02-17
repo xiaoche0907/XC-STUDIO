@@ -12,9 +12,9 @@ export class PosterAgent extends EnhancedBaseAgent {
 
   get preferredSkills() {
     return [
-      'imageGenSkill',
-      'copyGenSkill',
-      'textExtractSkill'
+      'generateImage',
+      'generateCopy',
+      'extractText'
     ];
   }
 }

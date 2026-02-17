@@ -1,4 +1,4 @@
-import { Chat, Type } from '@google/genai';
+import { Chat } from '@google/genai';
 import { createChatSession, getClient } from '../gemini';
 import { AgentTask, AgentInfo, ProjectContext, GeneratedAsset } from '../../types/agent.types';
 import { executeSkill } from '../skills';
@@ -31,7 +31,18 @@ IMPORTANT: You are a design AI agent. When the user asks to generate, edit, or a
 
 If the user selected an image and wants modifications, analyze what they want and create new generation prompts that incorporate the changes.
 
-Always return at least 1 proposal with a generation prompt. Return your response as JSON.`;
+TASK DECOMPOSITION RULES (CRITICAL):
+- If the user requests multiple images (e.g., "5张副图", "一套图", "3张海报"), you MUST generate EXACTLY that many proposals, each with a DIFFERENT angle/purpose/composition.
+- For e-commerce listing images (亚马逊副图/Amazon listing/电商主图/详情图):
+  1. Product Infographic — key selling points with callout-style annotations, clean white background, 1:1
+  2. Multi-Angle Product Shot — 3/4 angle or side view showing form factor, studio lighting, 1:1
+  3. Lifestyle/Scene — product in real-use scenario with model or environment, natural lighting, 1:1
+  4. Detail/Texture Close-up — macro shot of material, craftsmanship, or key feature, 1:1
+  5. Size/Packaging — dimensions comparison or what's-in-the-box layout, 1:1
+- For social media sets, poster series, or campaign assets, each image MUST have a distinct visual concept.
+- NEVER return only 1 proposal when the user explicitly requests multiple images.
+
+Always return your response as JSON.`;
 
       // Build content parts - text + optional image attachments
       const parts: any[] = [{ text: fullPrompt }];
@@ -60,49 +71,6 @@ Always return at least 1 proposal with a generation prompt. Return your response
         config: {
           temperature: 0.7,
           responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              analysis: { type: Type.STRING },
-              proposals: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    title: { type: Type.STRING },
-                    description: { type: Type.STRING },
-                    prompt: { type: Type.STRING },
-                    aspectRatio: { type: Type.STRING },
-                    model: { type: Type.STRING }
-                  }
-                }
-              },
-              skillCalls: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    skillName: { type: Type.STRING },
-                    params: {
-                      type: Type.OBJECT,
-                      properties: {
-                        prompt: { type: Type.STRING },
-                        model: { type: Type.STRING },
-                        aspectRatio: { type: Type.STRING }
-                      }
-                    }
-                  }
-                }
-              },
-              message: { type: Type.STRING },
-              concept: { type: Type.STRING },
-              adjustments: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              }
-            }
-          }
         }
       });
 
