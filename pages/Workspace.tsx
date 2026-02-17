@@ -575,6 +575,28 @@ const Workspace: React.FC = () => {
         });
     }, [inputBlocks]);
 
+    // 反向同步：markers 变化时，清理 inputBlocks 中已不存在的 marker chip
+    useEffect(() => {
+        const markerIds = markers.map(m => m.id);
+        setInputBlocks(prev => {
+            const hasOrphanChip = prev.some(b =>
+                b.type === 'file' && b.file && (b.file as any).markerId && !markerIds.includes((b.file as any).markerId)
+            );
+            if (!hasOrphanChip) return prev;
+            // 移除孤立 chip，并重新编号剩余 chip 的 markerId
+            const filtered = prev.filter(b =>
+                !(b.type === 'file' && b.file && (b.file as any).markerId && !markerIds.includes((b.file as any).markerId))
+            );
+            let idx = 1;
+            filtered.forEach(b => {
+                if (b.type === 'file' && b.file && (b.file as any).markerId) {
+                    (b.file as any).markerId = idx++;
+                }
+            });
+            return filtered;
+        });
+    }, [markers]);
+
     // 选中画布元素时，自动将图片插入输入框（支持单选和多选）
     const prevSelectedIdsRef = useRef<string[]>([]);
     useEffect(() => {
@@ -1731,7 +1753,22 @@ const Workspace: React.FC = () => {
     };
 
     const handleResizeStart = (e: React.MouseEvent, handle: string, elementId: string) => { e.stopPropagation(); e.preventDefault(); const el = elements.find(e => e.id === elementId); if (!el) return; setIsResizing(true); setResizeHandle(handle); setResizeStart({ x: e.clientX, y: e.clientY, width: el.width, height: el.height, left: el.x, top: el.y }); };
-    const removeMarker = (id: number) => { const newMarkers = markers.filter(m => m.id !== id).map((m, i) => ({ ...m, id: i + 1 })); setMarkers(newMarkers); saveToHistory(elements, newMarkers); };
+    const removeMarker = (id: number) => {
+        const newMarkers = markers.filter(m => m.id !== id).map((m, i) => ({ ...m, id: i + 1 }));
+        setMarkers(newMarkers);
+        saveToHistory(elements, newMarkers);
+        // 同步删除对应 chip，并重新编号剩余 chip 的 markerId
+        setInputBlocks(prev => {
+            const filtered = prev.filter(b => !(b.type === 'file' && b.file && (b.file as any).markerId === id));
+            let idx = 1;
+            filtered.forEach(b => {
+                if (b.type === 'file' && b.file && (b.file as any).markerId) {
+                    (b.file as any).markerId = idx++;
+                }
+            });
+            return [...filtered];
+        });
+    };
 
     const handleToolMenuMouseEnter = () => { if (closeToolMenuTimerRef.current) clearTimeout(closeToolMenuTimerRef.current); setShowInsertMenu(false); setShowShapeMenu(false); setShowToolMenu(true); };
     const handleToolMenuMouseLeave = () => { closeToolMenuTimerRef.current = setTimeout(() => { setShowToolMenu(false); }, 100); };
