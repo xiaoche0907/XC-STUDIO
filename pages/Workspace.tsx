@@ -634,6 +634,7 @@ const Workspace: React.FC = () => {
     const chatSessionRef = useRef<any>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const canvasLayerRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const closeToolMenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const closeMenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1190,13 +1191,24 @@ const Workspace: React.FC = () => {
         const onWheel = (e: WheelEvent) => {
             if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
+                const container = containerRef.current;
+                if (!container) return;
+                const rect = container.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+
+                const oldZoom = zoom;
                 const delta = e.deltaY > 0 ? -10 : 10;
-                setZoom(z => Math.max(10, Math.min(500, z + delta)));
+                const newZoom = Math.max(10, Math.min(500, oldZoom + delta));
+                const scale = newZoom / oldZoom;
+
+                // 调整 pan 使鼠标指向的画布点保持不动
+                const newPanX = mouseX - (mouseX - pan.x) * scale;
+                const newPanY = mouseY - (mouseY - pan.y) * scale;
+
+                setZoom(newZoom);
+                setPan({ x: newPanX, y: newPanY });
             } else {
-                // Also prevent swipe-to-nav etc if necessary, but allow normal scroll if not zooming?
-                // Actually users requested standard pan. 
-                // If they are NOT zooming, we use React panning state.
-                // But to be safe against touchpad gestures zooming the page:
                 if (e.ctrlKey) e.preventDefault();
             }
         };
@@ -1439,7 +1451,7 @@ const Workspace: React.FC = () => {
 
     const handleContextMenu = (e: React.MouseEvent) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY }); };
     // Wheel handled by native listener in useEffect
-    const handleMouseDown = (e: React.MouseEvent) => { e.preventDefault(); if (contextMenu) setContextMenu(null); if (activeTool === 'hand' || e.button === 1 || e.buttons === 4 || isSpacePressed) { setIsPanning(true); setDragStart({ x: e.clientX, y: e.clientY }); return; } if (e.target === containerRef.current) { setSelectedElementId(null); setSelectedElementIds([]); setEditingTextId(null); if (activeTool === 'select') { setIsMarqueeSelecting(true); setMarqueeStart({ x: e.clientX, y: e.clientY }); setMarqueeEnd({ x: e.clientX, y: e.clientY }); } else { setIsPanning(true); setDragStart({ x: e.clientX, y: e.clientY }); } setShowFontPicker(false); setShowModelPicker(false); setShowResPicker(false); setShowRatioPicker(false); } };
+    const handleMouseDown = (e: React.MouseEvent) => { e.preventDefault(); if (contextMenu) setContextMenu(null); if (activeTool === 'hand' || e.button === 1 || e.buttons === 4 || isSpacePressed) { setIsPanning(true); setDragStart({ x: e.clientX, y: e.clientY }); return; } if (e.target === containerRef.current || e.target === canvasLayerRef.current) { setSelectedElementId(null); setSelectedElementIds([]); setEditingTextId(null); if (activeTool === 'select') { setIsMarqueeSelecting(true); setMarqueeStart({ x: e.clientX, y: e.clientY }); setMarqueeEnd({ x: e.clientX, y: e.clientY }); } else { setIsPanning(true); setDragStart({ x: e.clientX, y: e.clientY }); } setShowFontPicker(false); setShowModelPicker(false); setShowResPicker(false); setShowRatioPicker(false); } };
 
     const handleMouseMove = (e: React.MouseEvent) => {
         if (isResizing && selectedElementId) {
@@ -1564,23 +1576,28 @@ const Workspace: React.FC = () => {
 
     // Crop Image Utility
     const cropImageRegion = async (imageUrl: string, xPct: number, yPct: number, width: number = 200, height: number = 200): Promise<string | null> => {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             const img = new Image();
             img.crossOrigin = 'Anonymous';
             img.src = imageUrl;
             img.onload = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                if (!ctx) { resolve(null); return; }
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) { resolve(null); return; }
 
-                const sourceX = (xPct / 100) * img.naturalWidth - (width / 2);
-                const sourceY = (yPct / 100) * img.naturalHeight - (height / 2);
+                    const sourceX = (xPct / 100) * img.naturalWidth - (width / 2);
+                    const sourceY = (yPct / 100) * img.naturalHeight - (height / 2);
 
-                // Draw zoomed crop
-                ctx.drawImage(img, sourceX, sourceY, width, height, 0, 0, width, height);
-                resolve(canvas.toDataURL('image/png'));
+                    // Draw zoomed crop
+                    ctx.drawImage(img, sourceX, sourceY, width, height, 0, 0, width, height);
+                    resolve(canvas.toDataURL('image/png'));
+                } catch (e) {
+                    console.warn('cropImageRegion: canvas tainted or draw failed', e);
+                    resolve(null);
+                }
             };
             img.onerror = () => resolve(null);
         });
@@ -1602,45 +1619,40 @@ const Workspace: React.FC = () => {
             const el = elements.find(e => e.id === id);
             let cropUrl: string | undefined = undefined;
 
-            if (el && (el.type === 'image' || el.type === 'gen-image') && el.url) {
-                // 固定选区大小 (像素)
-                const cropWidth = 300;
-                const cropHeight = 300;
+            try {
+                if (el && (el.type === 'image' || el.type === 'gen-image') && el.url) {
+                    const cropWidth = 300;
+                    const cropHeight = 300;
 
-                const crop = await cropImageRegion(el.url, x, y, cropWidth, cropHeight);
-                if (crop) {
-                    cropUrl = crop;
+                    const crop = await cropImageRegion(el.url, x, y, cropWidth, cropHeight);
+                    if (crop) {
+                        cropUrl = crop;
 
-                    // 先打开助手面板，确保输入框已渲染
-                    if (!showAssistant) {
-                        setShowAssistant(true);
-                        // 等待助手面板渲染完成
-                        await new Promise(resolve => setTimeout(resolve, 100));
+                        if (!showAssistant) {
+                            setShowAssistant(true);
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                        }
+
+                        const file = dataURLtoFile(crop, `marker-${newMarkerId}.png`);
+                        (file as any).markerId = newMarkerId;
+                        (file as any).markerName = '区域';
+                        (file as any).markerInfo = {
+                            fullImageUrl: el.url,
+                            x: (x / 100) * el.width - cropWidth / 2,
+                            y: (y / 100) * el.height - cropHeight / 2,
+                            width: cropWidth,
+                            height: cropHeight,
+                            imageWidth: el.width,
+                            imageHeight: el.height
+                        };
+
+                        setTimeout(() => {
+                            insertInputFile(file);
+                        }, 150);
                     }
-
-                    // Convert crop to File and Add to Input Box
-                    const file = dataURLtoFile(crop, `marker-${newMarkerId}.png`);
-                    (file as any).markerId = newMarkerId;
-                    (file as any).markerName = '区域';
-
-                    // 添加markerInfo用于hover预览 - 包含原图URL和选区位置
-                    // 需要根据百分比位置计算实际像素位置
-                    (file as any).markerInfo = {
-                        fullImageUrl: el.url,
-                        x: (x / 100) * el.width - cropWidth / 2, // 选区左上角X (相对于原图)
-                        y: (y / 100) * el.height - cropHeight / 2, // 选区左上角Y
-                        width: cropWidth,
-                        height: cropHeight,
-                        imageWidth: el.width,
-                        imageHeight: el.height
-                    };
-
-                    // 使用 setTimeout 确保状态更新后再插入
-                    setTimeout(() => {
-                        insertInputFile(file);
-                        console.log('File inserted:', file.name, 'Marker ID:', newMarkerId);
-                    }, 150);
                 }
+            } catch (err) {
+                console.warn('Mark crop failed, continuing with marker placement', err);
             }
 
             const newMarkers = [...markers, { id: newMarkerId, x, y, elementId: id, cropUrl }];
@@ -3519,7 +3531,7 @@ const Workspace: React.FC = () => {
                     {renderShapeToolbar()}
                     {renderImageToolbar()}
                     {renderGenVideoToolbar()}
-                    <div className="absolute top-0 left-0 w-0 h-0 overflow-visible transition-transform duration-75 ease-out" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transformOrigin: '0 0' }}>
+                    <div ref={canvasLayerRef} className="absolute top-0 left-0 w-0 h-0 overflow-visible" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transformOrigin: '0 0' }}>
                         {elements.map((el) => {
                             const isSelected = selectedElementId === el.id || selectedElementIds.includes(el.id);
                             return (
