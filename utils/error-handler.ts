@@ -58,8 +58,10 @@ class ErrorHandler {
         }
 
         if (error instanceof Error) {
+            const msg = error.message;
+
             // 网络错误
-            if (error.message.includes('fetch') || error.message.includes('network')) {
+            if (msg.includes('fetch') || msg.includes('network') || msg.includes('ERR_NETWORK') || msg.includes('Failed to fetch')) {
                 return this.createError(
                     ErrorType.NETWORK,
                     '网络连接失败，请检查网络设置后重试',
@@ -69,11 +71,55 @@ class ErrorHandler {
                 );
             }
 
-            // API错误
-            if (error.message.includes('API') || error.message.includes('401') || error.message.includes('403')) {
+            // 429 限流错误
+            if (msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests') || msg.includes('RATE_LIMIT')) {
                 return this.createError(
                     ErrorType.API,
-                    'API调用失败，请检查配置或稍后重试',
+                    '请求过于频繁，请稍等几秒后重试',
+                    error,
+                    { ...context, httpStatus: 429 },
+                    true
+                );
+            }
+
+            // 503 服务过载
+            if (msg.includes('503') || msg.includes('overloaded') || msg.includes('unavailable')) {
+                return this.createError(
+                    ErrorType.API,
+                    'AI 服务暂时繁忙，正在尝试备用方案...',
+                    error,
+                    { ...context, httpStatus: 503, shouldFallback: true },
+                    true
+                );
+            }
+
+            // 配额耗尽
+            if (msg.includes('quota') || msg.includes('QUOTA') || msg.includes('billing') || msg.includes('exceeded')) {
+                return this.createError(
+                    ErrorType.API,
+                    'API 配额已用完，请检查 Gemini API 配额或升级计划',
+                    error,
+                    { ...context, quotaExceeded: true },
+                    false
+                );
+            }
+
+            // 401/403 认证错误
+            if (msg.includes('401') || msg.includes('403') || msg.includes('API_KEY') || msg.includes('unauthorized') || msg.includes('forbidden')) {
+                return this.createError(
+                    ErrorType.API,
+                    'API Key 无效或已过期，请检查设置中的 Gemini API Key',
+                    error,
+                    { ...context, authError: true },
+                    false
+                );
+            }
+
+            // 其他 API 错误
+            if (msg.includes('API') || msg.includes('400') || msg.includes('500')) {
+                return this.createError(
+                    ErrorType.API,
+                    'AI 服务调用失败，请稍后重试',
                     error,
                     context,
                     true
@@ -81,7 +127,7 @@ class ErrorHandler {
             }
 
             // 验证错误
-            if (error.message.includes('validate') || error.message.includes('invalid')) {
+            if (msg.includes('validate') || msg.includes('invalid')) {
                 return this.createError(
                     ErrorType.VALIDATION,
                     '输入数据验证失败，请检查输入',

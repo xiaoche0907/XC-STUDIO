@@ -24,7 +24,7 @@ interface ExecutionConfig {
 }
 
 const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
-    maxRetries: 2,
+    maxRetries: 0,
     timeout: 300000,
     enableCache: true
 };
@@ -89,8 +89,8 @@ export abstract class EnhancedBaseAgent {
                 () => this.executeWithTimeout(task, finalConfig.timeout),
                 {
                     maxRetries: finalConfig.maxRetries,
-                    delay: 2000,
-                    backoff: true,
+                    delay: 1000,
+                    backoff: false,
                     context: {
                         agent: this.agentInfo.id,
                         taskId,
@@ -218,19 +218,38 @@ export abstract class EnhancedBaseAgent {
             }
         }
 
-        // 5. 执行所有 proposals 的 skillCalls
+        // 5. 并行执行所有 proposals 的 skillCalls（大幅提速）
         if (effectiveProposals.length > 0) {
             const generatedAssets: GeneratedAsset[] = [];
 
-            for (const proposal of effectiveProposals) {
-                if (proposal.skillCalls && Array.isArray(proposal.skillCalls)) {
+            // 更新状态为 executing（让 UI 显示"生成中"而非"分析中"）
+            task = this.updateTaskStatus(task, 'executing');
+
+            const proposalsWithSkills = effectiveProposals.filter(
+                (p: any) => p.skillCalls && Array.isArray(p.skillCalls) && p.skillCalls.length > 0
+            );
+
+            console.log(`[${this.agentInfo.id}] Executing ${proposalsWithSkills.length} proposals in parallel`);
+
+            // 并行执行所有 proposals
+            const allResults = await Promise.allSettled(
+                proposalsWithSkills.map(async (proposal: any) => {
                     console.log(`[${this.agentInfo.id}] Executing proposal "${proposal.title}" with ${proposal.skillCalls.length} skill calls`);
                     const results = await this.executeSkills(proposal.skillCalls, task);
                     const assets = this.extractAssets(results);
-                    generatedAssets.push(...assets);
                     if (assets.length > 0) {
                         proposal.generatedUrl = assets[0].url;
                     }
+                    return assets;
+                })
+            );
+
+            // 收集所有成功的结果
+            for (const result of allResults) {
+                if (result.status === 'fulfilled') {
+                    generatedAssets.push(...result.value);
+                } else {
+                    console.warn(`[${this.agentInfo.id}] Proposal execution failed:`, result.reason);
                 }
             }
 
@@ -244,7 +263,7 @@ export abstract class EnhancedBaseAgent {
                     analysis: plan.analysis,
                     proposals: effectiveProposals,
                     assets: generatedAssets,
-                    adjustments: ['调整构图', '更换风格', '修改配色', '添加文字', '放大画质']
+                    adjustments: this.getAdjustments(message, effectiveProposals)
                 },
                 updatedAt: Date.now()
             };
@@ -318,9 +337,17 @@ ${(attachments || []).map((file, index) => {
 - 如果没有附件图片，根据用户的文字描述来理解产品。
 - 重要：每个 generateImage 的 params 中必须包含 "referenceImage": "ATTACHMENT_N"（N 是附件索引，从0开始）。如果只有1张附件，所有 proposal 都用 "ATTACHMENT_0"；如果有多张附件，每个 proposal 可以引用不同的附件（如 ATTACHMENT_0, ATTACHMENT_1, ATTACHMENT_2...）。
 
-【任务拆解规则】
-- 如果用户要求多张图（如"5张副图"、"一套图"、"3张海报"），必须返回对应数量的 proposals，每个 proposal 的内容/角度/用途各不相同。
-- 每个 proposal 必须包含自己的 skillCalls 数组。
+【输出数量规则 — 最重要】
+- 默认只返回 1 个 proposal（1张图/1个视频）。用户说"做个海报"、"设计一个logo"、"帮我做张图" → 只返回 1 个 proposal。
+- 只有用户明确要求多张时才返回多个 proposals：
+  - "5张副图" → 5 个 proposals
+  - "一套图" / "一组" / "系列" → 3-5 个 proposals
+  - "3张海报" → 3 个 proposals
+- 修改/编辑请求（用户标记了区域 + 说"改成XX"/"换成XX"/"去掉XX"）→ 只返回 1 个 proposal，使用 smartEdit 技能。
+- 绝对不要在用户没要求多张的情况下返回多个 proposals。1个请求 = 1张图，这是默认行为。
+
+【多图规则（仅当用户明确要求时）】
+- 每个 proposal 必须包含自己的 skillCalls 数组，内容/角度/用途各不相同。
 - 电商套图（亚马逊副图）应包含：白底主图、信息图、场景图、细节特写、尺寸包装图等。
 - 不能返回少于用户要求数量的 proposals。
 
@@ -328,9 +355,7 @@ ${(attachments || []).map((file, index) => {
 {
   "analysis": "用中文简要分析用户需求",
   "proposals": [{"id": "1", "title": "中文标题", "description": "中文描述", "skillCalls": [{"skillName": "generateImage", "params": {"prompt": "English prompt describing the EXACT product...", "referenceImage": "ATTACHMENT_0", "aspectRatio": "1:1", "model": "Nano Banana Pro"}}]}],
-  "skillCalls": [{"skillName": "...", "params": {...}}],
-  "message": "用中文回复用户",
-  "concept": "用中文描述创意概念"
+  "message": "用中文回复用户"
 }`;
 
             // Build content parts - text + image attachments for visual understanding
@@ -341,8 +366,18 @@ ${(attachments || []).map((file, index) => {
                 for (const file of attachments) {
                     try {
                         if (file.type && file.type.startsWith('image/')) {
-                            const buffer = await file.arrayBuffer();
-                            const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+                            // 使用 FileReader + readAsDataURL 替代慢的 btoa(String.fromCharCode(...))
+                            const base64 = await new Promise<string>((resolve, reject) => {
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                    const dataUrl = reader.result as string;
+                                    // 提取纯 base64 部分（去掉 data:image/xxx;base64, 前缀）
+                                    const base64Data = dataUrl.split(',')[1];
+                                    resolve(base64Data);
+                                };
+                                reader.onerror = reject;
+                                reader.readAsDataURL(file);
+                            });
                             parts.push({
                                 inlineData: {
                                     mimeType: file.type || 'image/png',
@@ -357,7 +392,7 @@ ${(attachments || []).map((file, index) => {
             }
 
             const response = await ai.models.generateContent({
-                model: 'gemini-3-pro-preview',
+                model: 'gemini-3-flash-preview',
                 contents: { parts },
                 config: {
                     temperature: 0.7,
@@ -476,21 +511,41 @@ ${(attachments || []).map((file, index) => {
      * 从技能结果中提取资产
      */
     protected extractAssets(skillCalls: any[]): GeneratedAsset[] {
+        // 记录失败的 skillCalls 以便调试
+        const failed = skillCalls.filter(s => !s.success);
+        if (failed.length > 0) {
+            console.warn(`[${this.agentInfo.id}] ${failed.length} skill calls failed:`,
+                failed.map(s => `${s.skillName}: ${s.error}`));
+        }
+
         return skillCalls
             .filter(s => s.success && s.result && (
                 s.skillName === 'generateImage' ||
-                s.skillName === 'generateVideo'
+                s.skillName === 'generateVideo' ||
+                s.skillName === 'smartEdit' ||
+                s.skillName === 'touchEdit'
             ))
             .map(s => ({
                 id: `asset-${Date.now()}-${Math.random()}`,
-                type: s.skillName === 'generateImage' ? 'image' as const : 'video' as const,
+                type: (s.skillName === 'generateVideo') ? 'video' as const : 'image' as const,
                 url: s.result,
                 metadata: {
-                    prompt: s.params.prompt,
-                    model: s.params.model,
+                    prompt: s.params?.prompt || s.params?.editType || '',
+                    model: s.params?.model || 'edit',
                     agentId: this.agentInfo.id
                 }
             }));
+    }
+
+    /**
+     * 根据任务类型动态生成快捷操作按钮
+     */
+    private getAdjustments(message: string, proposals: any[]): string[] {
+        const isEdit = /换成|改成|改为|替换|修改|调整|去掉|删除|移除|去除|去背景|换背景|换颜色|改颜色|recolor|remove|replace/i.test(message);
+        if (isEdit) {
+            return ['继续调整', '放大画质', '去除背景', '重新生成'];
+        }
+        return ['换个风格', '换个构图', '换个配色', '重新生成'];
     }
 
     /**
@@ -549,26 +604,42 @@ ${(attachments || []).map((file, index) => {
     }
 
     /**
-     * 缓存结果
+     * 缓存结果（带TTL）
      */
     private cacheResult(task: AgentTask, result: AgentTask): void {
         const key = this.getCacheKey(task);
-        this.executionCache.set(key, result);
+        this.executionCache.set(key, { result, timestamp: Date.now() });
     }
 
     /**
-     * 获取缓存结果
+     * 获取缓存结果（带TTL检查）
      */
     private getCachedResult(task: AgentTask): AgentTask | null {
         const key = this.getCacheKey(task);
-        return this.executionCache.get(key) || null;
+        const cached = this.executionCache.get(key);
+        if (!cached) return null;
+
+        // TTL: 5分钟过期
+        const CACHE_TTL = 5 * 60 * 1000;
+        if (Date.now() - cached.timestamp > CACHE_TTL) {
+            this.executionCache.delete(key);
+            return null;
+        }
+
+        return cached.result;
     }
 
     /**
-     * 生成缓存键
+     * 生成缓存键（考虑附件和上下文）
+     * 带附件的请求不缓存（每次都是新的创作意图）
      */
     private getCacheKey(task: AgentTask): string {
-        return `${this.agentInfo.id}:${task.input.message}`;
+        // 带附件的请求不缓存
+        if (task.input.attachments && task.input.attachments.length > 0) {
+            return `nocache-${Date.now()}-${Math.random()}`;
+        }
+        const contextHash = task.input.context?.projectTitle || '';
+        return `${this.agentInfo.id}:${task.input.message}:${contextHash}`;
     }
 
     /**

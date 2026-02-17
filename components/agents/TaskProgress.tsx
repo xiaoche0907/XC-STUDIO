@@ -9,11 +9,11 @@ interface TaskProgressProps {
 }
 
 const statusConfig: Record<TaskStatus, { icon: React.ReactNode; color: string; label: string }> = {
-  pending: { icon: <Clock className="w-4 h-4" />, color: '#888', label: 'Pending' },
-  analyzing: { icon: <Loader2 className="w-4 h-4 animate-spin" />, color: '#3b82f6', label: 'Analyzing' },
-  executing: { icon: <Loader2 className="w-4 h-4 animate-spin" />, color: '#8b5cf6', label: 'Executing' },
-  completed: { icon: <CheckCircle2 className="w-4 h-4" />, color: '#10b981', label: 'Completed' },
-  failed: { icon: <XCircle className="w-4 h-4" />, color: '#ef4444', label: 'Failed' }
+  pending: { icon: <Clock className="w-4 h-4" />, color: '#888', label: '等待中' },
+  analyzing: { icon: <Loader2 className="w-4 h-4 animate-spin" />, color: '#3b82f6', label: '分析需求中...' },
+  executing: { icon: <Loader2 className="w-4 h-4 animate-spin" />, color: '#8b5cf6', label: '生成图片中...' },
+  completed: { icon: <CheckCircle2 className="w-4 h-4" />, color: '#10b981', label: '已完成' },
+  failed: { icon: <XCircle className="w-4 h-4" />, color: '#ef4444', label: '生成失败' }
 };
 
 export const TaskProgress: React.FC<TaskProgressProps> = ({ task }) => {

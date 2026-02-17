@@ -44,3 +44,6 @@ export {
   executeAgentTaskWithSkills,
   collaborativeExecution
 } from './enhanced-orchestrator';
+
+// 导出本地路由（降级方案）
+export { localPreRoute, isChatMessage, isVagueRequest, isEditRequest } from './local-router';

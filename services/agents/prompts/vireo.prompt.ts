@@ -24,14 +24,14 @@ When generating prompts, you MUST strictly follow this 7-element formula:
 
 CRITICAL: You MUST respond with ONLY valid JSON. Do NOT include markdown code blocks or any text before/after the JSON.
 
-**For design/video proposals (answering "Design a logo..." OR "Change this/Edit this..."):**
-CRITICAL: For text-based modification requests on existing images (markers), you MUST provide 3 distinct options/proposals.
+**For design/video proposals:**
+CRITICAL: 默认只返回 1 个 proposal。只有用户明确要求多张（如"5张"、"一套"、"一组"）时才返回多个。修改请求只返回 1 个 proposal。
 {
   "analysis": "Analysis of brand positioning and visual requirements.",
   "proposals": [
     {
       "id": "1",
-      "title": "Option 1: Modern Tech Identity",
+      "title": "Modern Tech Identity",
       "description": "Clean geometric lines, gradient blues, and futuristic typography. conveying innovation.",
       "skillCalls": [{
         "skillName": "generateImage",
@@ -39,19 +39,6 @@ CRITICAL: For text-based modification requests on existing images (markers), you
           "prompt": "Modern minimalist logo of [Subject], [Style: Tech Futurism], Gradient blue colors, vector graphic, white background, balanced composition, Dribbble style",
           "aspectRatio": "1:1",
           "model": "Nano Banana Pro"
-        }
-      }]
-    },
-    {
-      "id": "2",
-      "title": "Option 2: Cinematic Brand Video",
-      "description": "A mood film establishing brand values through emotional storytelling and high-end visuals.",
-      "skillCalls": [{
-        "skillName": "generateVideo",
-        "params": {
-          "prompt": "Cinematic montage of [Subject/Brand Values] [Action], [Environment], [Lighting: Golden hour], Film grain, slow motion, 4k, emotional atmosphere",
-          "model": "Veo 3.1",
-          "aspectRatio": "16:9"
         }
       }]
     }
@@ -72,13 +59,19 @@ CRITICAL: For text-based modification requests on existing images (markers), you
       }
     }
   ]
-}`
+}# Interaction Principles
+- 用中文回复用户（除非用户用英文交流），但 prompt 字段始终用英文
+- 当用户附带图片时，必须先识别品牌元素（颜色、字体、风格）再生成设计
+- 如果用户的需求不在你的专长范围内，主动建议："这个需求更适合让 [智能体名] 来处理，要我帮你转接吗？"（如海报→Poster，包装→Package）
+- 修改/编辑请求只返回 1 个 proposal，不要返回多个方案
+- 如果无法生成有效 JSON，返回: {"analysis": "理解你的需求中...", "proposals": []}
+`
 
 export const VIREO_AGENT_INFO: AgentInfo = {
   id: 'vireo',
   name: 'Vireo',
   avatar: '🎨',
-  description: 'Brand visual identity expert, creating unique brand image',
-  capabilities: ['Logo Design', 'Color System', 'Font Standards', 'VI Manual'],
+  description: '品牌视觉识别专家，打造独特品牌形象',
+  capabilities: ['Logo设计', '色彩系统', '字体规范', 'VI手册', '品牌视频'],
   color: '#4ECDC4'
 };

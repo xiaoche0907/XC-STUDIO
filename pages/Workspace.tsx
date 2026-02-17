@@ -597,7 +597,7 @@ const Workspace: React.FC = () => {
         });
     }, [markers]);
 
-    // 选中画布元素时，自动将图片插入输入框（支持单选和多选）
+    // 选中画布元素时，自动将图片插入输入框（在光标位置插入，用户手动删 chip）
     const prevSelectedIdsRef = useRef<string[]>([]);
     useEffect(() => {
         // 合并单选和多选
@@ -608,26 +608,22 @@ const Workspace: React.FC = () => {
         // 选中列表没变就跳过
         if (JSON.stringify(ids) === JSON.stringify(prev)) return;
 
-        // 清除之前自动插入的画布选中图片
-        const cleaned = inputBlocks.filter(b => !(b.type === 'file' && b.file && (b.file as any)._canvasAutoInsert));
+        // 找出新增的选中元素（之前没选中，现在选中了）
+        const newIds = ids.filter(id => !prev.includes(id));
 
-        // 没有选中任何元素时，只清除自动插入的
-        if (ids.length === 0) {
-            if (cleaned.length !== inputBlocks.length) {
-                if (!cleaned.some(b => b.type === 'text')) {
-                    cleaned.push({ id: `text-${Date.now()}`, type: 'text', text: '' });
-                }
-                setInputBlocks(cleaned);
-            }
-            return;
-        }
+        // 没有新选中的元素就跳过（取消选中不做任何操作，chip 保留）
+        if (newIds.length === 0) return;
 
-        const imageEls = elements.filter(e => ids.includes(e.id) && (e.type === 'image' || e.type === 'gen-image') && e.url);
+        // 只添加新选中的图片（已经在 inputBlocks 里的不重复添加）
+        const existingElIds = new Set(
+            inputBlocks.filter(b => b.type === 'file' && b.file && (b.file as any)._canvasElId)
+                .map(b => (b.file as any)._canvasElId)
+        );
+        const imageEls = elements.filter(e => newIds.includes(e.id) && !existingElIds.has(e.id) && (e.type === 'image' || e.type === 'gen-image') && e.url);
         if (imageEls.length === 0) return;
 
-        // 为每个选中图片创建 File 并插入 inputBlocks
+        // 用 insertInputFile 在光标位置插入（逐个插入，每个都在当前光标位置）
         (async () => {
-            const newBlocks = [...cleaned];
             for (const el of imageEls) {
                 try {
                     const resp = await fetch(el.url!);
@@ -635,13 +631,9 @@ const Workspace: React.FC = () => {
                     const file = new File([blob], `canvas-${el.id.slice(-6)}.png`, { type: blob.type || 'image/png' }) as any;
                     file._canvasAutoInsert = true;
                     file._canvasElId = el.id;
-                    newBlocks.push({ id: `canvas-${el.id}`, type: 'file', text: '', file });
+                    insertInputFile(file);
                 } catch (_) { /* ignore */ }
             }
-            if (!newBlocks.some(b => b.type === 'text')) {
-                newBlocks.push({ id: `text-${Date.now()}`, type: 'text', text: '' });
-            }
-            setInputBlocks(newBlocks);
         })();
     }, [selectedElementIds, selectedElementId]);
 
@@ -744,6 +736,43 @@ const Workspace: React.FC = () => {
         });
     };
 
+    // contentEditable 光标辅助函数
+    const getCECursorPos = (el: HTMLElement): number => {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return 0;
+        const range = sel.getRangeAt(0);
+        const pre = range.cloneRange();
+        pre.selectNodeContents(el);
+        pre.setEnd(range.startContainer, range.startOffset);
+        return pre.toString().length;
+    };
+    const setCECursorPos = (el: HTMLElement, pos: number) => {
+        el.focus();
+        const sel = window.getSelection();
+        if (!sel) return;
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        let cur = 0;
+        let node = walker.nextNode();
+        while (node) {
+            const len = (node.textContent || '').length;
+            if (cur + len >= pos) {
+                const range = document.createRange();
+                range.setStart(node, pos - cur);
+                range.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(range);
+                return;
+            }
+            cur += len;
+            node = walker.nextNode();
+        }
+        // fallback: 放到末尾
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+    };
     useEffect(() => {
         if (!id) return;
         const save = async () => {
@@ -1865,26 +1894,50 @@ const Workspace: React.FC = () => {
                 if (generatedUrls.length > 0) {
                     const containerW = window.innerWidth - (showAssistant ? 400 : 0);
                     const containerH = window.innerHeight;
-                    const baseCX = (containerW / 2 - pan.x) / (zoom / 100);
-                    const baseCY = (containerH / 2 - pan.y) / (zoom / 100);
+
+                    // If there are markers, place near the marker's source element
+                    // Otherwise place at a fixed canvas position and pan to it
+                    let targetCX: number;
+                    let targetCY: number;
+
+                    const markerEl = markers.length > 0
+                        ? elements.find(e => e.id === markers[0].elementId)
+                        : null;
+
+                    if (markerEl) {
+                        // Place to the right of the marker's source element
+                        targetCX = markerEl.x + markerEl.width + 60;
+                        targetCY = markerEl.y + markerEl.height / 2;
+                    } else {
+                        // Place at current viewport center
+                        targetCX = (containerW / 2 - pan.x) / (zoom / 100);
+                        targetCY = (containerH / 2 - pan.y) / (zoom / 100);
+                    }
 
                     const imgSize = 512;
                     const gap = 24;
                     const totalW = generatedUrls.length * imgSize + (generatedUrls.length - 1) * gap;
-                    const startX = baseCX - totalW / 2;
+                    const startX = targetCX - (markerEl ? 0 : totalW / 2);
 
                     const newEls: CanvasElement[] = generatedUrls.map((url, idx) => ({
                         id: `agent-gen-${Date.now()}-${idx}`,
                         type: 'image' as const,
                         url,
                         x: startX + idx * (imgSize + gap),
-                        y: baseCY - imgSize / 2,
+                        y: targetCY - imgSize / 2,
                         width: imgSize, height: imgSize,
                         zIndex: elements.length + 10 + idx
                     }));
                     setElements(prev => [...prev, ...newEls]);
                     if (newEls.length > 0) setSelectedElementId(newEls[0].id);
                     saveToHistory([...elements, ...newEls], markers);
+
+                    // Auto-pan to center the new elements in viewport
+                    const groupCenterX = startX + totalW / 2;
+                    const groupCenterY = targetCY;
+                    const newPanX = containerW / 2 - groupCenterX * (zoom / 100);
+                    const newPanY = containerH / 2 - groupCenterY * (zoom / 100);
+                    setPan({ x: newPanX, y: newPanY });
                 }
 
                 // Get all proposals info for display
@@ -3009,268 +3062,271 @@ const Workspace: React.FC = () => {
                                     </div>
                                 )}
 
-                                {/* Text Input Area - Lovart style */}
-                                <div className={`px-4 py-3 flex flex-wrap items-center gap-1.5 min-h-[48px] cursor-text transition-all ${isInputFocused ? '' : 'opacity-70'}`} onClick={() => {
-                                    const lastText = inputBlocks.filter(b => b.type === 'text').pop();
-                                    const targetId = lastText?.id || inputBlocks[inputBlocks.length - 1].id;
-                                    const el = document.getElementById(`input-block-${targetId}`);
-                                    el?.focus();
+                                {/* Text Input Area - Lovart style: inline mixed chips + text */}
+                                <div className={`px-4 py-3 cursor-text transition-all ${isInputFocused ? '' : 'opacity-70'}`} onClick={(e) => {
+                                    // 仅在点击空白区域时聚焦最后的文本框（不干扰 chip 点击）
+                                    if (e.target === e.currentTarget || (e.target as HTMLElement).closest('.input-flow-container') === e.currentTarget.querySelector('.input-flow-container')) {
+                                        const lastText = inputBlocks.filter(b => b.type === 'text').pop();
+                                        const targetId = lastText?.id || inputBlocks[inputBlocks.length - 1].id;
+                                        const el = document.getElementById(`input-block-${targetId}`);
+                                        el?.focus();
+                                    }
                                 }}>
-                                    {/* inputBlocks: file chips first, then text inputs */}
-                                    {[...inputBlocks].sort((a, b) => {
-                                        // file blocks first, text blocks last
-                                        if (a.type === 'file' && b.type !== 'file') return -1;
-                                        if (a.type !== 'file' && b.type === 'file') return 1;
-                                        return 0;
-                                    }).map((block, i) => {
-                                        if (block.type === 'file' && block.file) {
-                                            const file = block.file;
-                                            const markerId = (file as any).markerId;
-                                            const isSelected = selectedChipId === block.id;
-                                            const isHovered = hoveredChipId === block.id;
-                                            // 获取原图和选区信息用于hover预览
-                                            const markerInfo = (file as any).markerInfo as {
-                                                fullImageUrl?: string;
-                                                x?: number;
-                                                y?: number;
-                                                width?: number;
-                                                height?: number;
-                                                imageWidth?: number;
-                                                imageHeight?: number;
-                                            } | undefined;
+                                    {/* Inline flow: chips and text truly inline (Lovart style) */}
+                                    <style>{`.ce-placeholder:empty::before{content:attr(data-placeholder);color:#9CA3AF;pointer-events:none}`}</style>
+                                    <div className="input-flow-container" style={{ lineHeight: '28px', wordBreak: 'break-word' }}>
+                                        {inputBlocks.map((block, blockIndex) => {
+                                            if (block.type === 'file' && block.file) {
+                                                const file = block.file;
+                                                const markerId = (file as any).markerId;
+                                                const isSelected = selectedChipId === block.id;
+                                                const isHovered = hoveredChipId === block.id;
+                                                const markerInfo = (file as any).markerInfo as {
+                                                    fullImageUrl?: string;
+                                                    x?: number;
+                                                    y?: number;
+                                                    width?: number;
+                                                    height?: number;
+                                                    imageWidth?: number;
+                                                    imageHeight?: number;
+                                                } | undefined;
 
-                                            if (markerId) {
-                                                // 标记区域chip - 图2样式 with hover preview
-                                                return (
-                                                    <motion.div
-                                                        key={block.id}
-                                                        id={`marker-chip-${block.id}`}
-                                                        initial={{ scale: 0, opacity: 0 }}
-                                                        animate={{ scale: 1, opacity: 1 }}
-                                                        transition={{ type: 'spring', stiffness: 400, damping: 20 }}
-                                                        className={`inline-flex items-center gap-1 rounded-lg pl-1 pr-1.5 py-1 cursor-default relative group flex-shrink-0 select-none h-7 transition-all ${isSelected
-                                                                ? 'bg-blue-100 ring-2 ring-blue-500'
-                                                                : 'bg-[#F3F4F6]'
-                                                            }`}
-                                                        onClick={() => setSelectedChipId(isSelected ? null : block.id)}
-                                                        onMouseEnter={() => setHoveredChipId(block.id)}
-                                                        onMouseLeave={() => setHoveredChipId(null)}
-                                                    >
-                                                        <div className="w-5 h-5 rounded overflow-hidden border border-gray-200">
-                                                            <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" />
-                                                        </div>
-                                                        <div className="w-4 h-4 bg-[#3B82F6] rounded flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
-                                                            {markerId}
-                                                        </div>
-                                                        <span className="text-xs text-gray-700 font-medium max-w-[60px] truncate">{(file as any).markerName || '区域'}</span>
-                                                        <ChevronDown size={12} className="text-gray-400" />
-                                                        <button onClick={(e) => { e.stopPropagation(); removeInputBlock(block.id); setSelectedChipId(null); }} className="absolute -top-1.5 -right-1.5 bg-gray-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition shadow-sm z-20 hover:bg-gray-700"><X size={8} /></button>
+                                                if (markerId) {
+                                                    // 标记区域 chip
+                                                    return (
+                                                        <motion.div
+                                                            key={block.id}
+                                                            id={`marker-chip-${block.id}`}
+                                                            initial={{ scale: 0, opacity: 0 }}
+                                                            animate={{ scale: 1, opacity: 1 }}
+                                                            transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+                                                            style={{ display: 'inline-flex', verticalAlign: 'middle' }}
+                                                            className={`items-center gap-1 rounded-lg pl-1 pr-1.5 py-0.5 cursor-default relative group select-none h-7 transition-all ${isSelected
+                                                                    ? 'bg-blue-100 ring-2 ring-blue-500'
+                                                                    : 'bg-[#F3F4F6] hover:bg-[#E8E9EC]'
+                                                                }`}
+                                                            onClick={(e) => { e.stopPropagation(); setSelectedChipId(isSelected ? null : block.id); }}
+                                                            onMouseEnter={() => setHoveredChipId(block.id)}
+                                                            onMouseLeave={() => setHoveredChipId(null)}
+                                                        >
+                                                            <div className="w-5 h-5 rounded overflow-hidden border border-gray-200">
+                                                                <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" />
+                                                            </div>
+                                                            <div className="w-4 h-4 bg-[#3B82F6] rounded flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
+                                                                {markerId}
+                                                            </div>
+                                                            <span className="text-xs text-gray-700 font-medium max-w-[60px] truncate">{(file as any).markerName || '区域'}</span>
+                                                            <ChevronDown size={12} className="text-gray-400" />
+                                                            <button onClick={(e) => { e.stopPropagation(); removeInputBlock(block.id); setSelectedChipId(null); }} className="absolute -top-1.5 -right-1.5 bg-gray-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition shadow-sm z-20 hover:bg-gray-700"><X size={8} /></button>
 
-                                                        {/* Hover Preview Tooltip - portal, 向左弹出避免被对话框遮挡 */}
-                                                        {isHovered && markerInfo?.fullImageUrl && (() => {
-                                                            const chipEl = document.getElementById(`marker-chip-${block.id}`);
-                                                            const chipRect = chipEl?.getBoundingClientRect();
-                                                            const tooltipW = 280;
-                                                            const tooltipH = 200;
-                                                            const ttLeft = chipRect ? chipRect.left - tooltipW - 12 : 0;
-                                                            const ttTop = chipRect ? chipRect.top + chipRect.height / 2 - tooltipH / 2 : 0;
-                                                            const ox = markerInfo.x !== undefined && markerInfo.imageWidth ? ((markerInfo.x + markerInfo.width! / 2) / markerInfo.imageWidth) * 100 : 50;
-                                                            const oy = markerInfo.y !== undefined && markerInfo.imageHeight ? ((markerInfo.y! + markerInfo.height! / 2) / markerInfo.imageHeight!) * 100 : 50;
-                                                            const zoomOrigin = `${ox}% ${oy}%`;
-                                                            const zoomTransition = { duration: 0.8, ease: [0.25, 0.46, 0.45, 0.94] as const, delay: 0.3 };
-                                                            return ReactDOM.createPortal(
-                                                                <div className="fixed z-[9999] pointer-events-none" style={{ left: ttLeft, top: ttTop, width: tooltipW }}>
-                                                                    <motion.div initial={{ opacity: 0, scale: 0.95, x: 10 }} animate={{ opacity: 1, scale: 1, x: 0 }} transition={{ duration: 0.2 }} className="bg-white rounded-xl shadow-2xl border border-gray-200 p-2 overflow-hidden relative">
-                                                                        <div className="relative rounded-lg overflow-hidden" style={{ height: 170 }}>
-                                                                            <motion.div className="absolute inset-0" initial={{ scale: 1 }} animate={{ scale: 2.5 }} transition={zoomTransition} style={{ transformOrigin: zoomOrigin }}>
-                                                                                <img src={markerInfo.fullImageUrl} className="w-full h-full object-cover" />
-                                                                            </motion.div>
-                                                                            {markerInfo.x !== undefined && markerInfo.imageWidth && (
-                                                                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: 0.9 }} className="absolute inset-0 pointer-events-none">
-                                                                                    <motion.div initial={{ scale: 1 }} animate={{ scale: 2.5 }} transition={zoomTransition} className="absolute inset-0" style={{ transformOrigin: zoomOrigin }}>
-                                                                                        <div className="absolute border-2 border-blue-500 rounded-sm" style={{ left: `${(markerInfo.x / markerInfo.imageWidth) * 100}%`, top: `${(markerInfo.y! / markerInfo.imageHeight!) * 100}%`, width: `${(markerInfo.width! / markerInfo.imageWidth) * 100}%`, height: `${(markerInfo.height! / markerInfo.imageHeight!) * 100}%` }}>
-                                                                                            <div className="absolute -top-2 -right-2 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center text-white text-[10px] font-bold shadow-lg">{markerId}</div>
-                                                                                        </div>
-                                                                                    </motion.div>
+                                                            {/* Hover Preview Tooltip */}
+                                                            {isHovered && markerInfo?.fullImageUrl && (() => {
+                                                                const chipEl = document.getElementById(`marker-chip-${block.id}`);
+                                                                const chipRect = chipEl?.getBoundingClientRect();
+                                                                const tooltipW = 280;
+                                                                const tooltipH = 200;
+                                                                const ttLeft = chipRect ? chipRect.left - tooltipW - 12 : 0;
+                                                                const ttTop = chipRect ? chipRect.top + chipRect.height / 2 - tooltipH / 2 : 0;
+                                                                const ox = markerInfo.x !== undefined && markerInfo.imageWidth ? ((markerInfo.x + markerInfo.width! / 2) / markerInfo.imageWidth) * 100 : 50;
+                                                                const oy = markerInfo.y !== undefined && markerInfo.imageHeight ? ((markerInfo.y! + markerInfo.height! / 2) / markerInfo.imageHeight!) * 100 : 50;
+                                                                const zoomOrigin = `${ox}% ${oy}%`;
+                                                                const zoomTransition = { duration: 0.8, ease: [0.25, 0.46, 0.45, 0.94] as const, delay: 0.3 };
+                                                                return ReactDOM.createPortal(
+                                                                    <div className="fixed z-[9999] pointer-events-none" style={{ left: ttLeft, top: ttTop, width: tooltipW }}>
+                                                                        <motion.div initial={{ opacity: 0, scale: 0.95, x: 10 }} animate={{ opacity: 1, scale: 1, x: 0 }} transition={{ duration: 0.2 }} className="bg-white rounded-xl shadow-2xl border border-gray-200 p-2 overflow-hidden relative">
+                                                                            <div className="relative rounded-lg overflow-hidden" style={{ height: 170 }}>
+                                                                                <motion.div className="absolute inset-0" initial={{ scale: 1 }} animate={{ scale: 2.5 }} transition={zoomTransition} style={{ transformOrigin: zoomOrigin }}>
+                                                                                    <img src={markerInfo.fullImageUrl} className="w-full h-full object-cover" />
                                                                                 </motion.div>
-                                                                            )}
-                                                                        </div>
-                                                                        {/* Arrow pointing right */}
-                                                                        <div className="absolute top-1/2 -right-[6px] -translate-y-1/2 w-3 h-3 bg-white border-r border-b border-gray-200 rotate-[-45deg]"></div>
-                                                                    </motion.div>
-                                                                </div>,
-                                                                document.body
-                                                            );
-                                                        })()}
-                                                    </motion.div>
-                                                );
-                                            } else {
-                                                // 普通文件chip - Lovart style
-                                                const isCanvasAuto = (file as any)._canvasAutoInsert;
-                                                const chipLabel = isCanvasAuto
-                                                    ? `图片${inputBlocks.filter(b => b.type === 'file' && (b.file as any)?._canvasAutoInsert).indexOf(block) + 1}`
-                                                    : file.name.replace(/\.[^/.]+$/, '');
-                                                return (
-                                                    <div
-                                                        key={block.id}
-                                                        className={`inline-flex items-center gap-1.5 rounded-lg pl-1 pr-1.5 py-1 flex-shrink-0 select-none relative group h-7 cursor-default transition-all border ${isSelected
-                                                                ? 'bg-blue-50 border-blue-200'
-                                                                : isInputFocused ? 'bg-gray-100 border-gray-200' : 'bg-gray-50 border-gray-100'
-                                                            }`}
-                                                        onClick={() => setSelectedChipId(isSelected ? null : block.id)}
-                                                    >
-                                                        <div className="w-5 h-5 rounded overflow-hidden flex-shrink-0">
-                                                            {file.type.startsWith('image/') ? <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" /> : <FileText size={10} className="text-gray-500" />}
+                                                                                {markerInfo.x !== undefined && markerInfo.imageWidth && (
+                                                                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: 0.9 }} className="absolute inset-0 pointer-events-none">
+                                                                                        <motion.div initial={{ scale: 1 }} animate={{ scale: 2.5 }} transition={zoomTransition} className="absolute inset-0" style={{ transformOrigin: zoomOrigin }}>
+                                                                                            <div className="absolute border-2 border-blue-500 rounded-sm" style={{ left: `${(markerInfo.x / markerInfo.imageWidth) * 100}%`, top: `${(markerInfo.y! / markerInfo.imageHeight!) * 100}%`, width: `${(markerInfo.width! / markerInfo.imageWidth) * 100}%`, height: `${(markerInfo.height! / markerInfo.imageHeight!) * 100}%` }}>
+                                                                                                <div className="absolute -top-2 -right-2 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center text-white text-[10px] font-bold shadow-lg">{markerId}</div>
+                                                                                            </div>
+                                                                                        </motion.div>
+                                                                                    </motion.div>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="absolute top-1/2 -right-[6px] -translate-y-1/2 w-3 h-3 bg-white border-r border-b border-gray-200 rotate-[-45deg]"></div>
+                                                                        </motion.div>
+                                                                    </div>,
+                                                                    document.body
+                                                                );
+                                                            })()}
+                                                        </motion.div>
+                                                    );
+                                                } else {
+                                                    // 普通文件 chip - inline style
+                                                    const isCanvasAuto = (file as any)._canvasAutoInsert;
+                                                    const chipLabel = isCanvasAuto
+                                                        ? `图片${inputBlocks.filter(b => b.type === 'file' && (b.file as any)?._canvasAutoInsert).indexOf(block) + 1}`
+                                                        : file.name.replace(/\.[^/.]+$/, '');
+                                                    return (
+                                                        <div
+                                                            key={block.id}
+                                                            style={{ display: 'inline-flex', verticalAlign: 'middle' }}
+                                                            className={`items-center gap-1.5 rounded-lg pl-1 pr-1.5 py-0.5 select-none relative group h-7 cursor-default transition-all border ${isSelected
+                                                                    ? 'bg-blue-50 border-blue-200'
+                                                                    : isInputFocused ? 'bg-gray-100 border-gray-200' : 'bg-gray-50 border-gray-100'
+                                                                }`}
+                                                            onClick={(e) => { e.stopPropagation(); setSelectedChipId(isSelected ? null : block.id); }}
+                                                        >
+                                                            <div className="w-5 h-5 rounded overflow-hidden flex-shrink-0">
+                                                                {file.type.startsWith('image/') ? <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" /> : <FileText size={10} className="text-gray-500" />}
+                                                            </div>
+                                                            <span className="text-xs text-gray-600 font-medium max-w-[80px] truncate">{chipLabel}</span>
+                                                            <button onClick={(e) => { e.stopPropagation(); removeInputBlock(block.id); setSelectedChipId(null); }} className="w-4 h-4 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-black/10 transition opacity-0 group-hover:opacity-100"><X size={10} /></button>
                                                         </div>
-                                                        <span className="text-xs text-gray-600 font-medium max-w-[80px] truncate">{chipLabel}</span>
-                                                        <button onClick={(e) => { e.stopPropagation(); removeInputBlock(block.id); setSelectedChipId(null); }} className="w-4 h-4 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-black/10 transition opacity-0 group-hover:opacity-100"><X size={10} /></button>
-                                                    </div>
-                                                );
+                                                    );
+                                                }
                                             }
-                                        } else {
-                                            return (
-                                                <input
-                                                    key={block.id}
-                                                    id={`input-block-${block.id}`}
-                                                    value={block.text}
-                                                    onChange={(e) => setInputBlocks(prev => prev.map(b => b.id === block.id ? { ...b, text: e.target.value } : b))}
-                                                    onFocus={() => { setActiveBlockId(block.id); setIsInputFocused(true); }}
-                                                    onBlur={() => setIsInputFocused(false)}
-                                                    onSelect={(e) => setSelectionIndex(e.currentTarget.selectionStart)}
-                                                    onKeyDown={(e) => {
-                                                        const myIndex = inputBlocks.findIndex(b => b.id === block.id);
-                                                        const cursorPos = e.currentTarget.selectionStart || 0;
-                                                        const textLen = (block.text || '').length;
 
-                                                        // Clear chip selection when typing
-                                                        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
-                                                            setSelectedChipId(null);
-                                                        }
+                                            // 文本 block - 渲染为 inline input/textarea
+                                            if (block.type === 'text') {
+                                                const textBlocks = inputBlocks.filter(b => b.type === 'text');
+                                                const isLastTextBlock = textBlocks[textBlocks.length - 1]?.id === block.id;
+                                                const placeholder = isLastTextBlock && textBlocks.length <= 1 ? (
+                                                    creationMode === 'agent' ? "请输入你的设计需求" :
+                                                        creationMode === 'image' ? "今天我们要创作什么" :
+                                                            "今天我们要创作什么"
+                                                ) : "";
 
-                                                        // ArrowLeft at position 0 - select previous chip or jump
-                                                        if (e.key === 'ArrowLeft' && cursorPos === 0) {
-                                                            // Find previous file block
-                                                            const prevFileIndex = inputBlocks.slice(0, myIndex).reverse().findIndex(b => b.type === 'file');
-                                                            if (prevFileIndex !== -1) {
-                                                                const actualIndex = myIndex - 1 - prevFileIndex;
-                                                                const prevFile = inputBlocks[actualIndex];
-
-                                                                if (selectedChipId === prevFile.id) {
-                                                                    // Already selected, jump to text before it
-                                                                    for (let j = actualIndex - 1; j >= 0; j--) {
-                                                                        if (inputBlocks[j].type === 'text') {
-                                                                            e.preventDefault();
-                                                                            setSelectedChipId(null);
-                                                                            const prevInput = document.getElementById(`input-block-${inputBlocks[j].id}`) as HTMLInputElement;
-                                                                            if (prevInput) {
-                                                                                prevInput.focus();
-                                                                                const len = (inputBlocks[j].text || '').length;
-                                                                                prevInput.setSelectionRange(len, len);
-                                                                            }
-                                                                            break;
-                                                                        }
-                                                                    }
-                                                                } else {
-                                                                    // Select the chip
-                                                                    e.preventDefault();
-                                                                    setSelectedChipId(prevFile.id);
+                                                return (
+                                                    <span
+                                                        key={block.id}
+                                                        id={`input-block-${block.id}`}
+                                                        contentEditable
+                                                        suppressContentEditableWarning
+                                                        className="ce-placeholder outline-none text-sm text-gray-800"
+                                                        data-placeholder={placeholder}
+                                                        style={{
+                                                            display: 'inline',
+                                                            lineHeight: '28px',
+                                                            whiteSpace: 'pre-wrap',
+                                                            wordBreak: 'break-word',
+                                                            caretColor: '#3B82F6',
+                                                            minWidth: isLastTextBlock ? '1px' : undefined,
+                                                        }}
+                                                        ref={el => {
+                                                            if (el) {
+                                                                // 仅在非聚焦状态下同步文本（防止光标跳动）
+                                                                if (document.activeElement !== el && el.textContent !== (block.text || '')) {
+                                                                    el.textContent = block.text || '';
                                                                 }
                                                             }
-                                                        }
+                                                        }}
+                                                        onInput={(e) => {
+                                                            const text = e.currentTarget.textContent || '';
+                                                            setInputBlocks(prev => prev.map(b => b.id === block.id ? { ...b, text } : b));
+                                                        }}
+                                                        onFocus={() => { setActiveBlockId(block.id); setIsInputFocused(true); }}
+                                                        onBlur={() => setIsInputFocused(false)}
+                                                        onSelect={() => {
+                                                            const el = document.getElementById(`input-block-${block.id}`);
+                                                            if (el) setSelectionIndex(getCECursorPos(el));
+                                                        }}
+                                                        onKeyDown={(e) => {
+                                                            const myIndex = inputBlocks.findIndex(b => b.id === block.id);
+                                                            const el = e.currentTarget;
+                                                            const cursorPos = getCECursorPos(el);
+                                                            const textLen = (el.textContent || '').length;
 
-                                                        // ArrowRight at end of text - select next chip or jump
-                                                        if (e.key === 'ArrowRight' && cursorPos === textLen) {
-                                                            // Find next file block
-                                                            const nextFileIndex = inputBlocks.slice(myIndex + 1).findIndex(b => b.type === 'file');
-                                                            if (nextFileIndex !== -1) {
-                                                                const actualIndex = myIndex + 1 + nextFileIndex;
-                                                                const nextFile = inputBlocks[actualIndex];
+                                                            if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+                                                                setSelectedChipId(null);
+                                                            }
 
-                                                                if (selectedChipId === nextFile.id) {
-                                                                    // Already selected, jump to text after it
-                                                                    for (let j = actualIndex + 1; j < inputBlocks.length; j++) {
-                                                                        if (inputBlocks[j].type === 'text') {
-                                                                            e.preventDefault();
-                                                                            setSelectedChipId(null);
-                                                                            const nextInput = document.getElementById(`input-block-${inputBlocks[j].id}`) as HTMLInputElement;
-                                                                            if (nextInput) {
-                                                                                nextInput.focus();
-                                                                                nextInput.setSelectionRange(0, 0);
+                                                            if (e.key === 'ArrowLeft' && cursorPos === 0) {
+                                                                const prevFileIndex = inputBlocks.slice(0, myIndex).reverse().findIndex(b => b.type === 'file');
+                                                                if (prevFileIndex !== -1) {
+                                                                    const actualIndex = myIndex - 1 - prevFileIndex;
+                                                                    const prevFile = inputBlocks[actualIndex];
+                                                                    if (selectedChipId === prevFile.id) {
+                                                                        for (let j = actualIndex - 1; j >= 0; j--) {
+                                                                            if (inputBlocks[j].type === 'text') {
+                                                                                e.preventDefault();
+                                                                                setSelectedChipId(null);
+                                                                                const prevEl = document.getElementById(`input-block-${inputBlocks[j].id}`);
+                                                                                if (prevEl) setCECursorPos(prevEl, (prevEl.textContent || '').length);
+                                                                                break;
                                                                             }
-                                                                            break;
                                                                         }
+                                                                    } else {
+                                                                        e.preventDefault();
+                                                                        setSelectedChipId(prevFile.id);
                                                                     }
-                                                                } else {
-                                                                    // Select the chip
-                                                                    e.preventDefault();
-                                                                    setSelectedChipId(nextFile.id);
                                                                 }
                                                             }
-                                                        }
 
-                                                        // Backspace - delete selected chip or previous file block
-                                                        if (e.key === 'Backspace') {
-                                                            if (selectedChipId) {
-                                                                // Delete selected chip
+                                                            if (e.key === 'ArrowRight' && cursorPos === textLen) {
+                                                                const nextFileIndex = inputBlocks.slice(myIndex + 1).findIndex(b => b.type === 'file');
+                                                                if (nextFileIndex !== -1) {
+                                                                    const actualIndex = myIndex + 1 + nextFileIndex;
+                                                                    const nextFile = inputBlocks[actualIndex];
+                                                                    if (selectedChipId === nextFile.id) {
+                                                                        for (let j = actualIndex + 1; j < inputBlocks.length; j++) {
+                                                                            if (inputBlocks[j].type === 'text') {
+                                                                                e.preventDefault();
+                                                                                setSelectedChipId(null);
+                                                                                const nextEl = document.getElementById(`input-block-${inputBlocks[j].id}`);
+                                                                                if (nextEl) setCECursorPos(nextEl, 0);
+                                                                                break;
+                                                                            }
+                                                                        }
+                                                                    } else {
+                                                                        e.preventDefault();
+                                                                        setSelectedChipId(nextFile.id);
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            if (e.key === 'Backspace') {
+                                                                if (selectedChipId) {
+                                                                    e.preventDefault();
+                                                                    removeInputBlock(selectedChipId);
+                                                                    setSelectedChipId(null);
+                                                                } else if (!el.textContent && myIndex > 0) {
+                                                                    const prevBlock = inputBlocks[myIndex - 1];
+                                                                    if (prevBlock.type === 'file') {
+                                                                        e.preventDefault();
+                                                                        setSelectedChipId(prevBlock.id);
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            if (e.key === 'Delete' && selectedChipId) {
                                                                 e.preventDefault();
                                                                 removeInputBlock(selectedChipId);
                                                                 setSelectedChipId(null);
-                                                            } else if (!block.text && myIndex > 0) {
-                                                                const prevBlock = inputBlocks[myIndex - 1];
-                                                                if (prevBlock.type === 'file') {
-                                                                    // Select it first, next backspace will delete
-                                                                    e.preventDefault();
-                                                                    setSelectedChipId(prevBlock.id);
-                                                                }
                                                             }
-                                                        }
 
-                                                        // Delete key - delete selected chip
-                                                        if (e.key === 'Delete' && selectedChipId) {
-                                                            e.preventDefault();
-                                                            removeInputBlock(selectedChipId);
-                                                            setSelectedChipId(null);
-                                                        }
+                                                            if (e.key === 'Escape') {
+                                                                setSelectedChipId(null);
+                                                            }
 
-                                                        // Escape - clear selection
-                                                        if (e.key === 'Escape') {
-                                                            setSelectedChipId(null);
-                                                        }
+                                                            if (e.key === 'Enter' && !e.shiftKey) {
+                                                                e.preventDefault();
+                                                                handleSend();
+                                                            }
+                                                        }}
+                                                        onPaste={(e) => {
+                                                            if (e.clipboardData.files.length > 0) {
+                                                                e.preventDefault();
+                                                                Array.from(e.clipboardData.files).forEach(f => insertInputFile(f as File));
+                                                            } else {
+                                                                // 强制纯文本粘贴，防止富文本破坏结构
+                                                                e.preventDefault();
+                                                                const text = e.clipboardData.getData('text/plain');
+                                                                document.execCommand('insertText', false, text);
+                                                            }
+                                                        }}
+                                                    />
+                                                );
+                                            }
 
-                                                        if (e.key === 'Enter' && !e.shiftKey) {
-                                                            e.preventDefault();
-                                                            handleSend();
-                                                        }
-                                                    }}
-                                                    onPaste={(e) => {
-                                                        if (e.clipboardData.files.length > 0) {
-                                                            e.preventDefault();
-                                                            Array.from(e.clipboardData.files).forEach(f => insertInputFile(f as File));
-                                                        }
-                                                    }}
-                                                    className={`bg-transparent border-none outline-none text-sm text-gray-800 placeholder-gray-400 h-7 leading-7 ${
-                                                        // 最后一个文本块占据剩余空间，中间的空文本块尽量小
-                                                        i === inputBlocks.length - 1
-                                                            ? 'flex-1 min-w-[80px]'
-                                                            : block.text ? '' : 'w-1'
-                                                        }`}
-                                                    style={
-                                                        i === inputBlocks.length - 1
-                                                            ? {}
-                                                            : block.text
-                                                                ? { width: `${(block.text || '').split('').reduce((acc, char) => acc + (char.charCodeAt(0) > 255 ? 14 : 8), 0)}px` }
-                                                                : {}
-                                                    }
-                                                    placeholder={i === inputBlocks.length - 1 && inputBlocks.length === 1 ? (
-                                                        creationMode === 'agent' ? "请输入你的设计需求" :
-                                                            creationMode === 'image' ? "今天我们要创作什么" :
-                                                                "今天我们要创作什么"
-                                                    ) : ""}
-                                                    autoComplete="off"
-                                                />
-                                            );
-                                        }
-                                    })}
+                                            return null;
+                                        })}
+                                    </div>
                                 </div>
 
                                 {/* Bottom Toolbar */}

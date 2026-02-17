@@ -9,6 +9,7 @@ import { COCO_SYSTEM_PROMPT } from './prompts/coco.prompt';
 import { errorHandler, ErrorType } from '../../utils/error-handler';
 import { executeSkill } from '../skills';
 import { getApiKey, getClient } from '../gemini';
+import { localPreRoute, isChatMessage } from './local-router';
 
 
 
@@ -23,8 +24,8 @@ interface RouteConfig {
 }
 
 const DEFAULT_CONFIG: RouteConfig = {
-    maxRetries: 3,
-    timeout: 30000,
+    maxRetries: 1,
+    timeout: 15000,
     fallbackAgent: 'coco',
     confidenceThreshold: 0.6
 };
@@ -58,6 +59,22 @@ export async function routeToAgent(
                 { message },
                 false
             );
+        }
+
+        // 快速路径：本地关键词预路由（0延迟，不依赖API）
+        const localAgent = localPreRoute(message);
+        if (localAgent) {
+            console.log('[EnhancedOrchestrator] Local pre-route hit:', localAgent);
+            return {
+                targetAgent: localAgent,
+                taskType: 'local-routed',
+                complexity: 'simple',
+                handoffMessage: `用户请求: ${message}`,
+                confidence: 0.75,
+                fallbackOptions: [],
+                estimatedDuration: 15,
+                requiredSkills: ['generateImage']
+            };
         }
 
         // 检查API密钥
@@ -108,7 +125,7 @@ Analyze and route to appropriate agent. Return JSON with:
                 const ai = getClient();
                 const response = await Promise.race([
                     ai.models.generateContent({
-                        model: 'gemini-3-pro-preview',
+                        model: 'gemini-3-flash-preview',
                         contents: { parts: [{ text: prompt }] },
                         config: {
                             temperature: 0.2,
@@ -126,9 +143,9 @@ Analyze and route to appropriate agent. Return JSON with:
                 return response;
             },
             {
-                maxRetries: finalConfig.maxRetries,
+                maxRetries: 1,
                 delay: 1000,
-                backoff: true,
+                backoff: false,
                 context: { message: message.substring(0, 100), function: 'routeToAgent' }
             }
         );
