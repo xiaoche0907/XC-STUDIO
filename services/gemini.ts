@@ -59,7 +59,7 @@ const PRO_MODEL = 'gemini-3-pro-preview';
 const FLASH_MODEL = 'gemini-3-flash-preview';
 // Image Gen models
 const IMAGE_PRO_MODEL = 'gemini-3-pro-image-preview';
-const IMAGE_FLASH_MODEL = 'gemini-3-pro-image-preview';
+const IMAGE_FLASH_MODEL = 'gemini-2.5-flash-preview-image-generation';
 // Video Gen models
 const VEO_FAST_MODEL = 'veo-3.1-fast-generate-preview';
 const VEO_PRO_MODEL = 'veo-3.1-generate-preview';
@@ -67,22 +67,41 @@ const VEO_PRO_MODEL = 'veo-3.1-generate-preview';
 // Helper for retry logic
 const retryWithBackoff = async <T>(
     fn: () => Promise<T>,
-    retries: number = 3,
-    delay: number = 2000,
+    retries: number = 4,
+    delay: number = 1000,
     factor: number = 2
 ): Promise<T> => {
     try {
         return await fn();
     } catch (error: any) {
-        const isOverloaded =
-            error.status === 503 ||
-            error.code === 503 ||
-            (error.message && (error.message.includes('overloaded') || error.message.includes('UNAVAILABLE') || error.message.includes('503')));
+        const statusCode = error.status || error.code || error.httpCode;
+        const msg = error.message || '';
 
-        if (retries > 0 && isOverloaded) {
-            console.warn(`Model overloaded (503). Retrying in ${delay}ms... (${retries} attempts left)`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            return retryWithBackoff(fn, retries - 1, delay * factor, factor);
+        // 可重试的错误：503（过载）、500（服务器错误）、429（限流）、网络错误
+        const isRetryable =
+            statusCode === 503 ||
+            statusCode === 500 ||
+            statusCode === 429 ||
+            msg.includes('overloaded') ||
+            msg.includes('UNAVAILABLE') ||
+            msg.includes('503') ||
+            msg.includes('500') ||
+            msg.includes('429') ||
+            msg.includes('RESOURCE_EXHAUSTED') ||
+            msg.includes('rate limit') ||
+            msg.includes('Too Many Requests') ||
+            msg.includes('Internal Server Error') ||
+            msg.includes('fetch failed') ||
+            msg.includes('network');
+
+        if (retries > 0 && isRetryable) {
+            // 429 限流时使用更长的延迟
+            const actualDelay = (statusCode === 429 || msg.includes('429') || msg.includes('rate limit'))
+                ? Math.max(delay, 3000)
+                : delay;
+            console.warn(`[API重试] 错误码=${statusCode || 'unknown'}, ${actualDelay}ms 后重试... (剩余 ${retries} 次)`);
+            await new Promise(resolve => setTimeout(resolve, actualDelay));
+            return retryWithBackoff(fn, retries - 1, actualDelay * factor, factor);
         }
         throw error;
     }
@@ -291,61 +310,76 @@ export interface ImageGenerationConfig {
 }
 
 export const generateImage = async (config: ImageGenerationConfig): Promise<string | null> => {
-    try {
-        const modelToUse = config.model === 'Nano Banana Pro' ? IMAGE_PRO_MODEL : IMAGE_FLASH_MODEL;
+    const primaryModel = config.model === 'Nano Banana Pro' ? IMAGE_PRO_MODEL : IMAGE_FLASH_MODEL;
+    // 降级顺序：Pro → Flash（确保 Pro 过载时仍能生成）
+    const modelsToTry = primaryModel === IMAGE_PRO_MODEL
+        ? [IMAGE_PRO_MODEL, IMAGE_FLASH_MODEL]
+        : [IMAGE_FLASH_MODEL];
 
-        let validAspectRatio = config.aspectRatio;
-        const supported = ["1:1", "3:4", "4:3", "9:16", "16:9"];
-        if (!supported.includes(validAspectRatio)) {
-            if (validAspectRatio === '21:9') validAspectRatio = '16:9';
-            else if (validAspectRatio === '3:2') validAspectRatio = '16:9';
-            else if (validAspectRatio === '2:3') validAspectRatio = '9:16';
-            else if (validAspectRatio === '5:4') validAspectRatio = '4:3';
-            else if (validAspectRatio === '4:5') validAspectRatio = '3:4';
-            else validAspectRatio = '1:1';
-        }
-
-        const parts: any[] = [{ text: config.prompt }];
-
-        if (config.referenceImage) {
-            const matches = config.referenceImage.match(/^data:(.+);base64,(.+)$/);
-            if (matches) {
-                parts.unshift({
-                    inlineData: {
-                        mimeType: matches[1],
-                        data: matches[2]
-                    }
-                });
-            }
-        }
-
-        // Special handling for high resolution requests
-        const imageConfig: any = {
-            aspectRatio: validAspectRatio,
-        };
-
-        if (config.model === 'Nano Banana Pro' && config.imageSize) {
-            imageConfig.imageSize = config.imageSize;
-        }
-
-        const response = await retryWithBackoff<GenerateContentResponse>(() => getClient().models.generateContent({
-            model: modelToUse,
-            contents: { parts },
-            config: {
-                imageConfig
-            }
-        }));
-
-        for (const part of response.candidates?.[0]?.content?.parts || []) {
-            if (part.inlineData) {
-                return `data:image/png;base64,${part.inlineData.data}`;
-            }
-        }
-        return null;
-    } catch (error) {
-        console.error("Image Generation Error:", error);
-        throw error;
+    let validAspectRatio = config.aspectRatio;
+    const supported = ["1:1", "3:4", "4:3", "9:16", "16:9"];
+    if (!supported.includes(validAspectRatio)) {
+        if (validAspectRatio === '21:9') validAspectRatio = '16:9';
+        else if (validAspectRatio === '3:2') validAspectRatio = '16:9';
+        else if (validAspectRatio === '2:3') validAspectRatio = '9:16';
+        else if (validAspectRatio === '5:4') validAspectRatio = '4:3';
+        else if (validAspectRatio === '4:5') validAspectRatio = '3:4';
+        else validAspectRatio = '1:1';
     }
+
+    const parts: any[] = [{ text: config.prompt }];
+
+    if (config.referenceImage) {
+        const matches = config.referenceImage.match(/^data:(.+);base64,(.+)$/);
+        if (matches) {
+            parts.unshift({
+                inlineData: {
+                    mimeType: matches[1],
+                    data: matches[2]
+                }
+            });
+        }
+    }
+
+    const imageConfig: any = {
+        aspectRatio: validAspectRatio,
+    };
+
+    if (config.model === 'Nano Banana Pro' && config.imageSize) {
+        imageConfig.imageSize = config.imageSize;
+    }
+
+    let lastError: any = null;
+
+    for (const modelToUse of modelsToTry) {
+        try {
+            console.log(`[generateImage] Trying model: ${modelToUse}`);
+            const response = await retryWithBackoff<GenerateContentResponse>(() => getClient().models.generateContent({
+                model: modelToUse,
+                contents: { parts },
+                config: {
+                    responseModalities: ['TEXT', 'IMAGE'],
+                    imageConfig
+                }
+            }));
+
+            for (const part of response.candidates?.[0]?.content?.parts || []) {
+                if (part.inlineData) {
+                    console.log(`[generateImage] Success with model: ${modelToUse}`);
+                    return `data:image/png;base64,${part.inlineData.data}`;
+                }
+            }
+            // 没有图片数据但没报错 — 尝试下一个模型
+            console.warn(`[generateImage] No image data from ${modelToUse}, trying next model`);
+        } catch (error: any) {
+            lastError = error;
+            console.warn(`[generateImage] Model ${modelToUse} failed:`, error.message || error);
+            // 继续尝试下一个模型
+        }
+    }
+
+    console.error("Image Generation Error: all models failed", lastError);
+    throw lastError || new Error('所有图片生成模型均不可用');
 };
 
 export interface VideoGenerationConfig {

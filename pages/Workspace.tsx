@@ -143,12 +143,99 @@ const ACTIVE_CONVERSATION_KEY = 'xc_studio_active_conversation';
 function loadConversations(): ConversationSession[] {
     try {
         const raw = localStorage.getItem(CONVERSATIONS_KEY);
-        return raw ? JSON.parse(raw) : [];
-    } catch { return []; }
+        if (!raw) return [];
+        const parsed = JSON.parse(raw) as ConversationSession[];
+
+        // 自动清理历史遗留的 base64 数据（释放 localStorage 空间）
+        let needsCleanup = false;
+        for (const conv of parsed) {
+            for (const msg of conv.messages || []) {
+                if (msg.attachments?.some((a: string) => a.startsWith('data:'))) {
+                    needsCleanup = true;
+                    msg.attachments = msg.attachments.map((a: string) =>
+                        a.startsWith('data:') ? '[图片附件]' : a
+                    );
+                }
+                if (msg.agentData?.imageUrls?.some((u: string) => u.startsWith('data:'))) {
+                    needsCleanup = true;
+                    msg.agentData.imageUrls = msg.agentData.imageUrls.map((u: string) =>
+                        u.startsWith('data:') ? '[已生成图片]' : u
+                    );
+                }
+            }
+        }
+        if (needsCleanup) {
+            try {
+                localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(parsed));
+                console.log('[loadConversations] 已清理历史 base64 数据');
+            } catch {
+                // 清理后仍然存不下，直接清空
+                localStorage.removeItem(CONVERSATIONS_KEY);
+                return [];
+            }
+        }
+        return parsed;
+    } catch {
+        localStorage.removeItem(CONVERSATIONS_KEY);
+        return [];
+    }
 }
 
 function saveConversations(conversations: ConversationSession[]) {
-    localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations));
+    try {
+        // 限制最多保存 20 个会话（按更新时间排序，保留最新）
+        let toSave = conversations
+            .sort((a, b) => b.updatedAt - a.updatedAt)
+            .slice(0, 20);
+
+        // 保存前清理 base64 数据（避免 localStorage 配额溢出）
+        const cleaned = toSave.map(conv => ({
+            ...conv,
+            messages: conv.messages.map(msg => ({
+                ...msg,
+                // 清理用户上传的附件 base64
+                attachments: msg.attachments?.map(att =>
+                    att.startsWith('data:') ? '[图片附件]' : att
+                ),
+                // 清理 Agent 生成的图片 base64
+                agentData: msg.agentData ? {
+                    ...msg.agentData,
+                    imageUrls: msg.agentData.imageUrls?.map(url =>
+                        url.startsWith('data:') ? '[已生成图片]' : url
+                    )
+                } : undefined
+            }))
+        }));
+
+        localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(cleaned));
+    } catch (e: any) {
+        console.warn('[saveConversations] 保存失败:', e.message);
+        // 配额不足时尝试清理旧数据后重试
+        if (e.name === 'QuotaExceededError' || e.message?.includes('quota')) {
+            try {
+                // 只保留最新 5 个会话
+                const minimal = conversations
+                    .sort((a, b) => b.updatedAt - a.updatedAt)
+                    .slice(0, 5)
+                    .map(conv => ({
+                        ...conv,
+                        messages: conv.messages.slice(-10).map(msg => ({
+                            ...msg,
+                            attachments: undefined,
+                            agentData: msg.agentData ? {
+                                ...msg.agentData,
+                                imageUrls: undefined
+                            } : undefined
+                        }))
+                    }));
+                localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(minimal));
+            } catch {
+                // 最后手段：清空会话存储
+                localStorage.removeItem(CONVERSATIONS_KEY);
+                console.warn('[saveConversations] 已清空会话存储以恢复空间');
+            }
+        }
+    }
 }
 
 const Workspace: React.FC = () => {
@@ -1871,7 +1958,7 @@ const Workspace: React.FC = () => {
             setIsTyping(true);
 
             try {
-                const agentResult = await processMessage(agentText, filesToSend);
+                const agentResult = await processMessage(agentText, filesToSend, { enableWebSearch });
 
                 // Collect generated image URLs from assets (base-agent already auto-generates)
                 let generatedUrls: string[] = [];
@@ -2029,6 +2116,7 @@ const Workspace: React.FC = () => {
         setMessages([]);
         setInputBlocks([{ id: 'init', type: 'text', text: '' }]);
         setMarkers([]);
+        setWebEnabled(false);
         setHistoryStep(0);
         chatSessionRef.current = createChatSession('gemini-3-pro-preview');
         setShowHistoryPopover(false);
@@ -3101,7 +3189,7 @@ const Workspace: React.FC = () => {
                                                             animate={{ scale: 1, opacity: 1 }}
                                                             transition={{ type: 'spring', stiffness: 400, damping: 20 }}
                                                             style={{ display: 'inline-flex', verticalAlign: 'middle' }}
-                                                            className={`items-center gap-1 rounded-lg pl-1 pr-1.5 py-0.5 cursor-default relative group select-none h-7 transition-all ${isSelected
+                                                            className={`items-center gap-1.5 rounded-xl pl-1.5 pr-2 py-1 cursor-default relative group select-none h-9 transition-all ${isSelected
                                                                     ? 'bg-blue-100 ring-2 ring-blue-500'
                                                                     : 'bg-[#F3F4F6] hover:bg-[#E8E9EC]'
                                                                 }`}
@@ -3109,13 +3197,13 @@ const Workspace: React.FC = () => {
                                                             onMouseEnter={() => setHoveredChipId(block.id)}
                                                             onMouseLeave={() => setHoveredChipId(null)}
                                                         >
-                                                            <div className="w-5 h-5 rounded overflow-hidden border border-gray-200">
+                                                            <div className="w-7 h-7 rounded-lg overflow-hidden border border-gray-200 flex-shrink-0">
                                                                 <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" />
                                                             </div>
-                                                            <div className="w-4 h-4 bg-[#3B82F6] rounded flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
+                                                            <div className="w-5 h-5 bg-[#3B82F6] rounded-md flex items-center justify-center text-white text-[10px] font-bold shadow-sm flex-shrink-0">
                                                                 {markerId}
                                                             </div>
-                                                            <span className="text-xs text-gray-700 font-medium max-w-[60px] truncate">{(file as any).markerName || '区域'}</span>
+                                                            <span className="text-xs text-gray-700 font-medium max-w-[100px] truncate">{(file as any).markerName || '区域'}</span>
                                                             <ChevronDown size={12} className="text-gray-400" />
                                                             <button onClick={(e) => { e.stopPropagation(); removeInputBlock(block.id); setSelectedChipId(null); }} className="absolute -top-1.5 -right-1.5 bg-gray-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition shadow-sm z-20 hover:bg-gray-700"><X size={8} /></button>
 
@@ -3166,16 +3254,16 @@ const Workspace: React.FC = () => {
                                                         <div
                                                             key={block.id}
                                                             style={{ display: 'inline-flex', verticalAlign: 'middle' }}
-                                                            className={`items-center gap-1.5 rounded-lg pl-1 pr-1.5 py-0.5 select-none relative group h-7 cursor-default transition-all border ${isSelected
+                                                            className={`items-center gap-1.5 rounded-xl pl-1.5 pr-2 py-1 select-none relative group h-9 cursor-default transition-all border ${isSelected
                                                                     ? 'bg-blue-50 border-blue-200'
                                                                     : isInputFocused ? 'bg-gray-100 border-gray-200' : 'bg-gray-50 border-gray-100'
                                                                 }`}
                                                             onClick={(e) => { e.stopPropagation(); setSelectedChipId(isSelected ? null : block.id); }}
                                                         >
-                                                            <div className="w-5 h-5 rounded overflow-hidden flex-shrink-0">
-                                                                {file.type.startsWith('image/') ? <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" /> : <FileText size={10} className="text-gray-500" />}
+                                                            <div className="w-7 h-7 rounded-lg overflow-hidden flex-shrink-0">
+                                                                {file.type.startsWith('image/') ? <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" /> : <FileText size={14} className="text-gray-500" />}
                                                             </div>
-                                                            <span className="text-xs text-gray-600 font-medium max-w-[80px] truncate">{chipLabel}</span>
+                                                            <span className="text-xs text-gray-600 font-medium max-w-[120px] truncate">{chipLabel}</span>
                                                             <button onClick={(e) => { e.stopPropagation(); removeInputBlock(block.id); setSelectedChipId(null); }} className="w-4 h-4 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-black/10 transition opacity-0 group-hover:opacity-100"><X size={10} /></button>
                                                         </div>
                                                     );

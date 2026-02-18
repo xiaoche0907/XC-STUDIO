@@ -25,8 +25,8 @@ interface RouteConfig {
 
 const DEFAULT_CONFIG: RouteConfig = {
     maxRetries: 1,
-    timeout: 15000,
-    fallbackAgent: 'coco',
+    timeout: 8000,
+    fallbackAgent: 'poster',
     confidenceThreshold: 0.6
 };
 

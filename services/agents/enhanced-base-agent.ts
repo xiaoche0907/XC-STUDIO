@@ -14,6 +14,51 @@ import {
 import { executeSkill, AVAILABLE_SKILLS } from '../skills';
 import { errorHandler, ErrorType, AppError } from '../../utils/error-handler';
 
+// 带指数退避的重试工具（用于 analyzeAndPlan 等内部调用）
+const retryAsync = async <T>(
+    fn: () => Promise<T>,
+    retries: number = 3,
+    delay: number = 1500
+): Promise<T> => {
+    try {
+        return await fn();
+    } catch (error: any) {
+        const code = error.status || error.code || 0;
+        const msg = error.message || '';
+        const isRetryable = [500, 503, 429].includes(code) ||
+            msg.includes('overloaded') || msg.includes('UNAVAILABLE') ||
+            msg.includes('RESOURCE_EXHAUSTED') || msg.includes('Internal Server Error') ||
+            msg.includes('fetch failed');
+        if (retries > 0 && isRetryable) {
+            const wait = code === 429 ? Math.max(delay, 3000) : delay;
+            console.warn(`[analyzeAndPlan 重试] 错误码=${code}, ${wait}ms 后重试 (剩余 ${retries} 次)`);
+            await new Promise(r => setTimeout(r, wait));
+            return retryAsync(fn, retries - 1, wait * 2);
+        }
+        throw error;
+    }
+};
+
+// 限流并发执行器：限制最多 concurrency 个任务同时执行
+const runWithConcurrency = async <T>(tasks: (() => Promise<T>)[], concurrency: number): Promise<PromiseSettledResult<T>[]> => {
+    const results: PromiseSettledResult<T>[] = new Array(tasks.length);
+    let index = 0;
+
+    const worker = async () => {
+        while (index < tasks.length) {
+            const i = index++;
+            try {
+                results[i] = { status: 'fulfilled', value: await tasks[i]() };
+            } catch (error: any) {
+                results[i] = { status: 'rejected', reason: error };
+            }
+        }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker()));
+    return results;
+};
+
 /**
  * 任务执行配置
  */
@@ -155,7 +200,7 @@ export abstract class EnhancedBaseAgent {
         const { message, context } = task.input;
 
         // 1. 分析任务并生成执行计划
-        const plan = await this.analyzeAndPlan(message, context, task.input.attachments);
+        const plan = await this.analyzeAndPlan(message, context, task.input.attachments, task.input.metadata);
 
         console.log(`[${this.agentInfo.id}] Plan received:`, {
             hasProposals: !!(plan.proposals && plan.proposals.length),
@@ -170,7 +215,22 @@ export abstract class EnhancedBaseAgent {
         const requestedCount = multiImageMatch ? (parseInt(multiImageMatch[1] || multiImageMatch[2]) || 5) : 0;
 
         // 3. 如果有 proposals 且 proposals 内含 skillCalls，自动执行
-        let effectiveProposals = plan.proposals && plan.proposals.length > 0 ? plan.proposals : [];
+        let effectiveProposals = plan.proposals && plan.proposals.length > 0 ? [...plan.proposals] : [];
+
+        // 3.5 修复: AI 可能用不同的字段名返回 skillCalls（如 skills, calls, actions 等）
+        for (const p of effectiveProposals) {
+            if (!p.skillCalls || p.skillCalls.length === 0) {
+                // 尝试常见的别名
+                const aliases = ['skills', 'calls', 'actions', 'skill_calls', 'skillCall', 'tool_calls'];
+                for (const alias of aliases) {
+                    if (p[alias] && Array.isArray(p[alias]) && p[alias].length > 0) {
+                        console.log(`[${this.agentInfo.id}] Fixed proposal "${p.title}": renamed "${alias}" -> "skillCalls"`);
+                        p.skillCalls = p[alias];
+                        break;
+                    }
+                }
+            }
+        }
 
         // 4. 如果 proposals 为空或 proposals 内没有 skillCalls，但顶层有 skillCalls，尝试修复
         const proposalsHaveSkills = effectiveProposals.some((p: any) => p.skillCalls && p.skillCalls.length > 0);
@@ -218,6 +278,47 @@ export abstract class EnhancedBaseAgent {
             }
         }
 
+        // 4.5 最后的兜底: proposals 有数据但 skillCalls 仍然为空 — 从 proposal 的 prompt 字段自动构建
+        const stillNoSkills = !effectiveProposals.some((p: any) => p.skillCalls && p.skillCalls.length > 0);
+        if (stillNoSkills && effectiveProposals.length > 0) {
+            console.warn(`[${this.agentInfo.id}] Proposals exist but ALL lack skillCalls — auto-building from proposal data`);
+            console.log(`[${this.agentInfo.id}] Raw proposal keys:`, effectiveProposals.map((p: any) => Object.keys(p)));
+
+            for (const p of effectiveProposals) {
+                // 尝试从 proposal 内提取 prompt（AI 可能把 prompt 直接放到 proposal 顶层）
+                const prompt = p.prompt || p.imagePrompt || p.image_prompt || p.params?.prompt || '';
+                const model = p.model || p.params?.model || 'Nano Banana Pro';
+                const ratio = p.aspectRatio || p.aspect_ratio || p.ratio || p.params?.aspectRatio || '1:1';
+
+                if (prompt) {
+                    p.skillCalls = [{
+                        skillName: 'generateImage',
+                        params: { prompt, model, aspectRatio: ratio }
+                    }];
+                    console.log(`[${this.agentInfo.id}] Auto-built skillCall for "${p.title}" from prompt field`);
+                }
+            }
+
+            // 如果连 prompt 字段也没有，从 description 或 title 生成
+            const stillEmpty = !effectiveProposals.some((p: any) => p.skillCalls && p.skillCalls.length > 0);
+            if (stillEmpty) {
+                console.warn(`[${this.agentInfo.id}] No prompt field found — building from description`);
+                for (const p of effectiveProposals) {
+                    const fallbackPrompt = p.description || p.title || message;
+                    if (fallbackPrompt) {
+                        p.skillCalls = [{
+                            skillName: 'generateImage',
+                            params: {
+                                prompt: fallbackPrompt,
+                                model: 'Nano Banana Pro',
+                                aspectRatio: '1:1'
+                            }
+                        }];
+                    }
+                }
+            }
+        }
+
         // 5. 并行执行所有 proposals 的 skillCalls（大幅提速）
         if (effectiveProposals.length > 0) {
             const generatedAssets: GeneratedAsset[] = [];
@@ -229,25 +330,24 @@ export abstract class EnhancedBaseAgent {
                 (p: any) => p.skillCalls && Array.isArray(p.skillCalls) && p.skillCalls.length > 0
             );
 
-            console.log(`[${this.agentInfo.id}] Executing ${proposalsWithSkills.length} proposals in parallel`);
+            console.log(`[${this.agentInfo.id}] Executing ${proposalsWithSkills.length} proposals (max 2 concurrent)`);
 
-            // 并行执行所有 proposals
-            const allResults = await Promise.allSettled(
-                proposalsWithSkills.map(async (proposal: any) => {
-                    console.log(`[${this.agentInfo.id}] Executing proposal "${proposal.title}" with ${proposal.skillCalls.length} skill calls`);
-                    const results = await this.executeSkills(proposal.skillCalls, task);
-                    const assets = this.extractAssets(results);
-                    if (assets.length > 0) {
-                        proposal.generatedUrl = assets[0].url;
-                    }
-                    return assets;
-                })
-            );
+            // 限流并发执行（最多 2 个同时请求，避免触发 API 限流）
+            const taskFns = proposalsWithSkills.map((proposal: any) => async () => {
+                console.log(`[${this.agentInfo.id}] Executing proposal "${proposal.title}" with ${proposal.skillCalls.length} skill calls`);
+                const results = await this.executeSkills(proposal.skillCalls, task);
+                const assets = this.extractAssets(results);
+                if (assets.length > 0) {
+                    proposal.generatedUrl = assets[0].url;
+                }
+                return assets;
+            });
+            const allResults = await runWithConcurrency(taskFns, 2);
 
             // 收集所有成功的结果
             for (const result of allResults) {
                 if (result.status === 'fulfilled') {
-                    generatedAssets.push(...result.value);
+                    generatedAssets.push(...(result.value as GeneratedAsset[]));
                 } else {
                     console.warn(`[${this.agentInfo.id}] Proposal execution failed:`, result.reason);
                 }
@@ -270,7 +370,27 @@ export abstract class EnhancedBaseAgent {
         }
 
         // 6. Fallback: 执行顶层 Skills（无 proposals 的情况）
-        const skillResults = await this.executeSkills(plan.skillCalls || [], task);
+        let fallbackSkillCalls = plan.skillCalls || [];
+
+        // 6.5 Fallback 兜底: 如果 Plan 中有 prompt 但没有 skillCalls，自动构建
+        if (fallbackSkillCalls.length === 0) {
+            const planPrompt = plan.prompt || plan.imagePrompt || plan.image_prompt || '';
+            if (planPrompt) {
+                console.log(`[${this.agentInfo.id}] Fallback: building skillCall from plan.prompt`);
+                fallbackSkillCalls = [{
+                    skillName: 'generateImage',
+                    params: {
+                        prompt: planPrompt,
+                        model: plan.model || 'Nano Banana Pro',
+                        aspectRatio: plan.aspectRatio || plan.aspect_ratio || '1:1'
+                    }
+                }];
+            } else {
+                console.warn(`[${this.agentInfo.id}] No skillCalls, no proposals with skills, no prompt found. Plan keys:`, Object.keys(plan));
+            }
+        }
+
+        const skillResults = await this.executeSkills(fallbackSkillCalls, task);
 
         // 7. 提取生成的资产
         const assets = this.extractAssets(skillResults);
@@ -281,6 +401,8 @@ export abstract class EnhancedBaseAgent {
             status: 'completed',
             output: {
                 message: plan.message || plan.concept || '任务已完成',
+                analysis: plan.analysis,
+                proposals: effectiveProposals,
                 assets,
                 skillCalls: skillResults
             },
@@ -294,7 +416,8 @@ export abstract class EnhancedBaseAgent {
     private async analyzeAndPlan(
         message: string,
         context: ProjectContext,
-        attachments?: File[]
+        attachments?: File[],
+        metadata?: Record<string, any>
     ): Promise<any> {
         try {
             const ai = getClient();
@@ -391,16 +514,47 @@ ${(attachments || []).map((file, index) => {
                 }
             }
 
-            const response = await ai.models.generateContent({
+            const toolConfig: any = {};
+            if (metadata?.enableWebSearch) {
+                toolConfig.tools = [{ googleSearch: {} }];
+            }
+
+            const response = await retryAsync(() => ai.models.generateContent({
                 model: 'gemini-3-flash-preview',
                 contents: { parts },
                 config: {
                     temperature: 0.7,
                     responseMimeType: 'application/json'
-                }
-            });
+                },
+                ...toolConfig
+            }));
 
-            return this.parseResponse(response.text || '{}');
+            const parsedPlan = this.parseResponse(response.text || '{}');
+
+            // Handle Grounding Metadata (Sources)
+            const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+            if (groundingChunks && groundingChunks.length > 0) {
+                const sources = groundingChunks
+                    .map((chunk: any) => {
+                        if (chunk.web) {
+                            return `[${chunk.web.title}](${chunk.web.uri})`;
+                        }
+                        return null;
+                    })
+                    .filter((s: any) => s) as string[];
+
+                if (sources.length > 0) {
+                    const sourceText = `\n\n**参考来源:**\n${sources.map((s: string) => `- ${s}`).join('\n')}`;
+                    if (parsedPlan.message) {
+                        parsedPlan.message += sourceText;
+                    }
+                    if (parsedPlan.analysis) {
+                        parsedPlan.analysis += sourceText;
+                    }
+                }
+            }
+
+            return parsedPlan;
         } catch (error) {
             throw errorHandler.handleError(error, {
                 agent: this.agentInfo.id,

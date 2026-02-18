@@ -144,7 +144,7 @@ const Home: React.FC<{ onExit?: () => void }> = ({ onExit }) => {
   const [modelMode, setModelMode] = useState<'thinking' | 'fast'>('fast');
   
   // New States for Features
-  const [webEnabled, setWebEnabled] = useState(true);
+  const [webEnabled, setWebEnabled] = useState(false);
   const [imageModelEnabled, setImageModelEnabled] = useState(false); // Cube icon: "Nano Banana Pro"
   
   // UI States

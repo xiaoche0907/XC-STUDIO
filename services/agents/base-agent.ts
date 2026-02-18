@@ -65,19 +65,51 @@ Always return your response as JSON.`;
         }
       }
 
+      const toolConfig: any = {};
+      
+      if (task.input.metadata?.enableWebSearch) {
+        toolConfig.tools = [{ googleSearch: {} }];
+      }
+
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         contents: { parts },
         config: {
           temperature: 0.7,
           responseMimeType: 'application/json',
-        }
+        },
+        ...toolConfig
       });
 
       const responseText = response.text || '';
       console.log('[Agent] Raw response:', responseText.substring(0, 500));
 
       const parsed = this.parseResponse(responseText);
+
+      // Handle Grounding Metadata (Sources)
+      const groundingChunks = (response.candidates?.[0] as any)?.groundingMetadata?.groundingChunks;
+      let sourceText = '';
+      if (groundingChunks && groundingChunks.length > 0) {
+        const sources = groundingChunks
+            .map((chunk: any) => {
+                if (chunk.web) {
+                    return `[${chunk.web.title}](${chunk.web.uri})`;
+                }
+                return null;
+            })
+            .filter((s: any) => s) as string[];
+
+        if (sources.length > 0) {
+            sourceText = `\n\n**参考来源:**\n${sources.map((s: string) => `- ${s}`).join('\n')}`;
+            if (parsed.message) {
+                parsed.message += sourceText;
+            }
+            if (parsed.analysis) {
+                parsed.analysis += sourceText;
+            }
+        }
+      }
+
       console.log('[Agent] Parsed response:', JSON.stringify(parsed, null, 2).substring(0, 500));
 
       if (parsed.proposals && Array.isArray(parsed.proposals)) {

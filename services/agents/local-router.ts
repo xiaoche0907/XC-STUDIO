@@ -13,7 +13,7 @@ interface RouteRule {
 }
 
 const ROUTE_RULES: RouteRule[] = [
-  // 品牌VI - 最高优先级（通常是项目起点）
+  // 品牌VI - 最高优先级
   { keywords: ['logo', 'vi', '品牌', '标志', '商标', 'brand', '视觉识别', '品牌手册', '色彩系统'], agent: 'vireo', priority: 1 },
   // 故事板
   { keywords: ['故事板', '分镜', 'storyboard', '脚本', '剧本', '镜头', 'shot list', '场景设计'], agent: 'cameron', priority: 2 },
@@ -21,10 +21,12 @@ const ROUTE_RULES: RouteRule[] = [
   { keywords: ['包装', 'package', 'packaging', '礼盒', '瓶身', '标签', '盒子', '瓶子', '罐子', 'unboxing'], agent: 'package', priority: 3 },
   // 动效设计
   { keywords: ['动画', 'motion', '动效', 'gif', 'animation', '视频', 'video', '片头', '转场', 'vfx', '3d动画'], agent: 'motion', priority: 4 },
-  // 营销活动 & 电商（关键词多，覆盖面广）
+  // 营销活动 & 电商
   { keywords: ['营销', 'campaign', '推广', '电商', '亚马逊', 'amazon', '副图', 'listing', '主图', '详情图', 'shopify', '淘宝', '天猫', '小红书', '一套', '一组', '系列', '套图'], agent: 'campaign', priority: 5 },
-  // 海报设计（最通用的设计类型，优先级最低）
-  { keywords: ['海报', 'poster', 'banner', '宣传', '广告', '传单', '社交媒体', 'instagram', '朋友圈', '封面'], agent: 'poster', priority: 6 },
+  // 海报设计（更广泛的关键词覆盖）
+  { keywords: ['海报', 'poster', 'banner', '宣传', '广告', '传单', '社交媒体', 'instagram', '朋友圈', '封面', '邀请函', '贺卡', '名片', '证书', '节日', '春节', '新年', '圣诞', '中秋'], agent: 'poster', priority: 6 },
+  // 通用设计请求 — 兜底到 poster（优先级最低）
+  { keywords: ['设计', '做', '生成', '画', '制作', '创作', '帮我', '图片', '图', '海报', '卡片', '素材', '风格', '请', '一张', '一个', '几张'], agent: 'poster', priority: 99 },
 ];
 
 // 修改/编辑类关键词 — 这些请求不应走本地路由，应走 API 路由以获得更精确的意图分析
@@ -73,6 +75,12 @@ export function localPreRoute(message: string): AgentType | null {
         bestMatch = { agent: rule.agent, priority: rule.priority, matchCount };
       }
     }
+  }
+
+  // 如果没匹配到任何规则，默认路由到 poster（设计工具中绝大多数请求都是设计相关的）
+  if (!bestMatch && message.trim().length > 2) {
+    console.log('[LocalRouter] No keyword match, defaulting to poster');
+    return 'poster';
   }
 
   return bestMatch?.agent || null;
