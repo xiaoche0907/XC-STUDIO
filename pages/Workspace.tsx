@@ -290,7 +290,25 @@ const Workspace: React.FC = () => {
     const [isTyping, setIsTyping] = useState(false);
     // 对话历史管理
     const [conversations, setConversations] = useState<ConversationSession[]>(() => loadConversations());
-    const [activeConversationId, setActiveConversationId] = useState<string>(() => localStorage.getItem(ACTIVE_CONVERSATION_KEY) || '');
+    // Remove global ACTIVE_CONVERSATION_KEY binding, actively map the session to the project id
+    const [activeConversationId, setActiveConversationId] = useState<string>('');
+
+    // 当项目 id 变化时，立刻尝试从 localStorage 加载此项目的对话
+    useEffect(() => {
+        if (!id) return;
+        setActiveConversationId(id);
+        const projectConversation = conversations.find(c => c.id === id);
+        if (projectConversation) {
+            setMessages(projectConversation.messages);
+            // 如果项目标题原来是默认的，顺便从历史对话更新一下（可选）
+            if (projectConversation.title && projectTitle === '未命名' && projectConversation.title !== '新对话') {
+                setProjectTitle(projectConversation.title);
+            }
+        } else {
+            setMessages([]);
+        }
+    }, [id]);
+
     const [historySearch, setHistorySearch] = useState('');
     const [showAssistant, setShowAssistant] = useState(true);
     const [inputBlocks, setInputBlocks] = useState<InputBlock[]>([{ id: 'init', type: 'text', text: '' }]);
@@ -744,6 +762,9 @@ const Workspace: React.FC = () => {
     const closeMenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const closeShapeMenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const initialPromptProcessedRef = useRef(false);
+    // Performance: store drag positions in ref to avoid re-renders during drag
+    const dragOffsetsRef = useRef<Record<string, { x: number, y: number }>>({});
+    const rafIdRef = useRef<number>(0);
 
     const saveToHistory = (newElements: CanvasElement[], newMarkers: Marker[]) => {
         const newHistory = history.slice(0, historyStep + 1);
@@ -1256,33 +1277,29 @@ const Workspace: React.FC = () => {
 
     // 对话持久化：messages 变化时自动保存到当前会话
     useEffect(() => {
-        if (messages.length === 0) return;
+        if (messages.length === 0 || !id) return;
         setConversations(prev => {
-            let conversationId = activeConversationId;
+            const conversationId = id; // Project ID is the Conversation ID
             let updated = [...prev];
-            if (!conversationId) {
-                // 创建新会话
-                conversationId = `conversation-${Date.now()}`;
+            const idx = updated.findIndex(c => c.id === conversationId);
+
+            if (idx === -1) {
+                // 当前项目还未保存过历史
                 const firstUserMsg = messages.find(m => m.role === 'user');
                 const title = firstUserMsg?.text?.substring(0, 30) || '新对话';
                 updated.push({ id: conversationId, title, messages, createdAt: Date.now(), updatedAt: Date.now() });
-                setActiveConversationId(conversationId);
-                localStorage.setItem(ACTIVE_CONVERSATION_KEY, conversationId);
             } else {
-                const idx = updated.findIndex(c => c.id === conversationId);
-                if (idx >= 0) {
-                    updated[idx] = { ...updated[idx], messages, updatedAt: Date.now() };
-                    // 更新标题（取第一条用户消息）
-                    if (!updated[idx].title || updated[idx].title === '新对话') {
-                        const firstUserMsg = messages.find(m => m.role === 'user');
-                        if (firstUserMsg) updated[idx].title = firstUserMsg.text.substring(0, 30);
-                    }
+                // 更新现有历史
+                updated[idx] = { ...updated[idx], messages, updatedAt: Date.now() };
+                if (!updated[idx].title || updated[idx].title === '新对话') {
+                    const firstUserMsg = messages.find(m => m.role === 'user');
+                    if (firstUserMsg) updated[idx].title = firstUserMsg.text.substring(0, 30);
                 }
             }
             saveConversations(updated);
             return updated;
         });
-    }, [messages]);
+    }, [messages, id]);
 
     useEffect(() => {
         const handleGlobalClick = (e: MouseEvent) => {
@@ -1400,8 +1417,25 @@ const Workspace: React.FC = () => {
                 return;
             }
             if (!isInTextInput) {
+                // Multi-select alignment shortcuts (Alt + key)
+                if (e.altKey && selectedElementIds.length > 1) {
+                    const k = e.key.toLowerCase();
+                    if (k === 'a') { e.preventDefault(); alignSelectedElements('left'); return; }
+                    if (k === 'd') { e.preventDefault(); alignSelectedElements('right'); return; }
+                    if (k === 'h') { e.preventDefault(); alignSelectedElements('center'); return; }
+                    if (k === 'w') { e.preventDefault(); alignSelectedElements('top'); return; }
+                    if (k === 's') { e.preventDefault(); alignSelectedElements('bottom'); return; }
+                    if (k === 'v') { e.preventDefault(); alignSelectedElements('middle'); return; }
+                }
+                // Multi-select spacing shortcuts (Shift + key, not ctrl/meta)
+                if (e.shiftKey && !e.ctrlKey && !e.metaKey && selectedElementIds.length > 1) {
+                    const k = e.key.toUpperCase();
+                    if (k === 'H') { e.preventDefault(); distributeSelectedElements('horizontal'); return; }
+                    if (k === 'V') { e.preventDefault(); distributeSelectedElements('vertical'); return; }
+                    if (k === 'A') { e.preventDefault(); distributeSelectedElements('auto'); return; }
+                }
                 if (e.key.toLowerCase() === 'v' && !(e.metaKey || e.ctrlKey)) setActiveTool('select');
-                if (e.key.toLowerCase() === 'h') setActiveTool('hand');
+                if (e.key.toLowerCase() === 'h' && !e.altKey) setActiveTool('hand');
                 if (e.key.toLowerCase() === 'm') setActiveTool('mark');
                 if (e.key === 'Backspace' || e.key === 'Delete') deleteSelectedElement();
             }
@@ -1694,22 +1728,68 @@ const Workspace: React.FC = () => {
             const totalDx = newX - (primaryStart?.x ?? elementStartPos.x);
             const totalDy = newY - (primaryStart?.y ?? elementStartPos.y);
 
-            setElements(prev => prev.map(el => {
-                if (draggingIds.includes(el.id)) {
-                    const start = groupDragStartRef.current[el.id];
-                    if (start) {
-                        return { ...el, x: start.x + totalDx, y: start.y + totalDy };
-                    }
-                    if (el.id === selectedElementId) {
-                        return { ...el, x: newX, y: newY };
+            // Performance: store positions in ref, update DOM directly via rAF
+            const newOffsets: Record<string, { x: number, y: number }> = {};
+            for (const elId of draggingIds) {
+                const start = groupDragStartRef.current[elId];
+                if (start) {
+                    newOffsets[elId] = { x: start.x + totalDx, y: start.y + totalDy };
+                } else if (elId === selectedElementId) {
+                    newOffsets[elId] = { x: newX, y: newY };
+                }
+            }
+            dragOffsetsRef.current = newOffsets;
+
+            // Direct DOM update via rAF (no React re-render)
+            cancelAnimationFrame(rafIdRef.current);
+            rafIdRef.current = requestAnimationFrame(() => {
+                for (const [elId, pos] of Object.entries(newOffsets)) {
+                    const dom = document.getElementById(`canvas-el-${elId}`);
+                    if (dom) {
+                        dom.style.left = `${pos.x}px`;
+                        dom.style.top = `${pos.y}px`;
                     }
                 }
-                return el;
-            }));
+            });
         }
     };
 
-    const handleMouseUp = () => { if (isResizing) { setIsResizing(false); setResizeHandle(null); saveToHistory(elements, markers); } if (isDraggingElement && selectedElementId) { const el = elements.find(e => e.id === selectedElementId); if (el && (el.x !== elementStartPos.x || el.y !== elementStartPos.y)) { saveToHistory(elements, markers); } } if (isMarqueeSelecting) { setIsMarqueeSelecting(false); } setAlignGuides([]); setIsPanning(false); setIsDraggingElement(false); };
+    const handleMouseUp = () => {
+        if (isResizing) {
+            setIsResizing(false);
+            setResizeHandle(null);
+            saveToHistory(elements, markers);
+        }
+        if (isDraggingElement && selectedElementId) {
+            // Commit drag positions from ref to React state
+            const offsets = dragOffsetsRef.current;
+            if (Object.keys(offsets).length > 0) {
+                setElements(prev => prev.map(el => {
+                    const pos = offsets[el.id];
+                    if (pos) return { ...el, x: pos.x, y: pos.y };
+                    return el;
+                }));
+                dragOffsetsRef.current = {};
+                // Save to history if position actually changed
+                const el = elements.find(e => e.id === selectedElementId);
+                if (el && (offsets[selectedElementId]?.x !== elementStartPos.x || offsets[selectedElementId]?.y !== elementStartPos.y)) {
+                    // Use setTimeout to ensure setElements has committed
+                    setTimeout(() => saveToHistory(elements, markers), 0);
+                }
+            } else {
+                const el = elements.find(e => e.id === selectedElementId);
+                if (el && (el.x !== elementStartPos.x || el.y !== elementStartPos.y)) {
+                    saveToHistory(elements, markers);
+                }
+            }
+        }
+        if (isMarqueeSelecting) {
+            setIsMarqueeSelecting(false);
+        }
+        setAlignGuides([]);
+        setIsPanning(false);
+        setIsDraggingElement(false);
+    };
 
     // Crop Image Utility
     const cropImageRegion = async (imageUrl: string, xPct: number, yPct: number, width: number = 200, height: number = 200): Promise<string | null> => {
@@ -2708,6 +2788,193 @@ const Workspace: React.FC = () => {
         }
     };
 
+    // ===== Multi-select Alignment & Spacing Functions =====
+    const [showAlignMenu, setShowAlignMenu] = useState(false);
+    const [showSpacingMenu, setShowSpacingMenu] = useState(false);
+
+    const alignSelectedElements = (direction: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => {
+        const ids = selectedElementIds.length > 1 ? selectedElementIds : [];
+        if (ids.length < 2) return;
+        const els = elements.filter(el => ids.includes(el.id));
+        const minX = Math.min(...els.map(el => el.x));
+        const maxX = Math.max(...els.map(el => el.x + el.width));
+        const minY = Math.min(...els.map(el => el.y));
+        const maxY = Math.max(...els.map(el => el.y + el.height));
+        const cX = (minX + maxX) / 2;
+        const cY = (minY + maxY) / 2;
+
+        const newElements = elements.map(el => {
+            if (!ids.includes(el.id)) return el;
+            switch (direction) {
+                case 'left': return { ...el, x: minX };
+                case 'right': return { ...el, x: maxX - el.width };
+                case 'center': return { ...el, x: cX - el.width / 2 };
+                case 'top': return { ...el, y: minY };
+                case 'bottom': return { ...el, y: maxY - el.height };
+                case 'middle': return { ...el, y: cY - el.height / 2 };
+                default: return el;
+            }
+        });
+        setElements(newElements);
+        saveToHistory(newElements, markers);
+    };
+
+    const distributeSelectedElements = (direction: 'horizontal' | 'vertical' | 'auto') => {
+        const ids = selectedElementIds.length > 1 ? selectedElementIds : [];
+        if (ids.length < 2) return;
+        const els = elements.filter(el => ids.includes(el.id));
+
+        if (direction === 'auto') {
+            const count = els.length;
+            const cols = Math.ceil(Math.sqrt(count));
+            const sorted = [...els].sort((a, b) => a.y - b.y || a.x - b.x);
+            const gap = 20;
+            const maxW = Math.max(...sorted.map(e => e.width));
+            const maxH = Math.max(...sorted.map(e => e.height));
+            const startX = sorted[0].x;
+            const startY = sorted[0].y;
+            const newElements = elements.map(el => {
+                const idx = sorted.findIndex(s => s.id === el.id);
+                if (idx === -1) return el;
+                const col = idx % cols;
+                const row = Math.floor(idx / cols);
+                return { ...el, x: startX + col * (maxW + gap), y: startY + row * (maxH + gap) };
+            });
+            setElements(newElements);
+            saveToHistory(newElements, markers);
+            return;
+        }
+
+        if (direction === 'horizontal') {
+            const sorted = [...els].sort((a, b) => a.x - b.x);
+            const totalWidth = sorted.reduce((sum, el) => sum + el.width, 0);
+            const minX = sorted[0].x;
+            const maxRight = sorted[sorted.length - 1].x + sorted[sorted.length - 1].width;
+            const totalSpace = maxRight - minX - totalWidth;
+            const gap = ids.length > 2 ? totalSpace / (ids.length - 1) : 20;
+            let curX = minX;
+            const posMap: Record<string, number> = {};
+            for (const el of sorted) { posMap[el.id] = curX; curX += el.width + gap; }
+            const newElements = elements.map(el => posMap[el.id] !== undefined ? { ...el, x: posMap[el.id] } : el);
+            setElements(newElements);
+            saveToHistory(newElements, markers);
+        } else {
+            const sorted = [...els].sort((a, b) => a.y - b.y);
+            const totalHeight = sorted.reduce((sum, el) => sum + el.height, 0);
+            const minY = sorted[0].y;
+            const maxBottom = sorted[sorted.length - 1].y + sorted[sorted.length - 1].height;
+            const totalSpace = maxBottom - minY - totalHeight;
+            const gap = ids.length > 2 ? totalSpace / (ids.length - 1) : 20;
+            let curY = minY;
+            const posMap: Record<string, number> = {};
+            for (const el of sorted) { posMap[el.id] = curY; curY += el.height + gap; }
+            const newElements = elements.map(el => posMap[el.id] !== undefined ? { ...el, y: posMap[el.id] } : el);
+            setElements(newElements);
+            saveToHistory(newElements, markers);
+        }
+    };
+
+    const renderMultiSelectToolbar = () => {
+        if (selectedElementIds.length < 2) return null;
+        const els = elements.filter(el => selectedElementIds.includes(el.id));
+        if (els.length === 0) return null;
+        const minX = Math.min(...els.map(el => el.x));
+        const minY = Math.min(...els.map(el => el.y));
+        const maxX = Math.max(...els.map(el => el.x + el.width));
+        const screenX = minX * (zoom / 100) + pan.x;
+        const screenY = minY * (zoom / 100) + pan.y;
+        const screenMaxX = maxX * (zoom / 100) + pan.x;
+        const centerX = (screenX + screenMaxX) / 2;
+        const topToolbarTop = screenY - 52;
+
+        return (
+            <div
+                className="absolute bg-white rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.1)] border border-gray-100 px-2 py-1.5 flex items-center gap-1 z-50 animate-in fade-in zoom-in-95 duration-200 whitespace-nowrap"
+                style={{ left: 0, top: 0, transform: `translate(calc(${centerX}px - 50%), ${topToolbarTop}px)`, willChange: 'transform' }}
+                onMouseDown={(e) => e.stopPropagation()}
+            >
+                {/* Auto Layout */}
+                <button onClick={() => distributeSelectedElements('auto')} className="px-2 py-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center gap-1.5 text-xs font-medium transition-colors" title="自动排列 Shift+A">
+                    <Layout size={14} /> 自动布局
+                </button>
+
+                <div className="w-px h-5 bg-gray-200"></div>
+
+                {/* Alignment Dropdown */}
+                <div className="relative">
+                    <button
+                        onClick={() => { setShowAlignMenu(!showAlignMenu); setShowSpacingMenu(false); }}
+                        className={`px-2 py-1.5 rounded-lg flex items-center gap-1.5 text-xs font-medium transition-colors ${showAlignMenu ? 'bg-gray-100 text-black' : 'text-gray-600 hover:text-black hover:bg-gray-50'}`}
+                    >
+                        <AlignLeft size={14} /> 对齐 <ChevronDown size={10} />
+                    </button>
+                    {showAlignMenu && (
+                        <div className="absolute top-full mt-2 left-0 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-1 z-[60] animate-in fade-in zoom-in-95 duration-150">
+                            <button onClick={() => { alignSelectedElements('left'); setShowAlignMenu(false); }} className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 text-sm text-gray-700 transition">
+                                <span className="flex items-center gap-2"><AlignLeft size={14} /> 左对齐</span>
+                                <span className="text-xs text-gray-400">Alt + A</span>
+                            </button>
+                            <button onClick={() => { alignSelectedElements('center'); setShowAlignMenu(false); }} className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 text-sm text-gray-700 transition">
+                                <span className="flex items-center gap-2"><AlignCenter size={14} /> 水平居中</span>
+                                <span className="text-xs text-gray-400">Alt + H</span>
+                            </button>
+                            <button onClick={() => { alignSelectedElements('right'); setShowAlignMenu(false); }} className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 text-sm text-gray-700 transition">
+                                <span className="flex items-center gap-2"><AlignRight size={14} /> 右对齐</span>
+                                <span className="text-xs text-gray-400">Alt + D</span>
+                            </button>
+                            <div className="h-px bg-gray-100 my-1"></div>
+                            <button onClick={() => { alignSelectedElements('top'); setShowAlignMenu(false); }} className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 text-sm text-gray-700 transition">
+                                <span className="flex items-center gap-2"><ArrowUp size={14} /> 顶部对齐</span>
+                                <span className="text-xs text-gray-400">Alt + W</span>
+                            </button>
+                            <button onClick={() => { alignSelectedElements('middle'); setShowAlignMenu(false); }} className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 text-sm text-gray-700 transition">
+                                <span className="flex items-center gap-2"><Minus size={14} /> 垂直居中</span>
+                                <span className="text-xs text-gray-400">Alt + V</span>
+                            </button>
+                            <button onClick={() => { alignSelectedElements('bottom'); setShowAlignMenu(false); }} className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 text-sm text-gray-700 transition">
+                                <span className="flex items-center gap-2"><ArrowUp size={14} className="rotate-180" /> 底部对齐</span>
+                                <span className="text-xs text-gray-400">Alt + S</span>
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                {/* Spacing Dropdown */}
+                <div className="relative">
+                    <button
+                        onClick={() => { setShowSpacingMenu(!showSpacingMenu); setShowAlignMenu(false); }}
+                        className={`px-2 py-1.5 rounded-lg flex items-center gap-1.5 text-xs font-medium transition-colors ${showSpacingMenu ? 'bg-gray-100 text-black' : 'text-gray-600 hover:text-black hover:bg-gray-50'}`}
+                    >
+                        <Minus size={14} /> 间距 <ChevronDown size={10} />
+                    </button>
+                    {showSpacingMenu && (
+                        <div className="absolute top-full mt-2 left-0 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-1 z-[60] animate-in fade-in zoom-in-95 duration-150">
+                            <button onClick={() => { distributeSelectedElements('horizontal'); setShowSpacingMenu(false); }} className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 text-sm text-gray-700 transition">
+                                <span className="flex items-center gap-2"><Minus size={14} /> 水平间距</span>
+                                <span className="text-xs text-gray-400">Shift + H</span>
+                            </button>
+                            <button onClick={() => { distributeSelectedElements('vertical'); setShowSpacingMenu(false); }} className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 text-sm text-gray-700 transition">
+                                <span className="flex items-center gap-2"><Minus size={14} className="rotate-90" /> 垂直间距</span>
+                                <span className="text-xs text-gray-400">Shift + V</span>
+                            </button>
+                            <button onClick={() => { distributeSelectedElements('auto'); setShowSpacingMenu(false); }} className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 text-sm text-gray-700 transition">
+                                <span className="flex items-center gap-2"><Layout size={14} /> 自动排列</span>
+                                <span className="text-xs text-gray-400">Shift + A</span>
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                <div className="w-px h-5 bg-gray-200"></div>
+
+                {/* Download */}
+                <button onClick={handleDownload} className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-50 rounded-lg flex items-center justify-center transition-colors" title="下载">
+                    <Download size={14} />
+                </button>
+            </div>
+        );
+    };
+
     return (
         <div className="flex h-screen w-screen overflow-hidden bg-[#E5E7EB] font-sans">
             {renderContextMenu()}
@@ -2789,58 +3056,61 @@ const Workspace: React.FC = () => {
                     >
                         {/* Header with Toolbar - Lovart Style */}
                         <div className="px-3 py-3.5 flex items-center justify-end bg-white/80 backdrop-blur-md z-20 shrink-0 select-none">
-                            <div className="flex items-center gap-1 relative">
-                                {/* 1. New Chat */}
+                            <div className="flex items-center gap-1.5 ml-2">
                                 <button
-                                    onClick={() => { setActiveConversationId(''); localStorage.removeItem(ACTIVE_CONVERSATION_KEY); setMessages([]); setPrompt(''); setCreationMode('agent'); }}
-                                    className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all"
-                                    title="新建对话"
+                                    className="h-8 px-2.5 text-xs text-gray-500 hover:text-blue-600 hover:bg-blue-50/50 flex items-center justify-center rounded-lg transition-all"
+                                    onClick={() => { setActiveConversationId(''); setMessages([]); setPrompt(''); setCreationMode('agent'); }}
                                 >
-                                    <CirclePlus size={18} strokeWidth={1.5} />
+                                    <CirclePlus size={16} strokeWidth={1.5} className="mr-1.5" />
+                                    新对话
                                 </button>
 
-                                {/* 2. History Popover */}
                                 <div className="relative">
                                     <button
+                                        className="h-8 w-8 flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50/50 rounded-lg transition-all history-popover-trigger"
                                         onClick={(e) => { e.stopPropagation(); setShowHistoryPopover(!showHistoryPopover); }}
-                                        className={`w-8 h-8 flex items-center justify-center rounded-md transition-all ${showHistoryPopover ? 'text-gray-900 bg-gray-100' : 'text-gray-400 hover:text-gray-900 hover:bg-gray-100'}`}
-                                        title="History"
                                     >
                                         <Clock size={16} strokeWidth={2} />
                                     </button>
-                                    {/* Popover Content */}
+
                                     {showHistoryPopover && (
                                         <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-72 bg-white rounded-xl shadow-xl border border-gray-200 p-3 z-[60] animate-in fade-in zoom-in-95 duration-200 history-popover-content text-left">
-                                            <h4 className="text-sm font-bold text-gray-900 mb-2">历史对话</h4>
-                                            <div className="relative mb-2">
-                                                <input
-                                                    placeholder="搜索对话..."
-                                                    value={historySearch}
-                                                    onChange={(e) => setHistorySearch(e.target.value)}
-                                                    className="w-full bg-gray-50 border-none rounded-lg py-2 pl-3 pr-8 text-xs text-gray-700 outline-none focus:ring-1 focus:ring-gray-200 transition"
-                                                />
-                                                <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                                            </div>
-                                            <div className="space-y-0.5 max-h-[300px] overflow-y-auto no-scrollbar">
-                                                <div
-                                                    onClick={() => { setActiveConversationId(''); localStorage.removeItem(ACTIVE_CONVERSATION_KEY); setMessages([]); setShowHistoryPopover(false); }}
-                                                    className="p-2 py-2.5 bg-gray-50 rounded-lg text-xs text-gray-500 hover:bg-gray-100 cursor-pointer transition text-center font-medium"
-                                                >
-                                                    + 新对话
+                                            <div className="flex items-center justify-between mb-3 px-1">
+                                                <h3 className="font-medium text-sm text-gray-900">历史对话</h3>
+                                                <div className="relative">
+                                                    <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+                                                    <input
+                                                        type="text"
+                                                        placeholder="搜索对话..."
+                                                        value={historySearch}
+                                                        onChange={e => setHistorySearch(e.target.value)}
+                                                        className="w-32 h-7 pl-7 pr-2 text-xs bg-gray-50 border border-transparent rounded-md focus:bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all placeholder:text-gray-400"
+                                                    />
                                                 </div>
-                                                {[...conversations]
+                                            </div>
+
+                                            <button
+                                                className="w-full flex items-center justify-center h-8 text-xs mb-3 border border-dashed rounded-md hover:bg-gray-50 transition-colors"
+                                                onClick={() => { setActiveConversationId(''); setMessages([]); setShowHistoryPopover(false); }}
+                                            >
+                                                <CirclePlus size={14} strokeWidth={1.5} className="mr-1" />
+                                                新对话
+                                            </button>
+
+                                            <div className="space-y-1 max-h-[280px] overflow-y-auto pr-1 -mr-1 custom-scrollbar">
+                                                {conversations
                                                     .filter(c => !historySearch || c.title.toLowerCase().includes(historySearch.toLowerCase()))
                                                     .sort((a, b) => b.updatedAt - a.updatedAt)
                                                     .map(conversation => (
                                                         <div
                                                             key={conversation.id}
+                                                            className={`p-2 rounded-lg cursor-pointer transition flex items-center gap-2 ${activeConversationId === conversation.id ? 'bg-blue-50 border border-blue-100' : 'hover:bg-gray-50'}`}
                                                             onClick={() => {
+                                                                if (activeConversationId === conversation.id) return;
                                                                 setActiveConversationId(conversation.id);
-                                                                localStorage.setItem(ACTIVE_CONVERSATION_KEY, conversation.id);
                                                                 setMessages(conversation.messages);
                                                                 setShowHistoryPopover(false);
                                                             }}
-                                                            className={`p-2 rounded-lg cursor-pointer transition flex items-center gap-2 ${activeConversationId === conversation.id ? 'bg-blue-50 border border-blue-100' : 'hover:bg-gray-50'}`}
                                                         >
                                                             <MessageSquare size={13} className="text-gray-400 flex-shrink-0" />
                                                             <div className="flex-1 min-w-0">
@@ -3787,11 +4057,12 @@ const Workspace: React.FC = () => {
                     {renderShapeToolbar()}
                     {renderImageToolbar()}
                     {renderGenVideoToolbar()}
+                    {renderMultiSelectToolbar()}
                     <div ref={canvasLayerRef} className="absolute top-0 left-0 w-0 h-0 overflow-visible" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transformOrigin: '0 0', willChange: 'transform' }}>
                         {elements.map((el) => {
                             const isSelected = selectedElementId === el.id || selectedElementIds.includes(el.id);
                             return (
-                                <div key={el.id} className={`absolute group ${isSelected && el.type !== 'text' ? 'ring-2 ring-blue-500' : ''} ${isSelected && el.type === 'text' ? 'ring-1 ring-blue-500 ring-offset-2' : ''}`} style={{ left: el.x, top: el.y, width: el.type === 'text' ? 'auto' : el.width, height: el.type === 'text' ? 'auto' : el.height, zIndex: el.zIndex, cursor: activeTool === 'select' ? 'move' : (activeTool === 'mark' ? 'crosshair' : 'default'), whiteSpace: el.type === 'text' ? 'nowrap' : 'normal' }} onMouseDown={(e) => handleElementMouseDown(e, el.id)} onDoubleClick={() => { if (el.type === 'text') { setEditingTextId(el.id); } else if (el.url) { setPreviewUrl(el.url); } }}>
+                                <div key={el.id} id={`canvas-el-${el.id}`} className={`absolute group ${isSelected && el.type !== 'text' ? 'ring-2 ring-blue-500' : ''} ${isSelected && el.type === 'text' ? 'ring-1 ring-blue-500 ring-offset-2' : ''}`} style={{ left: el.x, top: el.y, width: el.type === 'text' ? 'auto' : el.width, height: el.type === 'text' ? 'auto' : el.height, zIndex: el.zIndex, cursor: activeTool === 'select' ? 'move' : (activeTool === 'mark' ? 'crosshair' : 'default'), whiteSpace: el.type === 'text' ? 'nowrap' : 'normal' }} onMouseDown={(e) => handleElementMouseDown(e, el.id)} onDoubleClick={() => { if (el.type === 'text') { setEditingTextId(el.id); } else if (el.url) { setPreviewUrl(el.url); } }}>
                                     {(isSelected || isDraggingElement) && editingTextId !== el.id && (<div className="absolute -top-8 right-0 bg-white shadow-md rounded-md p-1 cursor-pointer hover:bg-red-50 hover:text-red-500 z-50"><Trash2 size={14} onClick={(e) => { e.stopPropagation(); deleteSelectedElement(); }} /></div>)}
                                     {/* ... (rest of element rendering remains same) ... */}
                                     {el.type === 'shape' && (
@@ -3962,14 +4233,6 @@ const Workspace: React.FC = () => {
                                 </div>
                             )
                         })}
-                        {/* 智能对齐线 */}
-                        {alignGuides.map((guide, i) => (
-                            guide.type === 'v' ? (
-                                <div key={`guide-${i}`} className="absolute pointer-events-none" style={{ left: guide.pos, top: -5000, width: 0, height: 10000, borderLeft: '1px dashed #F43F5E', zIndex: 9998 }} />
-                            ) : (
-                                <div key={`guide-${i}`} className="absolute pointer-events-none" style={{ left: -5000, top: guide.pos, width: 10000, height: 0, borderTop: '1px dashed #F43F5E', zIndex: 9998 }} />
-                            )
-                        ))}
                     </div>
                 </div>
             </div>
