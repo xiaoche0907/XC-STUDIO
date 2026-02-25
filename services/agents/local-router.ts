@@ -16,7 +16,7 @@ const ROUTE_RULES: RouteRule[] = [
   // 品牌VI - 最高优先级
   { keywords: ['logo', 'vi', '品牌', '标志', '商标', 'brand', '视觉识别', '品牌手册', '色彩系统'], agent: 'vireo', priority: 1 },
   // 故事板
-  { keywords: ['故事板', '分镜', 'storyboard', '脚本', '剧本', '镜头', 'shot list', '场景设计'], agent: 'cameron', priority: 2 },
+  { keywords: ['故事板', '分镜', '九宫格', '分镜图', 'storyboard', '脚本', '剧本', '镜头', 'shot list', '场景设计'], agent: 'cameron', priority: 2 },
   // 包装设计
   { keywords: ['包装', 'package', 'packaging', '礼盒', '瓶身', '标签', '盒子', '瓶子', '罐子', 'unboxing'], agent: 'package', priority: 3 },
   // 动效设计
@@ -69,9 +69,9 @@ export function localPreRoute(message: string): AgentType | null {
   for (const rule of ROUTE_RULES) {
     const matchCount = rule.keywords.filter(k => lower.includes(k)).length;
     if (matchCount > 0) {
-      // 优先选择匹配关键词数量多的，其次按优先级
-      if (!bestMatch || matchCount > bestMatch.matchCount ||
-          (matchCount === bestMatch.matchCount && rule.priority < bestMatch.priority)) {
+      // 优先选择优先级高的（数字越小越高），同优先级再比匹配数量
+      if (!bestMatch || rule.priority < bestMatch.priority ||
+        (rule.priority === bestMatch.priority && matchCount > bestMatch.matchCount)) {
         bestMatch = { agent: rule.agent, priority: rule.priority, matchCount };
       }
     }

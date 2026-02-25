@@ -177,7 +177,9 @@ class ErrorHandler {
                     throw lastError;
                 }
 
-                const waitTime = backoff ? delay * Math.pow(2, attempt) : delay;
+                const waitTime = backoff
+                    ? delay * Math.pow(2, attempt) + Math.random() * 500  // 指数退避 + 随机抖动
+                    : delay;
                 await new Promise(resolve => setTimeout(resolve, waitTime));
             }
         }

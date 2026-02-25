@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { devtools } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
 import { CanvasElement, Marker } from '../types';
 
@@ -111,6 +112,7 @@ function createGroupInState(state: any, ids: string[], collapsed: boolean): stri
 }
 
 export const useCanvasStore = create<CanvasState>()(
+  devtools(
   immer((set, get) => ({
     ...initialState,
     
@@ -258,5 +260,6 @@ export const useCanvasStore = create<CanvasState>()(
       
       reset: () => set(initialState),
     }
-  }))
+  })),
+  { name: 'CanvasStore' })
 );

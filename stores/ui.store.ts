@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { devtools } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
 
 type ToolType = 'select' | 'hand' | 'mark';
@@ -113,6 +114,7 @@ const initialState = {
 };
 
 export const useUIStore = create<UIState>()(
+  devtools(
   immer((set) => ({
     ...initialState,
     
@@ -169,5 +171,6 @@ export const useUIStore = create<UIState>()(
       
       reset: () => set(initialState),
     }
-  }))
+  })),
+  { name: 'UIStore' })
 );

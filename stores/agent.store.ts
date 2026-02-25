@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { devtools } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
 import { AgentTask, AgentType } from '../types/agent.types';
 import { ChatMessage, InputBlock } from '../types';
@@ -129,6 +130,7 @@ const initialState = {
 };
 
 export const useAgentStore = create<AgentState>()(
+  devtools(
   immer((set) => ({
     ...initialState,
     
@@ -206,5 +208,6 @@ export const useAgentStore = create<AgentState>()(
       
       reset: () => set(initialState),
     }
-  }))
+  })),
+  { name: 'AgentStore' })
 );

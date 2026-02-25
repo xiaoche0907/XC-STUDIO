@@ -4,8 +4,8 @@
  */
 
 import { create } from 'zustand';
+import { devtools, persist } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
-import { persist } from 'zustand/middleware';
 
 interface BrandInfo {
   name?: string;
@@ -107,6 +107,7 @@ const initialState: Omit<ProjectState, 'actions'> = {
 };
 
 export const useProjectStore = create<ProjectState>()(
+  devtools(
   persist(
     immer((set) => ({
       ...initialState,
@@ -172,5 +173,6 @@ export const useProjectStore = create<ProjectState>()(
         updatedAt: state.updatedAt
       })
     }
-  )
+  ),
+  { name: 'ProjectStore' })
 );

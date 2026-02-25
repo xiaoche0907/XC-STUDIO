@@ -732,10 +732,23 @@ const Workspace: React.FC = () => {
         // 选中列表没变就跳过
         if (JSON.stringify(ids) === JSON.stringify(prev)) return;
 
+        // 取消全部选中时 → 清除自动插入的画布图片 chip（保留标记点 chip 和手动添加的文件）
+        if (ids.length === 0 && prev.length > 0) {
+            setInputBlocks(prevBlocks => {
+                const filtered = prevBlocks.filter(b => {
+                    if (b.type !== 'file' || !b.file) return true; // 保留文本块
+                    if ((b.file as any)._canvasAutoInsert) return false; // 移除自动插入的画布图片
+                    return true; // 保留标记点 chip 和手动添加的文件
+                });
+                return filtered.length > 0 ? filtered : [{ id: `text-${Date.now()}`, type: 'text' as const, text: '' }];
+            });
+            return;
+        }
+
         // 找出新增的选中元素（之前没选中，现在选中了）
         const newIds = ids.filter(id => !prev.includes(id));
 
-        // 没有新选中的元素就跳过（取消选中不做任何操作，chip 保留）
+        // 没有新选中的元素就跳过
         if (newIds.length === 0) return;
 
         // 只添加新选中的图片（已经在 inputBlocks 里的不重复添加）
@@ -3537,25 +3550,25 @@ const Workspace: React.FC = () => {
                         animate={{ x: 0, opacity: 1 }}
                         exit={{ x: 400, opacity: 0 }}
                         transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                        className="absolute top-4 right-4 w-[400px] bottom-4 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 z-40 flex flex-col overflow-hidden"
+                        className="absolute top-4 right-4 w-[400px] bottom-4 bg-white rounded-2xl shadow-lg border border-gray-200/60 z-40 flex flex-col overflow-hidden"
                     >
                         {/* Header with Toolbar - Lovart Style */}
-                        <div className="px-3 py-3.5 flex items-center justify-end bg-white/80 backdrop-blur-md z-20 shrink-0 select-none">
-                            <div className="flex items-center gap-1.5 ml-2">
+                        <div className="px-3 py-2.5 flex items-center justify-end border-b border-gray-100 z-20 shrink-0 select-none">
+                            <div className="flex items-center gap-0.5">
                                 <button
-                                    className="h-8 px-2.5 text-xs text-gray-500 hover:text-blue-600 hover:bg-blue-50/50 flex items-center justify-center rounded-lg transition-all"
+                                    className="h-7 px-2.5 text-xs text-gray-500 hover:text-gray-800 hover:bg-gray-100 flex items-center justify-center rounded-lg transition-all"
                                     onClick={() => { setActiveConversationId(''); setMessages([]); setPrompt(''); setCreationMode('agent'); }}
                                 >
-                                    <CirclePlus size={16} strokeWidth={1.5} className="mr-1.5" />
+                                    <CirclePlus size={15} strokeWidth={1.5} className="mr-1" />
                                     新对话
                                 </button>
 
                                 <div className="relative">
                                     <button
-                                        className="h-8 w-8 flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50/50 rounded-lg transition-all history-popover-trigger"
+                                        className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-all history-popover-trigger"
                                         onClick={(e) => { e.stopPropagation(); setShowHistoryPopover(!showHistoryPopover); }}
                                     >
-                                        <Clock size={16} strokeWidth={2} />
+                                        <Clock size={15} strokeWidth={1.8} />
                                     </button>
 
                                     {showHistoryPopover && (
@@ -3625,18 +3638,18 @@ const Workspace: React.FC = () => {
                                 </div>
 
                                 {/* 3. Share */}
-                                <button className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-all" title="Share">
-                                    <Share2 size={16} strokeWidth={1.5} />
+                                <button className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-all" title="Share">
+                                    <Share2 size={15} strokeWidth={1.5} />
                                 </button>
 
                                 {/* 4. File List Popover */}
                                 <div className="relative">
                                     <button
                                         onClick={(e) => { e.stopPropagation(); setShowFileListModal(!showFileListModal); }}
-                                        className={`w-8 h-8 flex items-center justify-center rounded-md transition-all ${showFileListModal ? 'text-gray-900 bg-gray-100' : 'text-gray-400 hover:text-gray-900 hover:bg-gray-100'}`}
+                                        className={`w-7 h-7 flex items-center justify-center rounded-lg transition-all ${showFileListModal ? 'text-gray-700 bg-gray-100' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'}`}
                                         title="Files"
                                     >
-                                        <FileIcon size={16} strokeWidth={1.5} />
+                                        <FileIcon size={15} strokeWidth={1.5} />
                                     </button>
                                     {/* Popover Content (Inline) */}
                                     {showFileListModal && (
@@ -3690,11 +3703,11 @@ const Workspace: React.FC = () => {
                                 </div>
 
                                 {/* Divider */}
-                                <div className="w-px h-4 bg-gray-200 mx-1.5 opacity-60"></div>
+                                <div className="w-px h-3.5 bg-gray-200 mx-1 opacity-50"></div>
 
                                 {/* 5. Collapse */}
-                                <button onClick={() => setShowAssistant(false)} className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-all" title="Collapse">
-                                    <PanelRightClose size={16} strokeWidth={1.5} />
+                                <button onClick={() => setShowAssistant(false)} className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-all" title="Collapse">
+                                    <PanelRightClose size={15} strokeWidth={1.5} />
                                 </button>
 
                                 {/* File List Modal (Global/Portal style but inline for now within this relative container context, usually would be portal but sticking to simple z-index overlay here) */}
@@ -3702,7 +3715,7 @@ const Workspace: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto px-6 py-6 no-scrollbar relative">
+                        <div className="flex-1 overflow-y-auto px-5 py-5 no-scrollbar relative">
                             {messages.length === 0 ? (
                                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
                                     {/* XcAI Studio Logo */}
@@ -3747,7 +3760,7 @@ const Workspace: React.FC = () => {
                                             <span>营销宣传册</span>
                                         </button>
                                         <button
-                                            onClick={() => handleSend("请帮我生成一组分镜故事板，包含6个关键场景画面，按叙事顺序排列。每个画面使用16:9电影宽银幕比例，电影概念艺术风格，注重构图和光影氛围，适合视频/广告脚本的视觉预览。")}
+                                            onClick={() => handleSend("请帮我制作产品九宫格分镜图")}
                                             className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-full text-sm font-medium text-gray-700 hover:border-gray-400 hover:text-gray-900 hover:shadow-sm transition-all cursor-pointer"
                                         >
                                             <Film size={15} strokeWidth={1.8} />
@@ -3879,9 +3892,9 @@ const Workspace: React.FC = () => {
 
 
                         {/* Input Area - Lovart Style with Mode Support */}
-                        <div className="p-4 bg-white/50 backdrop-blur-sm z-20">
+                        <div className="px-3 pb-3 pt-1 z-20">
                             <div
-                                className={`bg-white rounded-[20px] border shadow-lg hover:shadow-xl transition-all duration-300 relative group focus-within:ring-2 focus-within:ring-black/5 focus-within:border-gray-300 flex flex-col ${isDragOver ? 'border-blue-400 ring-2 ring-blue-100 bg-blue-50/30' : 'border-gray-200'}`}
+                                className={`bg-white rounded-2xl border shadow-sm transition-all duration-200 relative group focus-within:shadow-md flex flex-col ${isDragOver ? 'border-blue-400 ring-2 ring-blue-100 bg-blue-50/30' : 'border-gray-200'}`}
                                 onMouseEnter={() => setIsVideoPanelHovered(true)}
                                 onMouseLeave={() => setIsVideoPanelHovered(false)}
                                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }}
@@ -3994,7 +4007,7 @@ const Workspace: React.FC = () => {
                                 )}
 
                                 {/* Text Input Area - Lovart style: inline mixed chips + text */}
-                                <div className={`px-4 py-3 cursor-text transition-all ${isInputFocused ? '' : 'opacity-70'}`} onClick={(e) => {
+                                <div className={`px-4 py-2.5 cursor-text transition-all ${isInputFocused ? '' : ''}`} onClick={(e) => {
                                     // 仅在点击空白区域时聚焦最后的文本框（不干扰 chip 点击）
                                     if (e.target === e.currentTarget || (e.target as HTMLElement).closest('.input-flow-container') === e.currentTarget.querySelector('.input-flow-container')) {
                                         const lastText = inputBlocks.filter(b => b.type === 'text').pop();
@@ -4286,13 +4299,13 @@ const Workspace: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {/* Bottom Toolbar */}
-                                <div className="p-2 px-3 flex items-center justify-between">
+                                {/* Bottom Toolbar - Lovart: left (attach+mode) | right (controls+send) */}
+                                <div className="px-3 pb-2 pt-0.5 flex items-center justify-between">
                                     <div className="flex items-center gap-1">
                                         {/* Attachment Button (for Agent mode) */}
                                         {creationMode === 'agent' && (
-                                            <button onClick={() => fileInputRef.current?.click()} className="p-2 rounded-full text-gray-400 hover:text-gray-600 hover:bg-black/5 transition">
-                                                <Paperclip size={18} />
+                                            <button onClick={() => fileInputRef.current?.click()} className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
+                                                <Paperclip size={17} strokeWidth={1.8} />
                                             </button>
                                         )}
 
@@ -4300,12 +4313,12 @@ const Workspace: React.FC = () => {
                                         <div className="relative">
                                             <button
                                                 onClick={() => setShowModeSelector(!showModeSelector)}
-                                                className={`h-8 px-3 rounded-full border flex items-center gap-1.5 text-xs font-medium transition ${creationMode === 'agent' ? 'bg-blue-50 border-[#3B82F6] text-[#3B82F6]' :
-                                                    creationMode === 'image' ? 'bg-blue-50 border-[#3B82F6] text-[#3B82F6]' :
-                                                        'bg-blue-50 border-blue-500 text-blue-600'
+                                                className={`h-7 px-3 rounded-full border flex items-center gap-1.5 text-xs font-medium transition-all ${creationMode === 'agent' ? 'bg-white border-blue-400/60 text-blue-500 shadow-sm' :
+                                                    creationMode === 'image' ? 'bg-white border-blue-400/60 text-blue-500 shadow-sm' :
+                                                        'bg-white border-blue-400/60 text-blue-500 shadow-sm'
                                                     }`}
                                             >
-                                                {creationMode === 'agent' && <><Sparkles size={12} /> Agent</>}
+                                                {creationMode === 'agent' && <><Sparkles size={12} strokeWidth={2} /> Agent</>}
                                                 {creationMode === 'image' && <><ImageIcon size={12} /> 图像</>}
                                                 {creationMode === 'video' && <><Video size={12} /> 视频</>}
                                             </button>
@@ -4337,7 +4350,10 @@ const Workspace: React.FC = () => {
                                                 </div>
                                             )}
                                         </div>
+                                    </div>
 
+                                    {/* Right side controls */}
+                                    <div className="flex items-center gap-0.5">
                                         {/* Video: Setup Panel */}
                                         {creationMode === 'video' && (
                                             <>
@@ -4357,7 +4373,7 @@ const Workspace: React.FC = () => {
                                         {/* Agent Mode: Enhanced Controls */}
                                         {creationMode === 'agent' && (
                                             <>
-                                                <div className="h-8 bg-gray-100 rounded-full flex items-center p-1 gap-1 border border-gray-200 relative">
+                                                <div className="h-7 bg-gray-100/80 rounded-full flex items-center p-0.5 gap-0.5 relative">
                                                     <div className="relative group/think">
                                                         <button
                                                             onClick={() => handleModeSwitch('thinking')}
@@ -4386,7 +4402,7 @@ const Workspace: React.FC = () => {
                                                     </div>
                                                 </div>
                                                 <div className="relative group/web">
-                                                    <button onClick={() => setWebEnabled(!webEnabled)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${webEnabled ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-black/5 bg-white'}`}><Globe size={16} strokeWidth={1.5} /></button>
+                                                    <button onClick={() => setWebEnabled(!webEnabled)} className={`w-7 h-7 rounded-full flex items-center justify-center transition ${webEnabled ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}><Globe size={15} strokeWidth={1.8} /></button>
                                                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover/web:opacity-100 transition pointer-events-none z-50 shadow-lg">
                                                         <div className="font-medium">联网搜索</div>
                                                         <div className="text-gray-400 text-[10px]">{webEnabled ? '已开启' : '已关闭'}</div>
@@ -4395,7 +4411,7 @@ const Workspace: React.FC = () => {
                                                 </div>
                                                 <div className="relative">
                                                     <div className="relative group/model">
-                                                        <button onClick={() => setShowModelPreference(!showModelPreference)} className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${showModelPreference ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-black/5 bg-white'}`}><Box size={16} strokeWidth={2} /></button>
+                                                        <button onClick={() => setShowModelPreference(!showModelPreference)} className={`w-7 h-7 rounded-full flex items-center justify-center transition ${showModelPreference ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}><Box size={15} strokeWidth={2} /></button>
                                                         {!showModelPreference && (
                                                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover/model:opacity-100 transition pointer-events-none z-50 shadow-lg">
                                                                 <div className="font-medium">模型偏好</div>
@@ -4455,7 +4471,7 @@ const Workspace: React.FC = () => {
                                                         </div>
                                                     )}
                                                 </div>
-                                                <button onClick={() => handleSend()} disabled={inputBlocks.every(b => (b.type === 'text' && !b.text) || (b.type === 'file' && !b.file))} className={`w-8 h-8 rounded-full flex items-center justify-center transition shadow-sm ${(inputBlocks.every(b => (b.type === 'text' && !b.text) || (b.type === 'file' && !b.file))) ? 'bg-gray-200 text-gray-400' : 'bg-blue-500 text-white hover:scale-105'}`}><ArrowUp size={16} strokeWidth={2.5} /></button>
+                                                <button onClick={() => handleSend()} disabled={inputBlocks.every(b => (b.type === 'text' && !b.text) || (b.type === 'file' && !b.file))} className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${(inputBlocks.every(b => (b.type === 'text' && !b.text) || (b.type === 'file' && !b.file))) ? 'bg-gray-200 text-gray-400' : 'bg-blue-500 text-white hover:bg-blue-600 shadow-sm'}`}><ArrowUp size={15} strokeWidth={2.5} /></button>
                                             </>
                                         )}
                                     </div>

@@ -240,8 +240,8 @@ export abstract class EnhancedBaseAgent {
         if (!proposalsHaveSkills && plan.skillCalls && plan.skillCalls.length > 0) {
             console.log(`[${this.agentInfo.id}] Proposals missing skillCalls, restructuring from top-level skillCalls`);
 
-            if (requestedCount > 1 && plan.skillCalls.length === 1) {
-                // 用户要求多张图但只有1个 skillCall — 需要基于原始 prompt 生成多个变体
+            if (requestedCount > 1 && plan.skillCalls.length === 1 && !['cameron', 'vireo', 'motion'].includes(this.agentInfo.id)) {
+                // 用户要求多张图但只有1个 skillCall — 需要基于原始 prompt 生成多个变体（仅限产品设计类智能体）
                 const baseCall = plan.skillCalls[0];
                 const basePrompt = baseCall.params?.prompt || '';
                 const ecommerceVariants = [
@@ -371,6 +371,22 @@ export abstract class EnhancedBaseAgent {
             };
         }
 
+        // 5.5 如果 AI 选择对话而非直接生成（proposals 为空但有 message），返回对话响应
+        // 这允许智能体（如 Cameron）先询问用户偏好，而不是直接跳入生成
+        if (effectiveProposals.length === 0 && plan.message && (!plan.skillCalls || plan.skillCalls.length === 0)) {
+            return {
+                ...task,
+                status: 'completed',
+                output: {
+                    message: plan.message,
+                    analysis: plan.analysis,
+                    proposals: [],
+                    assets: []
+                },
+                updatedAt: Date.now()
+            };
+        }
+
         // 6. Fallback: 执行顶层 Skills（无 proposals 的情况）
         let fallbackSkillCalls = plan.skillCalls || [];
 
@@ -455,7 +471,7 @@ ${(attachments || []).map((file, index) => {
 
 用户请求: ${message}
 
-【产品识别 - 最高优先级】
+${['cameron'].includes(this.agentInfo.id) ? '' : `【产品识别 - 最高优先级】
 - 如果用户附带了图片（附件），这些图片就是用户的产品/素材。你必须仔细观察每张图片，识别出产品的具体类型、颜色、材质、形状、品牌元素等细节。
 - 在每个 generateImage 的 prompt 中，必须以产品的精确英文描述开头（例如 "A matte black stainless steel water bottle with bamboo lid and minimalist logo" 而不是 "a water bottle"）。
 - 所有生成的图片必须围绕这些具体产品，不能生成无关的随机产品。
@@ -475,11 +491,11 @@ ${(attachments || []).map((file, index) => {
 - 每个 proposal 必须包含自己的 skillCalls 数组，内容/角度/用途各不相同。
 - 电商套图（亚马逊副图）应包含：白底主图、信息图、场景图、细节特写、尺寸包装图等。
 - 不能返回少于用户要求数量的 proposals。
-
+`}
 请分析用户需求，返回以下 JSON 格式:
 {
   "analysis": "用中文简要分析用户需求",
-  "proposals": [{"id": "1", "title": "中文标题", "description": "中文描述", "skillCalls": [{"skillName": "generateImage", "params": {"prompt": "English prompt describing the EXACT product...", "referenceImage": "ATTACHMENT_0", "aspectRatio": "1:1", "model": "Nano Banana Pro"}}]}],
+  "proposals": [{"id": "1", "title": "中文标题", "description": "中文描述", "skillCalls": [{"skillName": "generateImage", "params": {"prompt": "...", "referenceImage": "ATTACHMENT_0", "aspectRatio": "1:1", "model": "Nano Banana Pro"}}]}],
   "message": "用中文回复用户"
 }`;
 

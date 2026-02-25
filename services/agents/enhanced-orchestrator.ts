@@ -10,6 +10,30 @@ import { errorHandler, ErrorType } from '../../utils/error-handler';
 import { executeSkill } from '../skills';
 import { getApiKey, getClient } from '../gemini';
 import { localPreRoute, isChatMessage } from './local-router';
+import { z } from 'zod';
+
+
+/** Zod schema for AI routing response validation */
+const routingResponseSchema = z.object({
+    action: z.literal('route'),
+    targetAgent: z.string().min(1),
+    taskType: z.string().default('general'),
+    complexity: z.enum(['simple', 'complex']).default('simple'),
+    handoffMessage: z.string().default('正在处理您的请求...'),
+    confidence: z.number().min(0).max(1).default(0),
+    fallbackOptions: z.array(z.string()).default([]),
+    estimatedDuration: z.number().default(30),
+    requiredSkills: z.array(z.string()).default([]),
+});
+
+/** Circuit breaker state */
+const circuitBreaker = {
+    failures: 0,
+    lastFailureTime: 0,
+    isOpen: false,
+    threshold: 3,          // 连续失败 N 次后熔断
+    resetTimeout: 60_000,  // 熔断后 60 秒自动恢复（半开状态）
+};
 
 
 
@@ -59,6 +83,17 @@ export async function routeToAgent(
                 { message },
                 false
             );
+        }
+
+        // 熔断器检查：如果熔断器打开，检查是否可以半开尝试
+        if (circuitBreaker.isOpen) {
+            const elapsed = Date.now() - circuitBreaker.lastFailureTime;
+            if (elapsed < circuitBreaker.resetTimeout) {
+                console.warn('[EnhancedOrchestrator] Circuit breaker OPEN, using fallback directly');
+                return createFallbackDecision(message, finalConfig.fallbackAgent);
+            }
+            // 半开状态：允许一次尝试
+            console.log('[EnhancedOrchestrator] Circuit breaker half-open, attempting request');
         }
 
         // 快速路径：本地关键词预路由（0延迟，不依赖API）
@@ -147,9 +182,9 @@ Analyze and route to appropriate agent. Return JSON with:
                 }
             },
             {
-                maxRetries: 1,
+                maxRetries: 2,
                 delay: 1000,
-                backoff: false,
+                backoff: true,
                 context: { message: message.substring(0, 100), function: 'routeToAgent' }
             }
         );
@@ -160,35 +195,49 @@ Analyze and route to appropriate agent. Return JSON with:
         const responseText = result && typeof result === 'object' && 'text' in result
             ? String((result as any).text)
             : '';
-        const parsed = JSON.parse(responseText || '{}');
+        const rawJson = JSON.parse(responseText || '{}');
 
-        // 验证路由决策
-        if (parsed.action !== 'route' || !parsed.targetAgent) {
-            console.warn('[EnhancedOrchestrator] Invalid routing decision, using fallback');
+        // Zod 验证路由决策
+        const parseResult = routingResponseSchema.safeParse(rawJson);
+        if (!parseResult.success) {
+            console.warn('[EnhancedOrchestrator] Invalid routing response:', parseResult.error.issues);
             return createFallbackDecision(message, finalConfig.fallbackAgent);
         }
 
+        const parsed = parseResult.data;
+
         // 检查置信度
-        const confidence = parsed.confidence || 0;
-        if (confidence < finalConfig.confidenceThreshold) {
+        if (parsed.confidence < finalConfig.confidenceThreshold) {
             console.warn(
-                `[EnhancedOrchestrator] Low confidence (${confidence}), adding fallbacks`
+                `[EnhancedOrchestrator] Low confidence (${parsed.confidence}), adding fallbacks`
             );
             parsed.fallbackOptions = [finalConfig.fallbackAgent];
         }
 
+        // 熔断器：成功时重置
+        circuitBreaker.failures = 0;
+        circuitBreaker.isOpen = false;
+
         // 返回增强的路由决策
         return {
-            targetAgent: (parsed.targetAgent || '').toLowerCase(),
-            taskType: parsed.taskType || 'general',
-            complexity: parsed.complexity || 'simple',
-            handoffMessage: parsed.handoffMessage || '正在处理您的请求...',
-            confidence: confidence,
-            fallbackOptions: parsed.fallbackOptions || [],
-            estimatedDuration: parsed.estimatedDuration || 30,
-            requiredSkills: parsed.requiredSkills || []
+            targetAgent: parsed.targetAgent.toLowerCase() as AgentType,
+            taskType: parsed.taskType,
+            complexity: parsed.complexity,
+            handoffMessage: parsed.handoffMessage,
+            confidence: parsed.confidence,
+            fallbackOptions: parsed.fallbackOptions as AgentType[],
+            estimatedDuration: parsed.estimatedDuration,
+            requiredSkills: parsed.requiredSkills
         };
     } catch (error) {
+        // 熔断器：记录失败
+        circuitBreaker.failures++;
+        circuitBreaker.lastFailureTime = Date.now();
+        if (circuitBreaker.failures >= circuitBreaker.threshold) {
+            circuitBreaker.isOpen = true;
+            console.warn(`[EnhancedOrchestrator] Circuit breaker OPEN after ${circuitBreaker.failures} failures`);
+        }
+
         const appError = errorHandler.handleError(error, {
             function: 'routeToAgent',
             message: message.substring(0, 100)

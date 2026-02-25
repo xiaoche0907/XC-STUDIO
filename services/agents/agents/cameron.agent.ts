@@ -13,6 +13,7 @@ export class CameronAgent extends EnhancedBaseAgent {
   get preferredSkills() {
     return [
       'generateImage',
+      'generateVideo',
       'generateCopy',
       'analyzeRegion'
     ];
