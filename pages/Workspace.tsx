@@ -4996,7 +4996,7 @@ const Workspace: React.FC = () => {
                     )}
                     {renderTextToolbar()}
                     {renderShapeToolbar()}
-                    <div ref={canvasLayerRef} className="absolute top-0 left-0 w-0 h-0 overflow-visible" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transformOrigin: '0 0', willChange: 'transform' }}>
+                    <div ref={canvasLayerRef} className="absolute top-0 left-0 w-0 h-0 overflow-visible" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transformOrigin: '0 0', willChange: isPanning ? 'transform' : 'auto', WebkitFontSmoothing: 'antialiased', textRendering: 'optimizeLegibility' }}>
                         {elements.map((el) => {
                             // Hide children of collapsed (merged) groups
                             if (el.groupId) {
