@@ -2439,7 +2439,12 @@ const Workspace: React.FC = () => {
                 // 收集 URL 用于聊天消息显示
                 for (const f of imageFiles) {
                     try {
-                        attachmentUrls.push(URL.createObjectURL(f));
+                        const base64 = await new Promise<string>((resolve) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => resolve(reader.result as string);
+                            reader.readAsDataURL(f);
+                        });
+                        attachmentUrls.push(base64);
                     } catch (_) { /* ignore */ }
                 }
             } else if (filesToSend.length === 0) {
@@ -2454,7 +2459,17 @@ const Workspace: React.FC = () => {
                             const blob = await resp.blob();
                             const imgFile = new File([blob], `canvas-${img.id}.${blob.type.split('/')[1] || 'png'}`, { type: blob.type });
                             filesToSend.push(imgFile);
-                            attachmentUrls.push(img.url!);
+
+                            // Transform canvas url to base64 if it's not already
+                            let base64Url = img.url!;
+                            if (base64Url.startsWith('blob:')) {
+                                base64Url = await new Promise<string>((resolve) => {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => resolve(reader.result as string);
+                                    reader.readAsDataURL(blob);
+                                });
+                            }
+                            attachmentUrls.push(base64Url);
                         } catch (_) { /* ignore */ }
                     }
                 }
@@ -2632,7 +2647,27 @@ const Workspace: React.FC = () => {
             if (filesToSend.length) fullMessage += ` [Attached ${filesToSend.length} video reference frames]`;
         }
 
-        const newUserMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: fullMessage + (filesToSend.length > 0 ? ` [${filesToSend.length} files attached]` : ''), timestamp: Date.now() };
+        let attachmentUrlsForNormalMode: string[] = [];
+        for (const file of filesToSend) {
+            try {
+                if (file.type && file.type.startsWith('image/')) {
+                    const base64 = await new Promise<string>((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result as string);
+                        reader.readAsDataURL(file);
+                    });
+                    attachmentUrlsForNormalMode.push(base64);
+                }
+            } catch (e) { console.warn('Failed to parse normal mode image attachment to base64', e); }
+        }
+
+        const newUserMsg: ChatMessage = {
+            id: Date.now().toString(),
+            role: 'user',
+            text: fullMessage + (filesToSend.length > 0 ? ` [${filesToSend.length} files attached]` : ''),
+            timestamp: Date.now(),
+            attachments: attachmentUrlsForNormalMode.length > 0 ? attachmentUrlsForNormalMode : undefined
+        };
         setMessages(prev => [...prev, newUserMsg]);
         setInputBlocks([{ id: `text-${Date.now()}`, type: 'text', text: '' }]);
         setMarkers([]);
@@ -4188,7 +4223,7 @@ const Workspace: React.FC = () => {
                                                 /* Lovart-style agent response card */
                                                 <div className="w-full max-w-[95%]">
                                                     {/* Message text (short summary, not full analysis) */}
-                                                    <div className="text-sm text-gray-700 mb-3 leading-relaxed whitespace-pre-wrap">
+                                                    <div className="text-[13px] text-gray-700 mb-2 leading-relaxed whitespace-pre-wrap">
                                                         {msg.text}
                                                     </div>
 
@@ -4196,25 +4231,25 @@ const Workspace: React.FC = () => {
                                                     {(msg.agentData.model || msg.agentData.title) && (
                                                         <div className="flex items-center gap-2 mb-2 flex-wrap">
                                                             {msg.agentData.model && (
-                                                                <div className="inline-flex items-center gap-1.5 bg-gray-100 rounded-full px-2.5 py-1">
-                                                                    <div className="w-3.5 h-3.5 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full" />
+                                                                <div className="inline-flex items-center gap-1.5 bg-gray-50 border border-gray-100/80 rounded-full px-2 py-0.5">
+                                                                    <div className="w-3 h-3 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full" />
                                                                     <span className="text-[11px] font-medium text-gray-600">{msg.agentData.model}</span>
                                                                 </div>
                                                             )}
                                                             {msg.agentData.title && (
-                                                                <span className="text-sm font-semibold text-gray-900">{msg.agentData.title}</span>
+                                                                <span className="text-[13px] font-semibold text-gray-900">{msg.agentData.title}</span>
                                                             )}
                                                         </div>
                                                     )}
 
                                                     {/* Generated images - grid for multiple */}
                                                     {msg.agentData.imageUrls && msg.agentData.imageUrls.length > 0 && (
-                                                        <div className={`mb-3 ${msg.agentData.imageUrls.length === 1 ? '' : msg.agentData.imageUrls.length <= 4 ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-3 gap-1.5'}`}>
+                                                        <div className={`mb-2 ${msg.agentData.imageUrls.length === 1 ? '' : msg.agentData.imageUrls.length <= 4 ? 'grid grid-cols-2 gap-1.5' : 'grid grid-cols-3 gap-1'}`}>
                                                             {msg.agentData.imageUrls.map((url, i) => (
                                                                 <img
                                                                     key={i}
                                                                     src={url}
-                                                                    className="w-full rounded-xl border border-gray-200 cursor-pointer hover:shadow-lg transition"
+                                                                    className="w-full rounded-xl border border-gray-200 cursor-pointer hover:opacity-90 transition object-cover"
                                                                     onClick={() => setPreviewUrl(url)}
                                                                 />
                                                             ))}
@@ -4223,17 +4258,17 @@ const Workspace: React.FC = () => {
 
                                                     {/* Description */}
                                                     {msg.agentData.description && (
-                                                        <p className="text-xs text-gray-500 mb-3 leading-relaxed">{msg.agentData.description}</p>
+                                                        <p className="text-[12px] text-gray-500 mb-2 leading-relaxed">{msg.agentData.description}</p>
                                                     )}
 
                                                     {/* Adjustment buttons */}
                                                     {msg.agentData.adjustments && msg.agentData.adjustments.length > 0 && (
-                                                        <div className="flex flex-wrap gap-1.5 mb-3">
+                                                        <div className="flex flex-wrap gap-1.5 mb-2">
                                                             {msg.agentData.adjustments.map((adj, i) => (
                                                                 <button
                                                                     key={i}
                                                                     onClick={() => handleSend(adj)}
-                                                                    className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-full transition hover:text-gray-900"
+                                                                    className="px-2.5 py-1 text-[11px] font-medium text-gray-600 bg-white hover:bg-gray-50 border border-gray-200 rounded-full transition hover:text-gray-900 shadow-sm"
                                                                 >
                                                                     {adj}
                                                                 </button>
