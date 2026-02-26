@@ -4540,8 +4540,8 @@ const Workspace: React.FC = () => {
                                                     return (
                                                         <div
                                                             key={block.id}
-                                                            className={`inline-flex flex-shrink-0 items-center gap-1 rounded-lg pl-1 pr-1.5 select-none relative group h-7 cursor-default transition-all border ${isSelected
-                                                                ? 'bg-blue-50 border-blue-200'
+                                                            className={`inline-flex items-center gap-1 rounded-lg pl-1 pr-1.5 select-none relative group h-7 cursor-default transition-all border shrink-0 ${isSelected
+                                                                ? 'bg-blue-50 border-blue-200 ring-1 ring-blue-500'
                                                                 : isInputFocused ? 'bg-gray-100 border-gray-200' : 'bg-gray-50 border-gray-100'
                                                                 }`}
                                                             onClick={(e) => { e.stopPropagation(); setSelectedChipId(isSelected ? null : block.id); }}
@@ -4574,13 +4574,13 @@ const Workspace: React.FC = () => {
                                                         className="ce-placeholder outline-none text-sm text-gray-800 inline"
                                                         data-placeholder={placeholder}
                                                         style={{
-                                                            display: 'inline',
+                                                            display: 'block',
                                                             lineHeight: '28px',
                                                             whiteSpace: 'pre-wrap',
                                                             wordBreak: 'break-word',
                                                             caretColor: '#111827',
                                                             minWidth: '2px',
-                                                            flex: isLastTextBlock ? '1 1 auto' : undefined,
+                                                            flex: isLastTextBlock ? '1 1 auto' : '0 1 auto',
                                                         }}
                                                         ref={el => {
                                                             if (el) {
