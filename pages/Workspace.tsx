@@ -286,6 +286,27 @@ const Workspace: React.FC = () => {
     useEffect(() => { activeBlockIdRef.current = activeBlockId; }, [activeBlockId]);
     useEffect(() => { selectionIndexRef.current = selectionIndex; }, [selectionIndex]);
 
+    // Normalize input blocks: merge adjacent text blocks and ensure at least one text block
+    const normalizeInputBlocks = (blocks: InputBlock[]): InputBlock[] => {
+        if (blocks.length === 0) return [{ id: `text-${Date.now()}`, type: 'text', text: '' }];
+        const result: InputBlock[] = [];
+        for (const block of blocks) {
+            if (block.type === 'text') {
+                const last = result[result.length - 1];
+                if (last && last.type === 'text') {
+                    last.text = (last.text || '') + (block.text || '');
+                    continue;
+                }
+            }
+            result.push({ ...block });
+        }
+        // If result ends with a file, add an empty text block for continuation
+        if (result[result.length - 1]?.type === 'file') {
+            result.push({ id: `text-${Date.now()}`, type: 'text', text: '' });
+        }
+        return result;
+    };
+
     // Insert File Logic for Blocks (Moved to top for scope visibility)
     // Uses Refs to ensure event handlers (paste) get current cursor
     const insertInputFile = (file: File) => {
@@ -338,10 +359,10 @@ const Workspace: React.FC = () => {
                 const after = prev.slice(activeIndex + 1);
                 const result = [...before, ...newBlocks, ...after];
                 console.log('Returning merged blocks:', result.length);
-                return result;
+                return normalizeInputBlocks(result);
             } else {
                 console.log('Active block is not text, appending after');
-                return [...prev, { id: `file-${Date.now()}`, type: 'file', file }, { id: `text-${Date.now()}`, type: 'text', text: '' }];
+                return normalizeInputBlocks([...prev, { id: `file-${Date.now()}`, type: 'file', file }, { id: `text-${Date.now()}`, type: 'text', text: '' }]);
             }
         });
     };
@@ -691,9 +712,10 @@ const Workspace: React.FC = () => {
             );
             if (!hasOrphanChip) return prev;
             // 移除孤立 chip，并重新编号剩余 chip 的 markerId
-            const filtered = prev.filter(b =>
+            let filtered = prev.filter(b =>
                 !(b.type === 'file' && b.file && (b.file as any).markerId && !markerIds.includes((b.file as any).markerId))
             );
+            filtered = normalizeInputBlocks(filtered);
             let idx = 1;
             filtered.forEach(b => {
                 if (b.type === 'file' && b.file && (b.file as any).markerId) {
@@ -723,7 +745,7 @@ const Workspace: React.FC = () => {
                     if ((b.file as any)._canvasAutoInsert) return false; // 移除自动插入的画布图片
                     return true; // 保留标记点 chip 和手动添加的文件
                 });
-                return filtered.length > 0 ? filtered : [{ id: `text-${Date.now()}`, type: 'text' as const, text: '' }];
+                return normalizeInputBlocks(filtered);
             });
             return;
         }
@@ -806,34 +828,20 @@ const Workspace: React.FC = () => {
 
     const removeInputBlock = (blockId: string) => {
         setInputBlocks(prev => {
-            // If removing a file block, we should merge adjacent text blocks
             const idx = prev.findIndex(b => b.id === blockId);
             if (idx === -1) return prev;
 
             const newBlocks = [...prev];
-
-            // Logic: remove block at idx
-            // Check if left and right are text
-            const left = newBlocks[idx - 1];
-            const right = newBlocks[idx + 1];
+            const block = newBlocks[idx];
 
             // Also remove corresponding markers from canvas if this file had a markerId
-            const block = newBlocks[idx];
             if (block.file && (block.file as any).markerId) {
                 const markerId = (block.file as any).markerId;
                 const newMarkers = markers.filter(m => m.id !== markerId).map((m, i) => ({ ...m, id: i + 1 }));
-                // Need to update markerIds in OTHER blocks too?
-                // Since markers state is external, we update it.
-                // But the file objects in OTHER blocks still hold old markerIds.
-                // We need to update those active file objects.
-                // This is tricky with React State immutability inside File objects. But 'insertInputFile' uses references.
-                // We should map inputBlocks to update file markerIds.
-
-                // First, update canvas markers
                 setMarkers(newMarkers);
                 saveToHistory(elements, newMarkers);
 
-                // Then update inputBlocks' files
+                // Update inputBlocks' files markerIds
                 newBlocks.forEach(b => {
                     if (b.type === 'file' && b.file && (b.file as any).markerId > markerId) {
                         (b.file as any).markerId -= 1;
@@ -841,21 +849,22 @@ const Workspace: React.FC = () => {
                 });
             }
 
-            if (left?.type === 'text' && right?.type === 'text') {
-                // Merge
-                left.text = (left.text || '') + (right.text || '');
-                // Remove current and right
-                newBlocks.splice(idx, 2);
-                // Focus left
-                setActiveBlockId(left.id);
-            } else {
-                // Just remove
-                newBlocks.splice(idx, 1);
-                // If we removed the last block and it's empty, ensure at least one text block?
-                if (newBlocks.length === 0) newBlocks.push({ id: `text-${Date.now()}`, type: 'text', text: '' });
+            // Remove the block
+            newBlocks.splice(idx, 1);
+
+            // Normalize and determine new core focus
+            const normalized = normalizeInputBlocks(newBlocks);
+
+            // Set active block to the text block nearest to removal point if possible
+            const newActiveIdx = Math.min(idx, normalized.length - 1);
+            const targetBlock = normalized.find((b, i) => i >= newActiveIdx && b.type === 'text')
+                || [...normalized].reverse().find(b => b.type === 'text');
+
+            if (targetBlock) {
+                setActiveBlockId(targetBlock.id);
             }
 
-            return newBlocks;
+            return normalized;
         });
     };
 
