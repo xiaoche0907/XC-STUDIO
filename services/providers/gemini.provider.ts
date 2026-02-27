@@ -4,12 +4,12 @@ import { generateImage, generateVideo } from '../gemini';
 export const geminiImageProvider: ImageProvider = {
   id: 'gemini',
   name: 'Gemini',
-  models: ['Nano Banana', 'Nano Banana Pro'],
+  models: ['Nano Banana Pro'],
 
   async generateImage(request: ImageGenerationRequest, model: string): Promise<string | null> {
     return generateImage({
       prompt: request.prompt,
-      model: model as 'Nano Banana' | 'Nano Banana Pro',
+      model: model as any,
       aspectRatio: request.aspectRatio,
       imageSize: request.imageSize,
       referenceImage: request.referenceImage,

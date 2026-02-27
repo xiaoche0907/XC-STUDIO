@@ -16,8 +16,9 @@ const videoProviders: Map<string, VideoProvider> = new Map([
 
 // Model → Provider lookup
 const modelToImageProvider: Record<string, string> = {
-  'Nano Banana': 'gemini',
   'Nano Banana Pro': 'gemini',
+  'NanoBanana2': 'gemini',
+  'Seedream5.0': 'gemini',
   'Flux Schnell': 'replicate',
   'SDXL': 'replicate',
 };

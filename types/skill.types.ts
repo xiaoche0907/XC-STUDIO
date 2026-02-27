@@ -1,4 +1,4 @@
-export type ImageModel = 'Nano Banana' | 'Nano Banana Pro' | 'Flux Schnell' | 'SDXL';
+export type ImageModel = 'Nano Banana Pro' | 'Flux Schnell' | 'SDXL';
 export type VideoModel = 'Veo 3.1' | 'Veo 3.1 Fast' | 'Kling Standard' | 'Kling Pro';
 
 export interface ImageGenSkillParams {

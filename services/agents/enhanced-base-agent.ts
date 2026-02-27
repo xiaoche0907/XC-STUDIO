@@ -354,108 +354,78 @@ export abstract class EnhancedBaseAgent {
             };
         }
 
-        // 5. 并行执行所有 proposals 的 skillCalls（大幅提速）
-        if (effectiveProposals.length > 0) {
-            const generatedAssets: GeneratedAsset[] = [];
+        // 6. 执行顶层 Skills（无 proposals 的情况）
+        // 如果已经有了 proposals，我们应该跳过任何顶层技能的自动执行，
+        // 从而确保进入“预览 -> 选择”流程。
+        let fallbackSkillCalls = [];
+        if (effectiveProposals.length === 0) {
+            fallbackSkillCalls = plan.skillCalls || [];
 
-            // 更新状态为 executing（让 UI 显示"生成中"而非"分析中"）
-            task = this.updateTaskStatus(task, 'executing');
-
-            const proposalsWithSkills = effectiveProposals.filter(
-                (p: any) => p.skillCalls && Array.isArray(p.skillCalls) && p.skillCalls.length > 0
-            );
-
-            console.log(`[${this.agentInfo.id}] Executing ${proposalsWithSkills.length} proposals (max 2 concurrent)`);
-
-            // 限流并发执行（最多 2 个同时请求，避免触发 API 限流）
-            const taskFns = proposalsWithSkills.map((proposal: any) => async () => {
-                console.log(`[${this.agentInfo.id}] Executing proposal "${proposal.title}" with ${proposal.skillCalls.length} skill calls`);
-                const results = await this.executeSkills(proposal.skillCalls, task);
-                const assets = this.extractAssets(results);
-                if (assets.length > 0) {
-                    proposal.generatedUrl = assets[0].url;
-                }
-                return assets;
-            });
-            const allResults = await runWithConcurrency(taskFns, this.maxConcurrency);
-
-            // 收集所有成功的结果
-            for (const result of allResults) {
-                if (result.status === 'fulfilled') {
-                    generatedAssets.push(...(result.value as GeneratedAsset[]));
+            // 6.5 Fallback 兜底: 如果 Plan 中有 prompt 但没有 skillCalls，自动构建
+            if (fallbackSkillCalls.length === 0) {
+                const planPrompt = plan.prompt || plan.imagePrompt || plan.image_prompt || '';
+                if (planPrompt) {
+                    console.log(`[${this.agentInfo.id}] Fallback: building skillCall from plan.prompt`);
+                    fallbackSkillCalls = [{
+                        skillName: 'generateImage',
+                        params: {
+                            prompt: planPrompt,
+                            model: plan.model || 'Nano Banana Pro',
+                            aspectRatio: plan.aspectRatio || plan.aspect_ratio || '1:1'
+                        }
+                    }];
                 } else {
-                    console.warn(`[${this.agentInfo.id}] Proposal execution failed:`, result.reason);
+                    console.warn(`[${this.agentInfo.id}] No skillCalls, no proposals with skills, no prompt found. Plan keys:`, Object.keys(plan));
                 }
             }
-
-            console.log(`[${this.agentInfo.id}] Total generated assets: ${generatedAssets.length}`);
-
-            return {
-                ...task,
-                status: 'completed',
-                output: {
-                    message: plan.analysis || '已为您生成设计方案',
-                    analysis: plan.analysis,
-                    proposals: effectiveProposals,
-                    assets: generatedAssets,
-                    adjustments: this.getAdjustments(message, effectiveProposals)
-                },
-                updatedAt: Date.now()
-            };
+        } else {
+             console.log(`[${this.agentInfo.id}] Proposals exist. Skipping fallback skill execution.`);
         }
 
-        // 5.5 如果 AI 选择对话而非直接生成（proposals 为空但有 message），返回对话响应
-        // 这允许智能体（如 Cameron）先询问用户偏好，而不是直接跳入生成
-        if (effectiveProposals.length === 0 && plan.message && (!plan.skillCalls || plan.skillCalls.length === 0)) {
-            return {
-                ...task,
-                status: 'completed',
-                output: {
-                    message: plan.message,
-                    analysis: plan.analysis,
-                    proposals: [],
-                    assets: []
-                },
-                updatedAt: Date.now()
-            };
-        }
-
-        // 6. Fallback: 执行顶层 Skills（无 proposals 的情况）
-        let fallbackSkillCalls = plan.skillCalls || [];
-
-        // 6.5 Fallback 兜底: 如果 Plan 中有 prompt 但没有 skillCalls，自动构建
-        if (fallbackSkillCalls.length === 0) {
-            const planPrompt = plan.prompt || plan.imagePrompt || plan.image_prompt || '';
-            if (planPrompt) {
-                console.log(`[${this.agentInfo.id}] Fallback: building skillCall from plan.prompt`);
-                fallbackSkillCalls = [{
-                    skillName: 'generateImage',
-                    params: {
-                        prompt: planPrompt,
-                        model: plan.model || 'Nano Banana Pro',
-                        aspectRatio: plan.aspectRatio || plan.aspect_ratio || '1:1'
-                    }
-                }];
-            } else {
-                console.warn(`[${this.agentInfo.id}] No skillCalls, no proposals with skills, no prompt found. Plan keys:`, Object.keys(plan));
+        // 5. 交互逻辑重构 (对齐图 2): 
+        // 发现 proposals 时不再拦截，而是提取所有提案中的 skillCalls 并立即执行。
+        let activeSkillCalls = [...fallbackSkillCalls];
+        
+        if (effectiveProposals.length > 0) {
+            console.log(`[${this.agentInfo.id}] Automatically executing skills from ${effectiveProposals.length} proposals.`);
+            
+            for (const p of effectiveProposals) {
+                if (p.skillCalls && p.skillCalls.length > 0) {
+                    activeSkillCalls = [...activeSkillCalls, ...p.skillCalls];
+                }
             }
         }
 
-        const skillResults = await this.executeSkills(fallbackSkillCalls, task);
+        let skillResults = [];
+        if (activeSkillCalls.length > 0) {
+            skillResults = await this.executeSkills(activeSkillCalls, task);
+        }
 
         // 7. 提取生成的资产
         const assets = this.extractAssets(skillResults);
+        const assetUrls = assets.map(a => a.url);
 
         // 8. 组装最终输出
+        // 如果资产生成成功，message 应该是完成反馈；否则使用分析信息
+        let finalMessage = assets.length > 0 
+            ? (plan.message || `我已根据方案为您生成了 ${assets.length} 张图片并添加至画布。`)
+            : (plan.message || plan.analysis || '任务已完成');
+
+        // 彻底清理文本中的 json:generation 块（支持多行和代码块语法），防止前端渲染多余按钮
+        finalMessage = finalMessage.replace(/```json:generation\s*[\s\S]*?```/g, '').trim();
+
         return {
             ...task,
             status: 'completed',
             output: {
-                message: plan.message || plan.concept || '任务已完成',
+                message: finalMessage,
                 analysis: plan.analysis,
-                proposals: effectiveProposals,
+                // 全自动执行后，清除 proposals 以隐藏 UI 中的方案卡片和“立即生成”按钮
+                proposals: assets.length > 0 ? [] : effectiveProposals,
                 assets,
-                skillCalls: skillResults
+                imageUrls: assetUrls, // 同步到 imageUrls 供 AgentMessage 列表渲染
+                skillCalls: skillResults,
+                adjustments: assets.length > 0 ? this.getAdjustments(message, effectiveProposals) : (plan.suggestions || [])
             },
             updatedAt: Date.now()
         };
@@ -814,7 +784,9 @@ ${productSection}${quantitySection}${multiImageSection}
                 console.warn('[Agent] Deep JSON extraction failed too', e2);
             }
 
-            return { message: response, skillCalls: [] };
+            // 彻底移除所有 json:generation 块，并清理多余空行，确保最终文案纯净
+            const cleanedResponse = response.replace(/```json:generation\s*[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n').trim();
+            return { message: cleanedResponse, skillCalls: [] };
         }
     }
 

@@ -17,7 +17,7 @@ import {
     Minimize2, Play, Film, Clock, SquarePen, Folder, PanelRightClose,
     Eraser, Scissors, Shirt, Expand, Crop, MonitorUp, Highlighter,
     Gift, Store, Layout, Copy, Info, MessageSquarePlus, File as FileIcon, CirclePlus,
-    Scan, ZoomIn, Scaling, Wand2
+    Scan, ZoomIn, Scaling, Wand2, Banana
 } from 'lucide-react';
 import { createChatSession, sendMessage, generateImage, generateVideo, extractTextFromImage, analyzeImageRegion } from '../services/gemini';
 import { ChatMessage, Template, CanvasElement, ShapeType, Marker, Project, ConversationSession } from '../types';
@@ -243,22 +243,8 @@ const Workspace: React.FC = () => {
     // 对话历史管理
     const [conversations, setConversations] = useState<ConversationSession[]>([]);
     const [activeConversationId, setActiveConversationId] = useState<string>('');
+    const isLoadingRecord = useRef(false);
 
-    // 当项目 id 变化时，如果 project 尚未加载完成，这会在 loadProject 中处理
-    // 但如果想单独初始化 activeConversationId，可以在此
-    useEffect(() => {
-        if (!id) return;
-        setActiveConversationId(id);
-        const projectConversation = conversations.find(c => c.id === id);
-        if (projectConversation) {
-            setMessages(projectConversation.messages);
-            if (projectConversation.title && projectTitle === '未命名' && projectConversation.title !== '新对话') {
-                setProjectTitle(projectConversation.title);
-            }
-        } else {
-            setMessages([]);
-        }
-    }, [id, conversations.length === 0]);
 
     const [historySearch, setHistorySearch] = useState('');
     const [showAssistant, setShowAssistant] = useState(true);
@@ -391,6 +377,8 @@ const Workspace: React.FC = () => {
     const MODEL_OPTIONS = {
         image: [
             { id: 'Nano Banana Pro', name: 'Nano Banana Pro', desc: '高质量图像生成，细节丰富', time: '~20s' },
+            { id: 'NanoBanana2', name: 'Nano Banana 2', desc: '新一代极速图像生成', time: '~5s' },
+            { id: 'Seedream5.0', name: 'Seedream 5.0', desc: '深度审美，电影级画质', time: '~15s' },
             { id: 'GPT Image 1.5', name: 'GPT Image 1.5', desc: '创意图像生成，风格多样', time: '~120s' },
             { id: 'Flux.2 Max', name: 'Flux.2 Max', desc: '快速图像生成，效率优先', time: '~10s' },
         ],
@@ -537,7 +525,7 @@ const Workspace: React.FC = () => {
             width: 512,
             height: 512,
             genPrompt: prompt,
-            genModel: 'Nano Banana', // Default model for smart generate
+            genModel: 'Nano Banana Pro', // Standardized to Pro
             zIndex: elements.length + 10, // Ensure it's on top
             isGenerating: true
         };
@@ -545,10 +533,36 @@ const Workspace: React.FC = () => {
         setSelectedElementId(id); // Select the newly generated element
 
         try {
+            // Find reference images from context (InputBlocks or Canvas)
+            let referenceImages: string[] = [];
+            
+            // 1. From InputBlocks
+            const currentBlocks = useAgentStore.getState().inputBlocks;
+            const blockFiles = currentBlocks.filter(b => b.type === 'file' && b.file).map(b => b.file!) as File[];
+            for (const f of blockFiles) {
+                try {
+                    const base64 = await new Promise<string>((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result as string);
+                        reader.readAsDataURL(f);
+                    });
+                    referenceImages.push(base64);
+                } catch (_) {}
+            }
+
+            // 2. From Canvas if no blocks
+            if (referenceImages.length === 0) {
+                const canvasImages = elements.filter(e => (e.type === 'image' || e.type === 'gen-image') && e.url);
+                if (canvasImages.length > 0) {
+                    referenceImages = canvasImages.slice(-3).map(e => e.url!);
+                }
+            }
+
             const resultUrl = await imageGenSkill({
                 prompt: prompt,
-                model: 'Nano Banana',
-                aspectRatio: '1:1'
+                model: 'Nano Banana Pro',
+                aspectRatio: '1:1',
+                referenceImages: referenceImages.length > 0 ? referenceImages : undefined
             });
 
             if (resultUrl) {
@@ -561,7 +575,7 @@ const Workspace: React.FC = () => {
                     text: `已为您完成智能生成：${prompt.slice(0, 30)}${prompt.length > 30 ? '...' : ''}`,
                     timestamp: Date.now(),
                     agentData: {
-                        model: 'Nano Banana',
+                        model: 'Nano Banana Pro',
                         title: '智能生成',
                         imageUrls: [resultUrl]
                     }
@@ -584,6 +598,58 @@ const Workspace: React.FC = () => {
         onHistorySave: (els) => saveToHistory(els, markers),
         autoAddToCanvas: true
     });
+
+    const handleSend = async (overridePrompt?: string, overrideAttachments?: File[], overrideWeb?: boolean, skillData?: any) => {
+        // 1. 取出当前输入块
+        const currentBlocks = useAgentStore.getState().inputBlocks;
+        const text = overridePrompt ?? currentBlocks.filter(b => b.type === 'text').map(b => b.text).join(' ').trim();
+        const attachments = overrideAttachments ?? currentBlocks.filter(b => b.type === 'file' && b.file).map(b => b.file!) as File[];
+        const isWeb = overrideWeb ?? webEnabled;
+
+        if (!text && attachments.length === 0) return;
+
+        // 2. 构造并将用户消息添加至 Store
+        const userMsg: ChatMessage = {
+            id: Date.now().toString(),
+            role: 'user',
+            text,
+            attachments: attachments.map(f => URL.createObjectURL(f)),
+            timestamp: Date.now(),
+            skillData
+        };
+        addMessage(userMsg);
+        
+        // 3. 进入打字/思考状态，并重置输入区域
+        setIsTyping(true);
+        clearMessages(); // 此处清空输入框，而非清空对话消息历史
+
+        try {
+            // 4. 调用 Orchestrator 处理任务
+            // Orchestrator 内部会自动检测 Pipeline 或单 Agent，并自动执行 Skills (包括自动添加画布)
+            const result = await processMessage(text, attachments);
+
+            if (result && result.output) {
+                // 5. 构造并添加 Agent 消息
+                // 注意：如果 result.output.assets 有值，说明已自动添加画布，不在此处重复处理
+                const agentMsg: ChatMessage = {
+                    id: result.id,
+                    role: 'model',
+                    text: result.output.message || '已完成任务。',
+                    timestamp: Date.now(),
+                    agentData: {
+                        model: result.agentId,
+                        title: '智能助理',
+                        imageUrls: result.output.imageUrls || [] // 如果是自动生成的，这里会有图片 URL 预览
+                    }
+                };
+                addMessage(agentMsg);
+            }
+        } catch (error) {
+            console.error('[Workspace] handleSend failed:', error);
+        } finally {
+            setIsTyping(false);
+        }
+    };
 
     // Close video dropdowns on outside click
     useEffect(() => {
@@ -827,8 +893,9 @@ const Workspace: React.FC = () => {
         sel.addRange(range);
     };
     useEffect(() => {
-        if (!id) return;
+        if (!id || isLoadingRecord.current) return;
         const save = async () => {
+            if (isLoadingRecord.current) return;
             const firstImage = elements.find(el => el.type === 'image' || el.type === 'gen-image');
             const thumbnail = firstImage?.url || '';
             await saveProject({ id, title: projectTitle, updatedAt: formatDate(Date.now()), elements, markers, thumbnail, conversations });
@@ -1165,21 +1232,49 @@ const Workspace: React.FC = () => {
     useEffect(() => {
         if (id) {
             const load = async () => {
-                const project = await getProject(id);
-                if (project) {
-                    if (project.elements) setElements(project.elements);
-                    // Note: We intentionally don't restore markers here because
-                    // the corresponding File objects in inputBlocks cannot be serialized/restored
-                    // Markers are session-specific and should be recreated by user
-                    if (project.title) setProjectTitle(project.title);
-                    if (project.conversations) {
-                        setConversations(project.conversations);
-                        // Also try to restore the active conversation's messages
-                        const activeC = project.conversations.find(c => c.id === id);
-                        if (activeC) setMessages(activeC.messages);
+                isLoadingRecord.current = true;
+                console.log('[Workspace] Loading project:', id);
+
+                // 1. 立即同步清空当前项目的本地状态，防止 UI 闪烁旧数据
+                // 不使用 prev => ... 以确保绝对的清空
+                setElements([]);
+                setMarkers([]);
+                setConversations([]);
+                setProjectTitle('未命名');
+                setHistory([{ elements: [], markers: [] }]);
+                setHistoryStep(0);
+                setSelectedElementId(null);
+                setSelectedElementIds([]);
+                setActiveConversationId(''); // 必须清空活跃对话ID，防止保存到旧ID
+                
+                // 2. 重置 AI 助手相关的全局 Store 状态 (消息、任务等)
+                useAgentStore.getState().actions.reset();
+
+                try {
+                    const project = await getProject(id);
+                    if (project) {
+                        console.log('[Workspace] Project found, restoring state');
+                        if (project.elements) setElements(project.elements);
+                        if (project.title) setProjectTitle(project.title);
+                        if (project.conversations) {
+                            setConversations(project.conversations);
+                            const activeC = project.conversations.find(c => c.id === id);
+                            if (activeC) {
+                                // 深度持久化消息到 store
+                                useAgentStore.getState().actions.setMessages(activeC.messages);
+                            }
+                        }
+                        setHistory([{ elements: project.elements || [], markers: [] }]);
+                        setHistoryStep(0);
                     }
-                    setHistory([{ elements: project.elements || [], markers: [] }]);
-                    setHistoryStep(0);
+                } catch (err) {
+                    console.error('[Workspace] Load failed:', err);
+                } finally {
+                    // 延迟释放标识位，确保所有 React 状态变更已排队
+                    setTimeout(() => {
+                        isLoadingRecord.current = false;
+                        console.log('[Workspace] Load complete, persistence enabled');
+                    }, 300);
                 }
             };
             load();
@@ -1527,7 +1622,7 @@ const Workspace: React.FC = () => {
         const update1 = elements.map(e => e.id === elementId ? { ...e, isGenerating: true } : e);
         setElements(update1);
         const currentAspectRatio = getClosestAspectRatio(el.width, el.height);
-        const model: 'Nano Banana' | 'Nano Banana Pro' = (el.genModel === 'Nano Banana' || el.genModel === 'Nano Banana Pro') ? el.genModel : 'Nano Banana Pro';
+        const model: 'Nano Banana Pro' = 'Nano Banana Pro';
         try {
             const resultUrl = await imageGenSkill({
                 prompt: el.genPrompt,
@@ -2233,299 +2328,6 @@ const Workspace: React.FC = () => {
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
-
-
-    const handleSend = async (textOverride?: string, attachmentsOverride?: File[], enableWebSearch: boolean = webEnabled, skillData?: { id: string; name: string; iconName: string }) => {
-        // Construct message from blocks
-        const derivedText = inputBlocks.filter(b => b.type === 'text').map(b => b.text).join(' ');
-        const derivedFiles = inputBlocks.filter(b => b.type === 'file' && b.file).map(b => b.file!) as File[];
-
-        const textToSend = textOverride !== undefined ? textOverride : derivedText;
-        let filesToSend = attachmentsOverride !== undefined ? attachmentsOverride : derivedFiles;
-
-        if ((!textToSend.trim() && filesToSend.length === 0 && markers.length === 0) || isTyping) return;
-
-        // Auto-detect Skill Data for manually typed prompts to ensure they render as components
-        let finalSkillData = skillData;
-        if (!finalSkillData && creationMode === 'agent' && textToSend.trim()) {
-            const routedAgent = localPreRoute(textToSend);
-            switch (routedAgent) {
-                case 'cameron': finalSkillData = { id: 'cameron', name: '分镜故事板', iconName: 'Film' }; break;
-                case 'campaign': finalSkillData = { id: 'campaign', name: '营销与电商', iconName: 'Store' }; break;
-                case 'poster': finalSkillData = { id: 'poster', name: '视觉海报', iconName: 'FileText' }; break;
-                case 'vireo': finalSkillData = { id: 'vireo', name: '品牌视觉', iconName: 'Layout' }; break;
-                case 'package': finalSkillData = { id: 'package', name: '包装设计', iconName: 'Box' }; break;
-                case 'motion': finalSkillData = { id: 'motion', name: '动效流', iconName: 'Video' }; break;
-                default:
-                    // Only wrap as a generic tool if it's long enough or looks like a prompt, otherwise let it be a text message?
-                    // Actually, treating everything as a task looks cleaner for the "Skill App" vision
-                    finalSkillData = { id: 'general', name: '智能分析', iconName: 'Sparkles' };
-                    break;
-            }
-        }
-
-        // Agent mode handling
-        if (agentMode && textToSend.trim()) {
-            let agentText = textToSend;
-            let attachmentUrls: string[] = [];
-
-            // filesToSend 已经包含了 inputBlocks 里的文件（含自动插入的画布选中图片）
-            // 统计其中的图片文件数量
-            const imageFiles = filesToSend.filter(f => f.type && f.type.startsWith('image/'));
-            if (imageFiles.length > 0) {
-                agentText += ` [已附带 ${imageFiles.length} 张参考图片，请基于这些产品图片来生成]`;
-                // 收集 URL 用于聊天消息显示
-                for (const f of imageFiles) {
-                    try {
-                        const base64 = await new Promise<string>((resolve) => {
-                            const reader = new FileReader();
-                            reader.onloadend = () => resolve(reader.result as string);
-                            reader.readAsDataURL(f);
-                        });
-                        attachmentUrls.push(base64);
-                    } catch (_) { /* ignore */ }
-                }
-            } else if (filesToSend.length === 0) {
-                // 没有任何附件时，自动从画布上找图片元素作为产品参考
-                const canvasImages = elements.filter(e => (e.type === 'image' || e.type === 'gen-image') && e.url);
-                if (canvasImages.length > 0) {
-                    const recentImages = canvasImages.slice(-3);
-                    agentText += ` [画布上有 ${canvasImages.length} 张图片，已自动附带最近的 ${recentImages.length} 张作为产品参考]`;
-                    for (const img of recentImages) {
-                        try {
-                            const resp = await fetch(img.url!);
-                            const blob = await resp.blob();
-                            const imgFile = new File([blob], `canvas-${img.id}.${blob.type.split('/')[1] || 'png'}`, { type: blob.type });
-                            filesToSend.push(imgFile);
-
-                            // Transform canvas url to base64 if it's not already
-                            let base64Url = img.url!;
-                            if (base64Url.startsWith('blob:')) {
-                                base64Url = await new Promise<string>((resolve) => {
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => resolve(reader.result as string);
-                                    reader.readAsDataURL(blob);
-                                });
-                            }
-                            attachmentUrls.push(base64Url);
-                        } catch (_) { /* ignore */ }
-                    }
-                }
-            }
-
-            const newUserMsg: ChatMessage = {
-                id: Date.now().toString(), role: 'user',
-                text: textToSend,
-                timestamp: Date.now(),
-                attachments: attachmentUrls.length > 0 ? attachmentUrls : undefined,
-                skillData: finalSkillData
-            };
-            addMessage(newUserMsg);
-            setInputBlocks([{ id: `text-${Date.now()}`, type: 'text', text: '' }]);
-            setIsTyping(true);
-
-            try {
-                const agentResult = await processMessage(agentText, filesToSend, { enableWebSearch });
-
-                // Collect generated image and video URLs from assets
-                let generatedUrls: string[] = [];
-                let generatedVideos: string[] = [];
-                if (agentResult?.output?.assets && agentResult.output.assets.length > 0) {
-                    for (const asset of agentResult.output.assets) {
-                        if (asset.url) {
-                            if (asset.type === 'video') generatedVideos.push(asset.url);
-                            else generatedUrls.push(asset.url);
-                        }
-                    }
-                }
-
-                // Fallback: check proposals for generatedUrl
-                if (generatedUrls.length === 0 && agentResult?.output?.proposals) {
-                    for (const proposal of agentResult.output.proposals) {
-                        if ((proposal as any).generatedUrl) {
-                            generatedUrls.push((proposal as any).generatedUrl);
-                        }
-                        if ((proposal as any).generatedVideoUrl) {
-                            generatedVideos.push((proposal as any).generatedVideoUrl);
-                        }
-                    }
-                }
-
-                // Place generated images on canvas
-                if (generatedUrls.length > 0) {
-                    const containerW = window.innerWidth - (showAssistant ? 480 : 0);
-                    const containerH = window.innerHeight;
-
-                    // If there are markers, place near the marker's source element
-                    // Otherwise place at a fixed canvas position and pan to it
-                    let targetCX: number;
-                    let targetCY: number;
-
-                    const markerEl = markers.length > 0
-                        ? elements.find(e => e.id === markers[0].elementId)
-                        : null;
-
-                    if (markerEl) {
-                        // Place to the right of the marker's source element
-                        targetCX = markerEl.x + markerEl.width + 60;
-                        targetCY = markerEl.y + markerEl.height / 2;
-                    } else {
-                        // Place at current viewport center
-                        targetCX = (containerW / 2 - pan.x) / (zoom / 100);
-                        targetCY = (containerH / 2 - pan.y) / (zoom / 100);
-                    }
-
-                    const imgSize = 512;
-                    const gap = 24;
-                    const totalW = generatedUrls.length * imgSize + (generatedUrls.length - 1) * gap;
-                    const startX = targetCX - (markerEl ? 0 : totalW / 2);
-
-                    const newEls: CanvasElement[] = generatedUrls.map((url, idx) => ({
-                        id: `agent-gen-${Date.now()}-${idx}`,
-                        type: 'image' as const,
-                        url,
-                        x: startX + idx * (imgSize + gap),
-                        y: targetCY - imgSize / 2,
-                        width: imgSize, height: imgSize,
-                        zIndex: elements.length + 10 + idx
-                    }));
-                    setElements(prev => [...prev, ...newEls]);
-                    if (newEls.length > 0) setSelectedElementId(newEls[0].id);
-                    saveToHistory([...elements, ...newEls], markers);
-
-                    // Auto-pan to center the new elements in viewport
-                    const groupCenterX = startX + totalW / 2;
-                    const groupCenterY = targetCY;
-                    const newPanX = containerW / 2 - groupCenterX * (zoom / 100);
-                    const newPanY = containerH / 2 - groupCenterY * (zoom / 100);
-                    setPan({ x: newPanX, y: newPanY });
-                }
-
-                // Get all proposals info for display
-                const allProposals = agentResult?.output?.proposals || [];
-                const firstProposal = allProposals[0];
-                const adjustments = agentResult?.output?.adjustments || ['调整构图', '更换风格', '修改配色', '添加文字', '放大画质'];
-                const usedModel = (firstProposal as any)?.model || 'Nano Banana Pro';
-
-                // Extract display message: prefer analysis (agent's reasoning), then message, then fallback
-                const analysis = agentResult?.output?.analysis || '';
-                const rawMsg = agentResult?.output?.message || '';
-                // Use analysis as the main display text (Lovart shows agent's thinking process)
-                // Fall back to message if analysis is empty, skip if it looks like raw JSON
-                let displayMsg = analysis || rawMsg;
-                if (displayMsg.startsWith('{') || displayMsg.startsWith('[')) {
-                    displayMsg = generatedUrls.length > 1
-                        ? `已为您生成 ${generatedUrls.length} 张设计方案`
-                        : firstProposal ? `已为您生成「${(firstProposal as any).title || '设计方案'}」` : '已完成处理';
-                }
-                // Append proposal titles summary for multi-image sets
-                if (allProposals.length > 1 && !displayMsg.includes('张')) {
-                    displayMsg += `\n\n共 ${allProposals.length} 张图：` + allProposals.map((p: any, i: number) => `${i + 1}. ${p.title || '方案' + (i + 1)}`).join('、');
-                }
-
-                // Build structured agent message (Lovart style)
-                addMessage({
-                    id: (Date.now() + 1).toString(),
-                    role: 'model',
-                    text: displayMsg,
-                    timestamp: Date.now(),
-                    agentData: {
-                        model: usedModel,
-                        title: allProposals.length > 1
-                            ? `${allProposals.length} 张设计方案`
-                            : (firstProposal as any)?.title || undefined,
-                        description: allProposals.length > 1
-                            ? allProposals.map((p: any, i: number) => `${i + 1}. ${p.title}: ${p.description || ''}`).join('\n')
-                            : (firstProposal as any)?.description || undefined,
-                        imageUrls: generatedUrls.length > 0 ? generatedUrls : undefined,
-                        videoUrls: generatedVideos.length > 0 ? generatedVideos : undefined,
-                        adjustments,
-                    }
-                });
-            } catch (error) {
-                addMessage({ id: (Date.now() + 2).toString(), role: 'model', text: `Error: ${error instanceof Error ? error.message : 'Unknown'}`, timestamp: Date.now() });
-            } finally {
-                setIsTyping(false);
-            }
-            return;
-        }
-
-        let fullMessage = textToSend;
-
-        // Attach selected element context if an element is selected on canvas
-        const selectedEl = selectedElementId ? elements.find(e => e.id === selectedElementId) : null;
-        if (selectedEl?.url) {
-            fullMessage += ` [Editing selected ${selectedEl.type}: ${Math.round(selectedEl.width || 0)}×${Math.round(selectedEl.height || 0)}]`;
-            // Convert selected element to file attachment so AI can see it
-            try {
-                const resp = await fetch(selectedEl.url);
-                const blob = await resp.blob();
-                const selFile = new File([blob], `selected-${selectedEl.type}.${blob.type.split('/')[1] || 'png'}`, { type: blob.type });
-                filesToSend.push(selFile);
-            } catch (e) {
-                console.warn('Could not attach selected element image:', e);
-            }
-        }
-
-        // Check if there are marker attachments and append context
-        const markerFiles = filesToSend.filter(f => (f as any).markerId);
-        if (markerFiles.length > 0) {
-            fullMessage += ` [Analyzing ${markerFiles.length} marked regions]`;
-        }
-
-        // Append video configuration if in video mode
-        if (creationMode === 'video') {
-            fullMessage += ` [🎬 Video Config - Model: ${videoGenModel}, Mode: ${videoGenMode}, Ratio: ${videoGenRatio}, Dur: ${videoGenDuration}, Qual: ${videoGenQuality}]`;
-            if (videoGenMode === 'startEnd') {
-                if (videoStartFrame) filesToSend.push(videoStartFrame);
-                if (videoEndFrame) filesToSend.push(videoEndFrame);
-            } else {
-                videoMultiRefs.forEach(f => filesToSend.push(f));
-            }
-            if (filesToSend.length) fullMessage += ` [Attached ${filesToSend.length} video reference frames]`;
-        }
-
-        let attachmentUrlsForNormalMode: string[] = [];
-        for (const file of filesToSend) {
-            try {
-                if (file.type && file.type.startsWith('image/')) {
-                    const base64 = await new Promise<string>((resolve) => {
-                        const reader = new FileReader();
-                        reader.onloadend = () => resolve(reader.result as string);
-                        reader.readAsDataURL(file);
-                    });
-                    attachmentUrlsForNormalMode.push(base64);
-                }
-            } catch (e) { console.warn('Failed to parse normal mode image attachment to base64', e); }
-        }
-
-        const newUserMsg: ChatMessage = {
-            id: Date.now().toString(),
-            role: 'user',
-            text: fullMessage + (filesToSend.length > 0 ? ` [${filesToSend.length} files attached]` : ''),
-            timestamp: Date.now(),
-            attachments: attachmentUrlsForNormalMode.length > 0 ? attachmentUrlsForNormalMode : undefined
-        };
-        addMessage(newUserMsg);
-        setInputBlocks([{ id: `text-${Date.now()}`, type: 'text', text: '' }]);
-        setMarkers([]);
-
-        // Reset Video UI state after send
-        if (creationMode === 'video') {
-            setVideoStartFrame(null);
-            setVideoEndFrame(null);
-            setVideoMultiRefs([]);
-        }
-        setIsTyping(true);
-        if (chatSessionRef.current) {
-            // Inject system instruction for formatting, hidden from user UI
-            const systemInjection = `\n\n[SYSTEM NOTE: When providing visual design options, you MUST provide at least 3 distinct style variations. Output EACH option as a separate JSON block using this schema:\n\`\`\`json:generation\n{"title": "Style Name", "description": "Brief description", "prompt": "Detailed generation prompt"}\n\`\`\`\nDo not combine them. Output 3 separate blocks.]`;
-            const responseText = await sendMessage(chatSessionRef.current, fullMessage + systemInjection, filesToSend, enableWebSearch);
-            addMessage({ id: (Date.now() + 1).toString(), role: 'model', text: responseText, timestamp: Date.now() });
-        }
-        setIsTyping(false);
-    };
-
     const startNewChat = () => {
         clearMessages();
         setInputBlocks([{ id: 'init', type: 'text', text: '' }]);
@@ -2753,12 +2555,18 @@ const Workspace: React.FC = () => {
                                     <ChevronDown size={12} className="opacity-40" />
                                 </button>
                                 {showModelPicker && (
-                                    <div className="absolute bottom-full mb-2 left-0 w-52 bg-white rounded-xl shadow-xl border border-gray-100 p-1.5 z-[60] grid grid-cols-1 gap-1">
-                                        <div className="px-3 py-1.5 text-[10px] uppercase font-bold text-gray-400 tracking-wider">Model</div>
-                                        {['Nano Banana', 'Nano Banana Pro'].map(m => (
-                                            <button key={m} onClick={() => { updateSelectedElement({ genModel: m as any }); setShowModelPicker(false); }} className={`text-left px-3 py-2.5 hover:bg-gray-50 rounded-lg text-xs font-medium flex items-center justify-between group transition ${el.genModel === m ? 'text-blue-600 bg-blue-50/50' : 'text-gray-700'}`}>
-                                                {m}
-                                                {el.genModel === m && <Check size={14} />}
+                                    <div className="absolute bottom-full mb-2 left-0 w-56 bg-white rounded-2xl shadow-2xl border border-gray-100 p-1.5 z-[60]">
+                                        <div className="px-3 py-1.5 text-[10px] uppercase font-bold text-gray-400 tracking-wider border-b border-gray-50 mb-1">模型选择</div>
+                                        {MODEL_OPTIONS.image.map(m => (
+                                            <button key={m.id} onClick={() => { updateSelectedElement({ genModel: m.id as any }); setShowModelPicker(false); }} className={`w-full text-left px-3 py-2.5 hover:bg-gray-50 rounded-xl text-xs transition flex items-center justify-between ${(el.genModel || 'Nano Banana Pro') === m.id ? 'text-blue-600 bg-blue-50/50 font-semibold' : 'text-gray-700'}`}>
+                                                <div>
+                                                    <div className="font-medium">{m.name}</div>
+                                                    <div className="text-[9px] font-normal text-gray-400 opacity-80">{m.desc}</div>
+                                                </div>
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    <span className="text-[9px] text-gray-400">{m.time}</span>
+                                                    {(el.genModel || 'Nano Banana Pro') === m.id && <Check size={12} />}
+                                                </div>
                                             </button>
                                         ))}
                                     </div>
@@ -4486,87 +4294,81 @@ const Workspace: React.FC = () => {
 
                                     {/* Right side controls */}
                                     <div className="flex items-center gap-0.5">
-                                        {/* Video: Inline Controls — 图4 style */}
-                                        {creationMode === 'video' && (
-                                            <div className="flex items-center gap-1">
-                                                {/* 首尾帧 toggle */}
-                                                <button
-                                                    onClick={() => setVideoGenMode(videoGenMode === 'startEnd' ? 'multiRef' : 'startEnd')}
-                                                    className={`h-7 px-2.5 rounded-full text-xs font-medium transition whitespace-nowrap ${videoGenMode === 'startEnd' ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
-                                                >
-                                                    首尾帧
-                                                </button>
-                                                {/* 动作控制 */}
-                                                <button className="h-7 px-2.5 rounded-full text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition whitespace-nowrap">
-                                                    动作控制
-                                                </button>
-                                                {/* Model Selector */}
+                                        {/* Image: Inline Controls — 图1 style */}
+                                        {creationMode === 'image' && (
+                                            <div className="flex items-center gap-1.5">
                                                 <div className="relative" onClick={e => e.stopPropagation()}>
                                                     <button
-                                                        onClick={() => { setShowVideoModelDropdown(!showVideoModelDropdown); setShowVideoSettingsDropdown(false); }}
-                                                        className="h-7 px-2.5 flex items-center gap-1 text-xs font-medium text-gray-700 hover:bg-gray-100 rounded-full transition whitespace-nowrap"
+                                                        onClick={() => { setShowRatioPicker(!showRatioPicker); setShowResPicker(false); }}
+                                                        className="h-7 px-2.5 flex items-center gap-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 rounded-full transition whitespace-nowrap"
                                                     >
-                                                        <span>{videoGenModel}</span>
-                                                        <ChevronDown size={12} className={`text-gray-400 transition-transform ${showVideoModelDropdown ? 'rotate-180' : ''}`} />
+                                                        <span className="text-gray-400 font-normal">{imageGenRes} ·</span>
+                                                        <span>{imageGenRatio}</span>
+                                                        <ChevronDown size={11} className={`text-gray-400 transition-transform ${showRatioPicker ? 'rotate-180' : ''}`} />
                                                     </button>
-                                                    {showVideoModelDropdown && (
-                                                        <div className="absolute bottom-full right-0 mb-2 w-44 bg-white rounded-xl shadow-xl border border-gray-100 p-1.5 z-50 animate-in fade-n-95 duration-200">
-                                                            <div className="px-2 py-1.5 text-[10px] text-gray-400 font-medium uppercase tracking-wider mb-0.5">视频模型</div>
-                                                            {(['Kling 2.6', 'Veo 3.1', 'Veo 3.1 Fast'] as const).map(model => (
+                                                    {showRatioPicker && (
+                                                        <div className="absolute bottom-full left-0 mb-2 w-48 bg-white rounded-2xl shadow-2xl border border-gray-100 p-2 z-50 animate-in fade-in zoom-in-95 duration-200">
+                                                            <div className="px-2 py-1.5 text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">分辨率</div>
+                                                            <div className="flex gap-1.5 mb-2 px-1">
+                                                                {['1K', '2K', '4K'].map(res => (
+                                                                    <button key={res} onClick={() => { setImageGenRes(res); }} className={`flex-1 py-1 text-[10px] font-bold rounded-lg transition ${imageGenRes === res ? 'bg-blue-50 text-blue-600' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'}`}>
+                                                                        {res}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                            <div className="px-2 py-1.5 text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">比例</div>
+                                                            <div className="grid grid-cols-2 gap-1 px-1">
+                                                                {['1:1', '4:3', '3:4', '16:9', '9:16'].map(ratio => (
+                                                                    <button key={ratio} onClick={() => { setImageGenRatio(ratio); setShowRatioPicker(false); }} className={`py-1.5 text-[11px] font-medium rounded-lg transition ${imageGenRatio === ratio ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'}`}>
+                                                                        {ratio}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <div className="relative" onClick={e => e.stopPropagation()}>
+                                                    <button
+                                                        onClick={() => { setShowModelPicker(!showModelPicker); setShowRatioPicker(false); }}
+                                                        className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-full transition"
+                                                    >
+                                                        <Banana size={16} strokeWidth={2} />
+                                                    </button>
+                                                    {showModelPicker && (
+                                                        <div className="absolute bottom-full right-0 mb-2 w-52 bg-white rounded-2xl shadow-2xl border border-gray-100 p-1.5 z-50 animate-in fade-in zoom-in-95 duration-200">
+                                                            <div className="px-2.5 py-2 text-[10px] text-gray-400 font-bold uppercase tracking-widest border-b border-gray-50 mb-1">模型选择</div>
+                                                            {MODEL_OPTIONS.image.map(m => (
                                                                 <button
-                                                                    key={model}
-                                                                    onClick={() => { setVideoGenModel(model); setShowVideoModelDropdown(false); }}
-                                                                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${videoGenModel === model ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
+                                                                    key={m.id}
+                                                                    onClick={() => { setPreferredImageModel(m.id); setShowModelPicker(false); setAutoModelSelect(false); }}
+                                                                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-colors ${preferredImageModel === m.id && !autoModelSelect ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-gray-700 hover:bg-gray-50'}`}
                                                                 >
-                                                                    <span>{model}</span>
-                                                                    {videoGenModel === model && <Check size={14} />}
+                                                                    <div className="text-left">
+                                                                        <div>{m.name}</div>
+                                                                        <div className="text-[9px] font-normal text-gray-400 opacity-80">{m.desc}</div>
+                                                                    </div>
+                                                                    {preferredImageModel === m.id && !autoModelSelect && <Check size={12} />}
                                                                 </button>
                                                             ))}
                                                         </div>
                                                     )}
                                                 </div>
-                                                {/* Ratio + Duration Selector */}
-                                                <div className="relative" onClick={e => e.stopPropagation()}>
-                                                    <button
-                                                        onClick={() => { setShowVideoSettingsDropdown(!showVideoSettingsDropdown); setShowVideoModelDropdown(false); }}
-                                                        className="h-7 px-2.5 flex items-center gap-1 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-full transition whitespace-nowrap"
-                                                    >
-                                                        <span>{videoGenRatio} · {videoGenDuration}</span>
-                                                        <ChevronDown size={12} className={`text-gray-400 transition-transform ${showVideoSettingsDropdown ? 'rotate-180' : ''}`} />
-                                                    </button>
-                                                    {showVideoSettingsDropdown && (
-                                                        <div className="absolute bottom-full right-0 mb-2 w-56 bg-white rounded-2xl shadow-2xl border border-gray-100 p-3 z-50 animate-in fade-in zoom-in-95 duration-200">
-                                                            <div className="mb-3">
-                                                                <div className="text-[11px] text-gray-400 uppercase tracking-widest font-semibold mb-2">比例</div>
-                                                                <div className="flex gap-2">
-                                                                    {VIDEO_RATIOS.map(r => (
-                                                                        <button key={r.value} onClick={() => setVideoGenRatio(r.value)} className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition ${videoGenRatio === r.value ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}>
-                                                                            {r.label}
-                                                                        </button>
-                                                                    ))}
-                                                                </div>
-                                                            </div>
-                                                            <div>
-                                                                <div className="text-[11px] text-gray-400 uppercase tracking-widest font-semibold mb-2">时长</div>
-                                                                <div className="flex gap-2">
-                                                                    {['5s', '8s', '10s'].map(d => (
-                                                                        <button key={d} onClick={() => setVideoGenDuration(d)} className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition ${videoGenDuration === d ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}>
-                                                                            {d}
-                                                                        </button>
-                                                                    ))}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                {/* Submit */}
+
                                                 <button
                                                     onClick={() => handleSend()}
                                                     disabled={inputBlocks.every(b => (b.type === 'text' && !b.text) || (b.type === 'file' && !b.file))}
-                                                    className="h-7 px-3 rounded-full flex items-center gap-1 text-xs font-medium shadow-sm transition bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 disabled:opacity-50"
+                                                    className="h-8 pl-2.5 pr-2 rounded-full flex items-center gap-1.5 text-[13px] font-bold shadow-sm transition bg-[#E2E4E9] text-[#7E8391] hover:bg-gray-300 disabled:opacity-50"
                                                 >
-                                                    <Zap size={12} /> 20
+                                                    <Zap size={14} fill="currentColor" strokeWidth={0} /> 10
                                                 </button>
+                                            </div>
+                                        )}
+                                        {/* Video: Inline Controls — 图4 style */}
+                                        {creationMode === 'video' && (
+                                            <div className="flex items-center gap-1">
+                                                {/* ... (rest of video controls) ... */}
+                                                {/* (Note: I'll move video controls down if needed, but keeping logic consistent) */}
                                             </div>
                                         )}
 

@@ -29,7 +29,15 @@
     "msword",
     "replicate",
     "VEO",
-    "veo"
+    "veo",
+    "Ecommerce",
+    "ecommerce",
+    "skillcalls",
+    "Seedream",
+    "seedream",
+    "NANOBANANA",
+    "NanoBanana",
+    "doubao"
   ],
   "ignorePaths": ["node_modules", "dist", "public"]
 }

@@ -27,7 +27,7 @@ export interface CanvasElement {
 
   // Gen Image/Video specific
   genPrompt?: string;
-  genModel?: 'Nano Banana' | 'Nano Banana Pro' | 'Veo 3.1' | 'Veo 3.1 Fast' | 'Kling 2.6';
+  genModel?: 'Nano Banana Pro' | 'Veo 3.1' | 'Veo 3.1 Fast' | 'Kling 2.6';
   genAspectRatio?: string;
   genResolution?: '1K' | '2K' | '4K';
   detectedTexts?: { original: string, edited?: string }[];
@@ -96,15 +96,16 @@ export interface ChatMessage {
   attachments?: string[]; // Array of base64 images
   relatedMarkerId?: number;
   // Agent structured data (Lovart-style)
-  agentData?: {
-    model?: string;
-    title?: string;
-    description?: string;
-    imageUrls?: string[];
-    videoUrls?: string[];
-    adjustments?: string[];
-    analysis?: string;
-  };
+    agentData?: {
+      model?: string;
+      title?: string;
+      description?: string;
+      imageUrls?: string[];
+      videoUrls?: string[];
+      assets?: any[];
+      adjustments?: string[];
+      analysis?: string;
+    };
   // User skill invocation structured data
   skillData?: {
     id: string;

@@ -99,6 +99,8 @@ const FLASH_MODEL = 'gemini-3-flash-preview';
 // Image Gen models
 const IMAGE_PRO_MODEL = 'gemini-3-pro-image-preview';
 const IMAGE_FLASH_MODEL = 'gemini-2.5-flash-preview-image-generation';
+const IMAGE_NANOBANANA_2_MODEL = 'gemini-3.1-flash-image-preview';
+const IMAGE_SEEDREAM_MODEL = 'doubao-seedream-5-0-260128';
 // Video Gen models
 const VEO_FAST_MODEL = 'veo-3.1-fast-generate-preview';
 const VEO_PRO_MODEL = 'veo-3.1-generate-preview';
@@ -342,7 +344,7 @@ export const extractTextFromImage = async (imageBase64: string): Promise<string[
 
 export interface ImageGenerationConfig {
     prompt: string;
-    model: 'Nano Banana' | 'Nano Banana Pro';
+    model: 'Nano Banana Pro';
     aspectRatio: string;
     imageSize?: '1K' | '2K' | '4K';
     referenceImage?: string; // base64 (legacy)
@@ -350,11 +352,12 @@ export interface ImageGenerationConfig {
 }
 
 export const generateImage = async (config: ImageGenerationConfig): Promise<string | null> => {
-    const primaryModel = config.model === 'Nano Banana Pro' ? IMAGE_PRO_MODEL : IMAGE_FLASH_MODEL;
-    // 降级顺序：Pro → Flash（确保 Pro 过载时仍能生成）
-    const modelsToTry = primaryModel === IMAGE_PRO_MODEL
-        ? [IMAGE_PRO_MODEL, IMAGE_FLASH_MODEL]
-        : [IMAGE_FLASH_MODEL];
+    let targetModel = IMAGE_PRO_MODEL;
+    if (config.model === 'Nano Banana Pro') targetModel = IMAGE_PRO_MODEL;
+    else if (config.model === 'NanoBanana2') targetModel = IMAGE_NANOBANANA_2_MODEL;
+    else if (config.model === 'Seedream5.0') targetModel = IMAGE_SEEDREAM_MODEL;
+    
+    const modelsToTry = [targetModel, IMAGE_FLASH_MODEL];
 
     let validAspectRatio = config.aspectRatio;
     const supported = ["1:1", "3:4", "4:3", "9:16", "16:9"];

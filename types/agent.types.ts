@@ -45,6 +45,7 @@ export interface AgentTask {
     analysis?: string;
     proposals?: AgentProposal[];
     assets?: GeneratedAsset[];
+    imageUrls?: string[];
     skillCalls?: SkillCall[];
     adjustments?: string[];
     error?: { message: string; code?: string; details?: unknown };

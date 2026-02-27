@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     ChevronDown, Plus, X, ArrowUp, Paperclip, Lightbulb, Zap, Globe, Box, Sparkles,
-    Image as ImageIcon, Check, Video, FileText
+    Image as ImageIcon, Check, Video, FileText, Banana, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { useAgentStore } from '../../../stores/agent.store';
 
@@ -15,6 +15,8 @@ const VIDEO_RATIOS = [
 
 const MODEL_OPTIONS: Record<string, { id: string; name: string; desc: string; time: string }[]> = {
     image: [
+        { id: 'NanoBanana2', name: 'Nano Banana 2', desc: '新款高性能图像生成模型', time: '~8s' },
+        { id: 'Seedream5.0', name: 'Seedream 5.0', desc: '超强意图理解与构图', time: '~10s' },
         { id: 'Nano Banana Pro', name: 'Nano Banana Pro', desc: '高质量图像生成，细节丰富', time: '~20s' },
         { id: 'GPT Image 1.5', name: 'GPT Image 1.5', desc: '创意图像生成，风格多样', time: '~120s' },
         { id: 'Flux.2 Max', name: 'Flux.2 Max', desc: '快速图像生成，效率优先', time: '~10s' },
@@ -110,13 +112,18 @@ export const InputArea: React.FC<InputAreaProps> = ({
     const [showModelPreference, setShowModelPreference] = useState(false);
     const [modelPreferenceTab, setModelPreferenceTab] = useState<'image' | 'video' | '3d'>('image');
     const [autoModelSelect, setAutoModelSelect] = useState(true);
-    const [preferredImageModel, setPreferredImageModel] = useState('Nano Banana Pro');
+    const [preferredImageModel, setPreferredImageModel] = useState('NanoBanana2');
     const [preferredVideoModel, setPreferredVideoModel] = useState('Veo 3.1');
     const [preferred3DModel, setPreferred3DModel] = useState('Auto');
+    const [showRatioPicker, setShowRatioPicker] = useState(false);
+    const [showModelPicker, setShowModelPicker] = useState(false);
+    const imageGenRatio = useAgentStore(s => s.imageGenRatio);
+    const imageGenRes = useAgentStore(s => s.imageGenRes);
+    const { setImageGenRatio, setImageGenRes } = useAgentStore(s => s.actions);
     const [isInputFocused, setIsInputFocused] = useState(false);
 
     return (
-        <div className="px-3 pb-3 pt-1 z-20">
+        <div className="px-2 pb-2 pt-0.5 z-20">
             <div
                 className={`bg-white rounded-2xl border shadow-sm transition-all duration-200 relative group focus-within:shadow-md focus-within:border-gray-300 flex flex-col ${isDragOver ? 'border-blue-400 ring-2 ring-blue-100 bg-blue-50/30' : 'border-gray-200'}`}
                 onMouseEnter={() => setIsVideoPanelHovered(true)}
@@ -230,7 +237,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
                 )}
 
                 {/* Text Input Area - Lovart style: inline mixed chips + text */}
-                <div className={`px-4 pt-3 pb-6 cursor-text transition-all`} onClick={(e) => {
+                <div className={`px-3 pt-2 pb-4 cursor-text transition-all`} onClick={(e) => {
                     if (e.target === e.currentTarget || (e.target as HTMLElement).closest('.input-flow-container') === e.currentTarget.querySelector('.input-flow-container')) {
                         const lastText = inputBlocks.filter(b => b.type === 'text').pop();
                         const targetId = lastText?.id || inputBlocks[inputBlocks.length - 1].id;
@@ -333,7 +340,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
                 </div>
 
                 {/* Bottom Toolbar */}
-                <div className="px-3 pb-4 pt-0 flex items-center justify-between">
+                <div className="px-2 pb-2.5 pt-0 flex items-center justify-between">
                     <div className="flex items-center gap-1">
                         {creationMode === 'agent' && (
                             <button onClick={() => fileInputRef.current?.click()} className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
@@ -358,19 +365,73 @@ export const InputArea: React.FC<InputAreaProps> = ({
                     </div>
 
                     <div className="flex items-center gap-0.5">
-                        {creationMode === 'video' && (
-                            <div className="flex items-center gap-1">
-                                <button onClick={() => setVideoGenMode(videoGenMode === 'startEnd' ? 'multiRef' : 'startEnd')} className="h-7 px-2.5 rounded-full text-xs font-medium bg-blue-50 text-blue-600">首尾帧</button>
-                                <button className="h-7 px-2.5 rounded-full text-xs font-medium text-gray-500">动作控制</button>
+                        {creationMode === 'image' && (
+                            <div className="flex items-center gap-1.5">
                                 <div className="relative">
-                                    <button onClick={() => setShowVideoModelDropdown(!showVideoModelDropdown)} className="h-7 px-2.5 flex items-center gap-1 text-xs font-medium text-gray-700 bg-gray-100 rounded-full">{videoGenModel} <ChevronDown size={12} /></button>
-                                    {showVideoModelDropdown && (
-                                        <div className="absolute bottom-full right-0 mb-2 w-44 bg-white rounded-xl shadow-xl border border-gray-100 p-1.5 z-50">
-                                            {['Kling 2.6', 'Veo 3.1', 'Veo 3.1 Fast'].map(m => <button key={m} onClick={() => { setVideoGenModel(m as any); setShowVideoModelDropdown(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 rounded-lg">{m}</button>)}
+                                    <button
+                                        onClick={() => { setShowRatioPicker(!showRatioPicker); setShowModelPicker(false); }}
+                                        className="h-7 px-2.5 flex items-center gap-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 rounded-full transition whitespace-nowrap"
+                                    >
+                                        <span className="text-gray-400 font-normal">{imageGenRes} ·</span>
+                                        <span>{imageGenRatio}</span>
+                                        <ChevronDown size={11} className={`text-gray-400 transition-transform ${showRatioPicker ? 'rotate-180' : ''}`} />
+                                    </button>
+                                    {showRatioPicker && (
+                                        <div className="absolute bottom-full left-0 mb-2 w-48 bg-white rounded-2xl shadow-2xl border border-gray-100 p-2 z-50 animate-in fade-in zoom-in-95 duration-200">
+                                            <div className="px-2 py-1.5 text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">分辨率</div>
+                                            <div className="flex gap-1.5 mb-2 px-1">
+                                                {['1K', '2K', '4K'].map(res => (
+                                                    <button key={res} onClick={() => { setImageGenRes(res); }} className={`flex-1 py-1 text-[10px] font-bold rounded-lg transition ${imageGenRes === res ? 'bg-blue-50 text-blue-600' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'}`}>
+                                                        {res}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <div className="px-2 py-1.5 text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">比例</div>
+                                            <div className="grid grid-cols-2 gap-1 px-1">
+                                                {['1:1', '4:3', '3:4', '16:9', '9:16'].map(ratio => (
+                                                    <button key={ratio} onClick={() => { setImageGenRatio(ratio); setShowRatioPicker(false); }} className={`py-1.5 text-[11px] font-medium rounded-lg transition ${imageGenRatio === ratio ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'}`}>
+                                                        {ratio}
+                                                    </button>
+                                                ))}
+                                            </div>
                                         </div>
                                     )}
                                 </div>
-                                <button onClick={() => handleSend()} className="h-7 px-3 rounded-full flex items-center gap-1 text-xs font-medium bg-blue-500 text-white shadow-sm"><Zap size={12} /> 20</button>
+
+                                <div className="relative">
+                                    <button
+                                        onClick={() => { setShowModelPicker(!showModelPicker); setShowRatioPicker(false); }}
+                                        className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-full transition"
+                                    >
+                                        <Banana size={16} strokeWidth={2} />
+                                    </button>
+                                    {showModelPicker && (
+                                        <div className="absolute bottom-full right-0 mb-2 w-52 bg-white rounded-2xl shadow-2xl border border-gray-100 p-1.5 z-50 animate-in fade-in zoom-in-95 duration-200">
+                                            <div className="px-2.5 py-2 text-[10px] text-gray-400 font-bold uppercase tracking-widest border-b border-gray-50 mb-1">模型选择</div>
+                                            {MODEL_OPTIONS.image.map(m => (
+                                                <button
+                                                    key={m.id}
+                                                    onClick={() => { setPreferredImageModel(m.id); setShowModelPicker(false); setAutoModelSelect(false); }}
+                                                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-colors ${preferredImageModel === m.id && !autoModelSelect ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-gray-700 hover:bg-gray-50'}`}
+                                                >
+                                                    <div className="text-left">
+                                                        <div>{m.name}</div>
+                                                        <div className="text-[9px] font-normal text-gray-400 opacity-80">{m.desc}</div>
+                                                    </div>
+                                                    {preferredImageModel === m.id && !autoModelSelect && <Check size={12} />}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <button
+                                    onClick={() => handleSend()}
+                                    disabled={inputBlocks.every(b => (b.type === 'text' && !b.text) || (b.type === 'file' && !b.file))}
+                                    className="h-8 pl-2.5 pr-2 rounded-full flex items-center gap-1.5 text-[13px] font-bold shadow-sm transition bg-[#E2E4E9] text-[#7E8391] hover:bg-gray-300 disabled:opacity-50"
+                                >
+                                    <Zap size={14} fill="currentColor" strokeWidth={0} /> 10
+                                </button>
                             </div>
                         )}
 
