@@ -13,24 +13,52 @@ export const getApiKey = () => {
 
     // 2. 其次使用 localStorage 中用户设置的对应提供商 key
     const provider = localStorage.getItem('api_provider') || 'gemini';
-    let localKey = '';
+    let rawKeys = '';
 
-    if (provider === 'gemini') localKey = localStorage.getItem('gemini_api_key') || '';
-    else if (provider === 'yunwu') localKey = localStorage.getItem('yunwu_api_key') || '';
-    else if (provider === 'custom') localKey = localStorage.getItem('custom_api_key') || '';
+    if (provider === 'gemini') rawKeys = localStorage.getItem('gemini_api_key') || '';
+    else if (provider === 'yunwu') rawKeys = localStorage.getItem('yunwu_api_key') || '';
+    else if (provider === 'custom') rawKeys = localStorage.getItem('custom_api_key') || '';
 
     // 为了兼容老用户，如果新字段没有，尝试取老字段
-    if (!localKey) {
-        localKey = localStorage.getItem('custom_api_key') || '';
+    if (!rawKeys) {
+        rawKeys = localStorage.getItem('custom_api_key') || '';
     }
 
-    if (localKey) return localKey;
+    if (rawKeys) {
+        // 多 key 轮询逻辑
+        const keys = rawKeys.split('\n')
+            .map(k => k.trim())
+            .filter(k => k && !k.startsWith('#')); // 过滤空行和注释
+        
+        if (keys.length > 0) {
+            // 获取并更新轮询索引
+            const storageKey = `api_poll_index_${provider}`;
+            let currentIndex = parseInt(localStorage.getItem(storageKey) || '0', 10);
+            
+            // 确保索引不越界
+            if (currentIndex >= keys.length) currentIndex = 0;
+            
+            const selectedKey = keys[currentIndex];
+            
+            // 更新下一个索引
+            localStorage.setItem(storageKey, ((currentIndex + 1) % keys.length).toString());
+            
+            console.log(`[API轮询] 提供商: ${provider}, 使用第 ${currentIndex + 1}/${keys.length} 个 Key`);
+            return selectedKey;
+        }
+    }
 
     // 3. 最后才使用环境变量（可选）
-    const envKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (envKey && envKey !== 'undefined') return envKey;
+    try {
+        // Use string indexing to bypass tsc static analysis in non-ESM environments
+        const meta: any = (window as any).import?.meta || {};
+        const envKey = meta.env?.VITE_GEMINI_API_KEY;
+        if (envKey && envKey !== 'undefined') return envKey;
+    } catch (e) {
+        // Silent
+    }
 
-    // 4. 如果都没有，返回 PLACEHOLDER 防止 crash
+    // Fallback search in process.env or other common places if needed
     return 'PLACEHOLDER';
 };
 

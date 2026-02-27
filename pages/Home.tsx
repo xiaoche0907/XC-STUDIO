@@ -1,52 +1,94 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
-import { 
-  Home as HomeIcon, Folder, User, Info, Plus, Bell, ChevronDown, 
-  Zap, Globe, Box, ArrowUp, Lightbulb, Paperclip,
-  Image as ImageIcon, Video, Hash, X, FileText, Banana, ShoppingCart, Palette, Star,
-  Sparkles, Settings
-} from 'lucide-react';
-import { Project } from '../types';
-import { getProjects } from '../services/storage';
-import { SettingsModal } from '../components/SettingsModal';
+import React, { useState, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  Home as HomeIcon,
+  Folder,
+  User,
+  Info,
+  Plus,
+  Bell,
+  ChevronDown,
+  Zap,
+  Globe,
+  Box,
+  ArrowUp,
+  Lightbulb,
+  Paperclip,
+  Image as ImageIcon,
+  Video,
+  Hash,
+  X,
+  FileText,
+  Banana,
+  ShoppingCart,
+  Palette,
+  Star,
+  Sparkles,
+  Settings,
+} from "lucide-react";
+import { Project } from "../types";
+import { getProjects } from "../services/storage";
+import { SettingsModal } from "../components/SettingsModal";
 
 const Sidebar = () => {
   const navigate = useNavigate();
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const handleNewProject = () => {
-      navigate(`/workspace/new-${Date.now()}`);
+    navigate(`/workspace/new-${Date.now()}`);
   };
 
   const handleSettings = () => {
-      setIsSettingsOpen(true);
+    setIsSettingsOpen(true);
   };
 
-
   return (
-      <motion.div 
-        initial={{ x: -20, opacity: 0 }}
-        animate={{ x: 0, opacity: 1 }}
-        className="fixed left-6 top-1/2 -translate-y-1/2 flex flex-col gap-4 z-50"
-      >
-        <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
-        <div>
-        <button 
-            onClick={handleNewProject} 
-            className="w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 shadow-lg bg-black text-white hover:scale-105"
-            title="新建项目"
+    <motion.div
+      initial={{ x: -20, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      className="fixed left-6 top-1/2 -translate-y-1/2 flex flex-col gap-4 z-50"
+    >
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+      />
+      <div>
+        <button
+          onClick={handleNewProject}
+          className="w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 shadow-lg bg-black text-white hover:scale-105"
+          title="新建项目"
         >
-            <Plus size={24} />
+          <Plus size={24} />
         </button>
       </div>
 
       <div className="w-12 py-6 bg-white/80 backdrop-blur-md rounded-full shadow-xl flex flex-col items-center gap-6 border border-white/20">
-        <button onClick={() => navigate('/')} className="p-2 bg-gray-100 rounded-full text-black transition hover:bg-gray-200"><HomeIcon size={20} /></button>
-        <button onClick={() => navigate('/projects')} className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"><Folder size={20} /></button>
-        <button className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"><User size={20} /></button>
-        <button className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"><Info size={20} /></button>
-        <button onClick={handleSettings} className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition" title="Settings / API Key"><Settings size={20} /></button>
+        <button
+          onClick={() => navigate("/")}
+          className="p-2 bg-gray-100 rounded-full text-black transition hover:bg-gray-200"
+        >
+          <HomeIcon size={20} />
+        </button>
+        <button
+          onClick={() => navigate("/projects")}
+          className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"
+        >
+          <Folder size={20} />
+        </button>
+        <button className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition">
+          <User size={20} />
+        </button>
+        <button className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition">
+          <Info size={20} />
+        </button>
+        <button
+          onClick={handleSettings}
+          className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"
+          title="Settings / API Key"
+        >
+          <Settings size={20} />
+        </button>
       </div>
     </motion.div>
   );
@@ -55,7 +97,9 @@ const Sidebar = () => {
 const Header = () => (
   <header className="fixed top-0 left-0 right-0 h-16 px-8 flex items-center justify-between z-40 bg-white/70 backdrop-blur-md border-b border-white/20 shadow-sm shadow-gray-100/20">
     <div className="flex items-center gap-2">
-      <div className="w-8 h-8 bg-black rounded-full flex items-center justify-center text-white font-bold text-xs">XC</div>
+      <div className="w-8 h-8 bg-black rounded-full flex items-center justify-center text-white font-bold text-xs">
+        XC
+      </div>
       <span className="font-bold text-xl tracking-tight">XcAISTUDIO</span>
     </div>
     <div className="flex items-center gap-6">
@@ -66,7 +110,10 @@ const Header = () => (
         <Bell size={20} className="text-gray-600" />
       </button>
       <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-200 cursor-pointer">
-         <img src="https://cdn.jsdelivr.net/gh/xiaoche0907/pic-bed@main/img_1769761984824_282_11dff4f8-a0df-43a9-b0db-09a846b50d34.jpg" alt="User" />
+        <img
+          src="https://cdn.jsdelivr.net/gh/xiaoche0907/pic-bed@main/img_1769761984824_282_11dff4f8-a0df-43a9-b0db-09a846b50d34.jpg"
+          alt="User"
+        />
       </div>
     </div>
   </header>
@@ -78,12 +125,18 @@ interface FilterPillProps {
   active?: boolean;
 }
 
-const FilterPill: React.FC<FilterPillProps> = ({ icon, text, active = false }) => (
-  <button className={`px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 border transition ${
-    active 
-      ? 'bg-orange-50 border-orange-200 text-orange-600' 
-      : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
-  }`}>
+const FilterPill: React.FC<FilterPillProps> = ({
+  icon,
+  text,
+  active = false,
+}) => (
+  <button
+    className={`px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 border transition ${
+      active
+        ? "bg-orange-50 border-orange-200 text-orange-600"
+        : "bg-white border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50"
+    }`}
+  >
     {icon}
     {text}
   </button>
@@ -94,37 +147,49 @@ interface ProjectCardProps {
   isNew?: boolean;
 }
 
-const ProjectCard: React.FC<ProjectCardProps> = ({ project, isNew = false }) => {
+const ProjectCard: React.FC<ProjectCardProps> = ({
+  project,
+  isNew = false,
+}) => {
   const navigate = useNavigate();
-  
+
   if (isNew) {
     return (
-      <div 
+      <div
         onClick={() => navigate(`/workspace/new-${Date.now()}`)}
         className="aspect-[4/3] bg-gray-100 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:bg-gray-200 transition group"
       >
-        <Plus size={32} className="text-gray-400 group-hover:scale-110 transition" />
+        <Plus
+          size={32}
+          className="text-gray-400 group-hover:scale-110 transition"
+        />
         <span className="mt-2 text-sm font-medium text-gray-600">新建项目</span>
       </div>
     );
   }
 
   return (
-    <div 
+    <div
       onClick={() => navigate(`/workspace/${project?.id}`)}
       className="flex flex-col gap-2 cursor-pointer group"
     >
       <div className="aspect-[4/3] bg-gray-100 rounded-xl overflow-hidden border border-gray-100 group-hover:shadow-md transition relative">
         {project?.thumbnail ? (
-            <img src={project.thumbnail} alt={project.title} className="w-full h-full object-cover" />
+          <img
+            src={project.thumbnail}
+            alt={project.title}
+            className="w-full h-full object-cover"
+          />
         ) : (
-            <div className="w-full h-full flex items-center justify-center text-gray-300">
-                <Box size={40} />
-            </div>
+          <div className="w-full h-full flex items-center justify-center text-gray-300">
+            <Box size={40} />
+          </div>
         )}
       </div>
       <div>
-        <h3 className="text-sm font-medium text-gray-900 truncate">{project?.title || '未命名'}</h3>
+        <h3 className="text-sm font-medium text-gray-900 truncate">
+          {project?.title || "未命名"}
+        </h3>
         <p className="text-xs text-gray-400">更新于 {project?.updatedAt}</p>
       </div>
     </div>
@@ -133,28 +198,28 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, isNew = false }) => 
 
 const Home: React.FC<{ onExit?: () => void }> = ({ onExit }) => {
   const navigate = useNavigate();
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useState("");
   const [recentProjects, setRecentProjects] = useState<Project[]>([]);
-  
+
   // Attachments State
   const [attachments, setAttachments] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   // Model State: 'thinking' (Pro) or 'fast' (Flash)
-  const [modelMode, setModelMode] = useState<'thinking' | 'fast'>('fast');
-  
+  const [modelMode, setModelMode] = useState<"thinking" | "fast">("fast");
+
   // New States for Features
   const [webEnabled, setWebEnabled] = useState(false);
   const [imageModelEnabled, setImageModelEnabled] = useState(false); // Cube icon: "Nano Banana Pro"
-  
+
   // UI States
   const [agentMode, setAgentMode] = useState(false);
 
   useEffect(() => {
     // Load top 5 recent projects
     const load = async () => {
-        const all = await getProjects();
-        setRecentProjects(all.slice(0, 5));
+      const all = await getProjects();
+      setRecentProjects(all.slice(0, 5));
     };
     load();
   }, []);
@@ -162,31 +227,31 @@ const Home: React.FC<{ onExit?: () => void }> = ({ onExit }) => {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (prompt.trim() || attachments.length > 0) {
-      navigate(`/workspace/new-${Date.now()}`, { 
-          state: { 
-              initialPrompt: prompt,
-              initialAttachments: attachments,
-              initialModelMode: modelMode,
-              initialWebEnabled: webEnabled,
-              initialImageModel: imageModelEnabled ? 'Nano Banana Pro' : undefined 
-          } 
+      navigate(`/workspace/new-${Date.now()}`, {
+        state: {
+          initialPrompt: prompt,
+          initialAttachments: attachments,
+          initialModelMode: modelMode,
+          initialWebEnabled: webEnabled,
+          initialImageModel: imageModelEnabled ? "Nano Banana Pro" : undefined,
+        },
       });
     }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (e.target.files) {
-          const newFiles = Array.from(e.target.files);
-          setAttachments(prev => {
-              const combined = [...prev, ...newFiles];
-              return combined.slice(0, 10);
-          });
-      }
-      if (fileInputRef.current) fileInputRef.current.value = '';
+    if (e.target.files) {
+      const newFiles = Array.from(e.target.files);
+      setAttachments((prev) => {
+        const combined = [...prev, ...newFiles];
+        return combined.slice(0, 10);
+      });
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const removeAttachment = (index: number) => {
-      setAttachments(prev => prev.filter((_, i) => i !== index));
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
   return (
@@ -194,177 +259,208 @@ const Home: React.FC<{ onExit?: () => void }> = ({ onExit }) => {
       <Header />
       <Sidebar />
       {onExit && (
-          <button
-            onClick={onExit}
-            className="fixed top-24 left-6 z-[60] px-4 py-2 bg-white backdrop-blur-md border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 hover:text-gray-900 transition-all font-medium text-sm flex items-center gap-2 shadow-sm"
+        <button
+          onClick={onExit}
+          className="fixed top-24 left-6 z-[60] px-4 py-2 bg-white backdrop-blur-md border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 hover:text-gray-900 transition-all font-medium text-sm flex items-center gap-2 shadow-sm"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
-            返回主页
-          </button>
+            <path d="M19 12H5M12 19l-7-7 7-7" />
+          </svg>
+          返回主页
+        </button>
       )}
-      
+
       <main className="pt-24 px-[10%] max-w-7xl mx-auto flex flex-col items-center">
-        
         <div className="h-8"></div>
 
         <motion.div
-           initial={{ opacity: 0, y: 20 }}
-           animate={{ opacity: 1, y: 0 }}
-           transition={{ delay: 0.1 }}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
         >
-            <h1 className="text-4xl font-bold text-center mb-3 flex items-center gap-3">
-            <div className="w-8 h-8 bg-black rounded-full flex items-center justify-center text-white text-xs">XC</div>
+          <h1 className="text-4xl font-bold text-center mb-3 flex items-center gap-3">
+            <div className="w-8 h-8 bg-black rounded-full flex items-center justify-center text-white text-xs">
+              XC
+            </div>
             XcAISTUDIO 让设计更简单
-            </h1>
-            <p className="text-gray-500 mb-10 text-center">懂你的设计代理，帮你搞定一切</p>
+          </h1>
+          <p className="text-gray-500 mb-10 text-center">
+            懂你的设计代理，帮你搞定一切
+          </p>
         </motion.div>
 
         {/* Input Area */}
-        <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.2 }}
-            className="w-full max-w-4xl relative mb-8"
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.2 }}
+          className="w-full max-w-4xl relative mb-8"
         >
-            <div className="bg-white rounded-[28px] border border-gray-200/50 shadow-xl shadow-gray-100/50 hover:shadow-2xl hover:shadow-gray-200/50 transition-all duration-300 relative group focus-within:ring-2 focus-within:ring-black/5 focus-within:border-gray-300 overflow-hidden">
-                
-                <div className="p-4 pt-3">
-                    {/* Input Field */}
-                    <textarea 
-                        value={prompt}
-                        onChange={(e) => setPrompt(e.target.value)}
-                        placeholder="请输入你的设计需求"
-                        className="w-full h-14 bg-transparent border-none outline-none text-lg placeholder:text-gray-300 resize-none font-medium text-gray-700"
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                handleSearch(e);
-                            }
-                        }}
-                    />
+          <div className="bg-white rounded-[28px] border border-gray-200/50 shadow-xl shadow-gray-100/50 hover:shadow-2xl hover:shadow-gray-200/50 transition-all duration-300 relative group focus-within:ring-2 focus-within:ring-black/5 focus-within:border-gray-300 overflow-hidden">
+            <div className="p-4 pt-3">
+              {/* Input Field */}
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="请输入你的设计需求"
+                className="w-full h-14 bg-transparent border-none outline-none text-lg placeholder:text-gray-300 resize-none font-medium text-gray-700"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSearch(e);
+                  }
+                }}
+              />
 
-                    {/* Attachments Preview */}
-                    {attachments.length > 0 && (
-                        <div className="flex gap-2 mb-4 overflow-x-auto pb-2 no-scrollbar px-1">
-                            {attachments.map((file, i) => (
-                                <div key={i} className="relative w-14 h-14 bg-gray-50 border border-gray-200 rounded-xl flex-shrink-0 flex items-center justify-center group overflow-hidden">
-                                    {file.type.startsWith('image/') ? (
-                                        <img src={URL.createObjectURL(file)} alt="preview" className="w-full h-full object-cover" />
-                                    ) : (
-                                        <div className="text-gray-400 flex flex-col items-center p-1">
-                                            <FileText size={16} />
-                                            <span className="text-[7px] uppercase mt-1 truncate w-10 text-center">{file.name.split('.').pop()}</span>
-                                        </div>
-                                    )}
-                                    <button 
-                                        onClick={() => removeAttachment(i)}
-                                        className="absolute top-0.5 right-0.5 bg-black/50 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition backdrop-blur-sm"
-                                    >
-                                        <X size={10} />
-                                    </button>
-                                </div>
-                            ))}
+              {/* Attachments Preview */}
+              {attachments.length > 0 && (
+                <div className="flex gap-2 mb-4 overflow-x-auto pb-2 no-scrollbar px-1">
+                  {attachments.map((file, i) => (
+                    <div
+                      key={i}
+                      className="relative w-14 h-14 bg-gray-50 border border-gray-200 rounded-xl flex-shrink-0 flex items-center justify-center group overflow-hidden"
+                    >
+                      {file.type.startsWith("image/") ? (
+                        <img
+                          src={URL.createObjectURL(file)}
+                          alt="preview"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="text-gray-400 flex flex-col items-center p-1">
+                          <FileText size={16} />
+                          <span className="text-[7px] uppercase mt-1 truncate w-10 text-center">
+                            {file.name.split(".").pop()}
+                          </span>
                         </div>
-                    )}
-
-                    {/* Bottom Toolbar */}
-                    <div className="flex justify-between items-center mt-2">
-                        {/* Left: Attachment & Agent */}
-                        <div className="flex items-center gap-3">
-                            <div className="relative">
-                                <button 
-                                    onClick={() => fileInputRef.current?.click()}
-                                    className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition"
-                                    title="Upload files (Max 10)"
-                                >
-                                    <Paperclip size={18} />
-                                </button>
-                                <input 
-                                    type="file" 
-                                    multiple 
-                                    className="hidden" 
-                                    ref={fileInputRef} 
-                                    onChange={handleFileSelect}
-                                    accept=".doc,.docx,.pdf,.md,.txt,.jpg,.jpeg,.png,.webp"
-                                />
-                            </div>
-
-                            <button
-                                onClick={() => setAgentMode(!agentMode)}
-                                className={`h-9 px-4 rounded-full border flex items-center gap-1.5 text-sm font-medium transition ${
-                                    agentMode 
-                                    ? 'bg-blue-50 border-blue-300 text-blue-600' 
-                                    : 'bg-white border-blue-400 text-blue-500 hover:bg-blue-50'
-                                }`}
-                            >
-                                <Sparkles size={14} />
-                                Agent
-                            </button>
-                        </div>
-
-                        {/* Right: Controls */}
-                        <div className="flex items-center gap-2">
-                            {/* Model Switcher Pill */}
-                            <div className="h-9 rounded-full border border-gray-200 bg-gray-50/50 flex items-center p-0.5 gap-1">
-                                <button 
-                                    onClick={() => setModelMode('thinking')}
-                                    className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${modelMode === 'thinking' ? 'bg-white shadow-sm text-black ring-1 ring-black/5' : 'text-gray-400 hover:text-gray-600'}`}
-                                    title="Thinking Mode (Pro)"
-                                >
-                                    <Lightbulb size={14} strokeWidth={2.5} />
-                                </button>
-                                <button 
-                                    onClick={() => setModelMode('fast')}
-                                    className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${modelMode === 'fast' ? 'bg-white shadow-sm text-black ring-1 ring-black/5' : 'text-gray-400 hover:text-gray-600'}`}
-                                    title="Fast Mode (Flash)"
-                                >
-                                    <Zap size={14} strokeWidth={2.5} />
-                                </button>
-                            </div>
-
-                            {/* Globe (Web Search) */}
-                            {/* Globe (Web Search) */}
-                            <button 
-                                onClick={() => setWebEnabled(!webEnabled)}
-                                className={`w-9 h-9 rounded-full border flex items-center justify-center transition ${webEnabled ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-gray-50'}`}
-                                title="Networking Mode (Web Search)"
-                            >
-                                <Globe size={18} strokeWidth={1.5} />
-                            </button>
-
-                            {/* Cube (Image Model Selection - Nano Banana Pro) */}
-                            <button 
-                                onClick={() => setImageModelEnabled(!imageModelEnabled)}
-                                className={`w-9 h-9 rounded-full border flex items-center justify-center transition ${imageModelEnabled ? 'bg-blue-50 border-blue-200 text-blue-500' : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-gray-50'}`}
-                                title="Image Model: Nano Banana Pro"
-                            >
-                                <Box size={18} strokeWidth={2} />
-                            </button>
-
-                            {/* Send Button */}
-                            <button 
-                                onClick={handleSearch}
-                                disabled={!prompt.trim() && attachments.length === 0}
-                                className={`w-9 h-9 rounded-full flex items-center justify-center transition shadow-sm ${
-                                    (prompt.trim() || attachments.length > 0) 
-                                        ? 'bg-gray-400 text-white hover:bg-black transform hover:scale-105' 
-                                        : 'bg-gray-200 text-white cursor-not-allowed'
-                                }`}
-                            >
-                                <ArrowUp size={18} strokeWidth={2.5} />
-                            </button>
-                        </div>
+                      )}
+                      <button
+                        onClick={() => removeAttachment(i)}
+                        className="absolute top-0.5 right-0.5 bg-black/50 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition backdrop-blur-sm"
+                      >
+                        <X size={10} />
+                      </button>
                     </div>
+                  ))}
                 </div>
+              )}
+
+              {/* Bottom Toolbar */}
+              <div className="flex justify-between items-center mt-2">
+                {/* Left: Attachment & Agent */}
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition"
+                      title="Upload files (Max 10)"
+                    >
+                      <Paperclip size={18} />
+                    </button>
+                    <input
+                      type="file"
+                      multiple
+                      className="hidden"
+                      ref={fileInputRef}
+                      onChange={handleFileSelect}
+                      accept=".doc,.docx,.pdf,.md,.txt,.jpg,.jpeg,.png,.webp"
+                    />
+                  </div>
+
+                  <button
+                    onClick={() => setAgentMode(!agentMode)}
+                    className={`h-9 px-4 rounded-full border flex items-center gap-1.5 text-sm font-medium transition ${
+                      agentMode
+                        ? "bg-blue-50 border-blue-300 text-blue-600"
+                        : "bg-white border-blue-400 text-blue-500 hover:bg-blue-50"
+                    }`}
+                  >
+                    <Sparkles size={14} />
+                    Agent
+                  </button>
+                </div>
+
+                {/* Right: Controls */}
+                <div className="flex items-center gap-2">
+                  {/* Model Switcher Pill */}
+                  <div className="h-9 rounded-full border border-gray-200 bg-gray-50/50 flex items-center p-0.5 gap-1">
+                    <button
+                      onClick={() => setModelMode("thinking")}
+                      className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${modelMode === "thinking" ? "bg-white shadow-sm text-black ring-1 ring-black/5" : "text-gray-400 hover:text-gray-600"}`}
+                      title="Thinking Mode (Pro)"
+                    >
+                      <Lightbulb size={14} strokeWidth={2.5} />
+                    </button>
+                    <button
+                      onClick={() => setModelMode("fast")}
+                      className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${modelMode === "fast" ? "bg-white shadow-sm text-black ring-1 ring-black/5" : "text-gray-400 hover:text-gray-600"}`}
+                      title="Fast Mode (Flash)"
+                    >
+                      <Zap size={14} strokeWidth={2.5} />
+                    </button>
+                  </div>
+
+                  {/* Globe (Web Search) */}
+                  {/* Globe (Web Search) */}
+                  <button
+                    onClick={() => setWebEnabled(!webEnabled)}
+                    className={`w-9 h-9 rounded-full border flex items-center justify-center transition ${webEnabled ? "bg-black text-white border-black" : "border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-gray-50"}`}
+                    title="Networking Mode (Web Search)"
+                  >
+                    <Globe size={18} strokeWidth={1.5} />
+                  </button>
+
+                  {/* Cube (Image Model Selection - Nano Banana Pro) */}
+                  <button
+                    onClick={() => setImageModelEnabled(!imageModelEnabled)}
+                    className={`w-9 h-9 rounded-full border flex items-center justify-center transition ${imageModelEnabled ? "bg-blue-50 border-blue-200 text-blue-500" : "border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-gray-50"}`}
+                    title="Image Model: Nano Banana Pro"
+                  >
+                    <Box size={18} strokeWidth={2} />
+                  </button>
+
+                  {/* Send Button */}
+                  <button
+                    onClick={handleSearch}
+                    disabled={!prompt.trim() && attachments.length === 0}
+                    className={`w-9 h-9 rounded-full flex items-center justify-center transition shadow-sm ${
+                      prompt.trim() || attachments.length > 0
+                        ? "bg-gray-400 text-white hover:bg-black transform hover:scale-105"
+                        : "bg-gray-200 text-white cursor-not-allowed"
+                    }`}
+                  >
+                    <ArrowUp size={18} strokeWidth={2.5} />
+                  </button>
+                </div>
+              </div>
             </div>
+          </div>
         </motion.div>
 
         {/* Filters / Tags */}
         <div className="flex flex-wrap justify-center gap-3 mb-16">
-          <FilterPill 
-            text={modelMode === 'thinking' ? "Nano Banana Pro" : "Nano Banana Flash"} 
-            icon={<Banana size={16} className={modelMode === 'thinking' ? "text-orange-500" : "text-yellow-500"} />} 
-            active={true} 
+          <FilterPill
+            text={
+              modelMode === "thinking" ? "Nano Banana Pro" : "Nano Banana Flash"
+            }
+            icon={
+              <Banana
+                size={16}
+                className={
+                  modelMode === "thinking"
+                    ? "text-orange-500"
+                    : "text-yellow-500"
+                }
+              />
+            }
+            active={true}
           />
           <FilterPill text="Design" icon={<Box size={16} />} />
           <FilterPill text="Branding" icon={<Star size={16} />} />
@@ -378,12 +474,12 @@ const Home: React.FC<{ onExit?: () => void }> = ({ onExit }) => {
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-lg font-medium">最近项目</h2>
             <button className="text-sm text-gray-400 hover:text-gray-600 flex items-center gap-1">
-              查看全部 <span className="text-xs">{'>'}</span>
+              查看全部 <span className="text-xs">{">"}</span>
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
             <ProjectCard isNew />
-            {recentProjects.map(p => (
+            {recentProjects.map((p) => (
               <ProjectCard key={p.id} project={p} />
             ))}
           </div>

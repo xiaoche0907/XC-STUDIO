@@ -176,27 +176,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-gray-700 block">API Key</label>
                                     <div className="relative group">
-                                        <input
-                                            type={isVisible ? "text" : "password"}
+                                        <textarea
                                             value={apiProvider === 'gemini' ? geminiApiKey : apiProvider === 'yunwu' ? yunwuApiKey : customApiKey}
                                             onChange={(e) => {
                                                 if (apiProvider === 'gemini') setGeminiApiKey(e.target.value);
                                                 else if (apiProvider === 'yunwu') setYunwuApiKey(e.target.value);
                                                 else setCustomApiKey(e.target.value);
                                             }}
-                                            placeholder="sk-..."
-                                            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-all font-mono text-sm pr-10 hover:border-gray-300"
+                                            placeholder={isVisible ? "粘贴多个 Key，分行输入\nkey1\nkey2" : "••••••••••••••••"}
+                                            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-all font-mono text-sm pr-10 hover:border-gray-300 min-h-[100px] resize-none overflow-y-auto"
                                             autoFocus
+                                            style={{
+                                                WebkitTextSecurity: isVisible ? 'none' : 'disc'
+                                            } as React.CSSProperties}
                                         />
                                         <button
                                             onClick={() => setIsVisible(!isVisible)}
-                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition p-1"
+                                            className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 transition p-1"
                                         >
                                             {isVisible ? <EyeOff size={16} /> : <Eye size={16} />}
                                         </button>
                                     </div>
                                     <p className="text-xs text-gray-400 leading-relaxed">
-                                        我们需要这个密钥来调用 Gemini 模型。它将仅存储在您的本地浏览器中，绝不会发送到我们的服务器。
+                                        支持多 Key 轮询模式（换行输入）。密钥仅存储在您的本地浏览器中。
                                     </p>
                                 </div>
 

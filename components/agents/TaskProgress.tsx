@@ -2,18 +2,17 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { AgentTask, TaskStatus } from '../../types/agent.types';
-import { AgentAvatar } from './AgentAvatar';
 
 interface TaskProgressProps {
   task: AgentTask;
 }
 
 const statusConfig: Record<TaskStatus, { icon: React.ReactNode; color: string; label: string }> = {
-  pending: { icon: <Clock className="w-4 h-4" />, color: '#888', label: '等待中' },
-  analyzing: { icon: <Loader2 className="w-4 h-4 animate-spin" />, color: '#3b82f6', label: '分析需求中...' },
-  executing: { icon: <Loader2 className="w-4 h-4 animate-spin" />, color: '#8b5cf6', label: '生成图片中...' },
-  completed: { icon: <CheckCircle2 className="w-4 h-4" />, color: '#10b981', label: '已完成' },
-  failed: { icon: <XCircle className="w-4 h-4" />, color: '#ef4444', label: '生成失败' }
+  pending: { icon: <Clock size={12} />, color: '#94a3b8', label: '准备中' },
+  analyzing: { icon: <Loader2 size={12} className="animate-spin" />, color: '#3b82f6', label: '分析需求' },
+  executing: { icon: <Loader2 size={12} className="animate-spin text-purple-500" />, color: '#8b5cf6', label: '模型生成' },
+  completed: { icon: <CheckCircle2 size={12} />, color: '#10b981', label: '已完成' },
+  failed: { icon: <XCircle size={12} />, color: '#ef4444', label: '失败' }
 };
 
 export const TaskProgress: React.FC<TaskProgressProps> = ({ task }) => {
@@ -23,37 +22,34 @@ export const TaskProgress: React.FC<TaskProgressProps> = ({ task }) => {
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      className="flex items-center gap-3 p-3 bg-white/5 rounded-lg backdrop-blur-sm border border-white/10"
+      exit={{ opacity: 0, scale: 0.95 }}
+      className="flex flex-col gap-1.5 w-full max-w-[360px] pb-4 px-1"
     >
-      <AgentAvatar agentId={task.agentId} size="sm" />
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <motion.div
-            animate={{ rotate: task.status === 'analyzing' || task.status === 'executing' ? 360 : 0 }}
-            transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-            style={{ color: config.color }}
-          >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div className="flex-shrink-0" style={{ color: config.color }}>
             {config.icon}
-          </motion.div>
-          <span className="text-sm font-medium" style={{ color: config.color }}>
+          </div>
+          <span className="text-[12px] font-semibold text-gray-400 uppercase tracking-tight">
             {config.label}
           </span>
+          <span className="text-[12px] text-gray-300 font-medium truncate opacity-60">
+            {task.input.message}
+          </span>
         </div>
-        <p className="text-xs text-white/60 truncate mt-1">
-          {task.input.message}
-        </p>
       </div>
 
-      {(task.status === 'analyzing' || task.status === 'executing') && (
+      <div className="h-1 w-full bg-gray-100 rounded-full overflow-hidden">
         <motion.div
-          className="w-1 h-8 rounded-full"
+          className="h-full rounded-full"
           style={{ backgroundColor: config.color }}
-          animate={{ opacity: [0.3, 1, 0.3] }}
-          transition={{ duration: 1.5, repeat: Infinity }}
+          initial={{ width: '5%' }}
+          animate={{ 
+            width: task.status === 'completed' ? '100%' : task.status === 'failed' ? '100%' : task.status === 'executing' ? '80%' : task.status === 'analyzing' ? '40%' : '5%' 
+          }}
+          transition={{ duration: 0.6, ease: 'easeInOut' }}
         />
-      )}
+      </div>
     </motion.div>
   );
 };

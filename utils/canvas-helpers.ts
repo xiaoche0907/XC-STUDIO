@@ -25,29 +25,33 @@ export function assetToCanvasElement(
   };
 
   if (asset.type === 'image') {
+    const w = asset.metadata.width || 512;
+    const h = asset.metadata.height || 512;
     return {
       ...baseElement,
       type: 'gen-image',
       url: asset.url,
-      width: 512,
-      height: 512,
+      width: w,
+      height: h,
       genPrompt: asset.metadata.prompt,
       genModel: asset.metadata.model as any,
-      genAspectRatio: '1:1',
+      genAspectRatio: w === h ? '1:1' : `${w}:${h}`,
       genResolution: '2K'
     } as CanvasElement;
   }
 
   if (asset.type === 'video') {
+    const w = asset.metadata.width || 640;
+    const h = asset.metadata.height || 360;
     return {
       ...baseElement,
       type: 'gen-video',
       url: asset.url,
-      width: 640,
-      height: 360,
+      width: w,
+      height: h,
       genPrompt: asset.metadata.prompt,
       genModel: asset.metadata.model as any,
-      genAspectRatio: '16:9',
+      genAspectRatio: w === h ? '1:1' : `${w}:${h}`,
       genDuration: '5s'
     } as CanvasElement;
   }
@@ -106,13 +110,18 @@ export function assetsToCanvasElementsAtCenter(
     const row = Math.floor(index / cols);
     const col = index % cols;
     
-    const spacing = 550; // 元素间距
-    const offsetX = (col - (cols - 1) / 2) * spacing;
-    const offsetY = (row - (Math.ceil(assets.length / cols) - 1) / 2) * spacing;
+    // 动态间距，基于资产尺寸
+    const w = asset.metadata.width || 512;
+    const h = asset.metadata.height || 512;
+    const spacingX = w + 40;
+    const spacingY = h + 40;
+
+    const offsetX = (col - (cols - 1) / 2) * spacingX;
+    const offsetY = (row - (Math.ceil(assets.length / cols) - 1) / 2) * spacingY;
     
     return assetToCanvasElement(asset, {
-      x: center.x + offsetX - 256, // 256 = width/2
-      y: center.y + offsetY - 256,
+      x: center.x + offsetX - (w / 2),
+      y: center.y + offsetY - (h / 2),
       zIndex: startZIndex + index
     });
   });

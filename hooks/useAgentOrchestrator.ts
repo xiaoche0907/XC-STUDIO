@@ -38,7 +38,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
   const [isProcessing, setIsProcessing] = useState(false);
   const messageQueue = useRef<Array<{ message: string; attachments?: File[] }>>([]);
 
-  const addAssetsToCanvas = useCallback((assets: GeneratedAsset[]) => {
+  const addAssetsToCanvas = useCallback(async (assets: GeneratedAsset[]) => {
     if (!canvasState || !onElementsUpdate || !autoAddToCanvas) {
       console.log('[useAgentOrchestrator] Canvas integration disabled or not configured');
       return;
@@ -48,10 +48,32 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       const containerW = window.innerWidth - (canvasState.showAssistant ? 400 : 0);
       const containerH = window.innerHeight;
 
-      console.log('[useAgentOrchestrator] Adding', assets.length, 'assets to canvas');
+      console.log('[useAgentOrchestrator] Processing', assets.length, 'assets for canvas');
+
+      // 异步获取所有图片的原始尺寸
+      const assetsWithDimensions = await Promise.all(assets.map(async (asset) => {
+        if (asset.type === 'image' && (!asset.metadata.width || !asset.metadata.height)) {
+          try {
+            const dimensions = await new Promise<{ w: number, h: number }>((resolve, reject) => {
+              const img = new Image();
+              img.onload = () => resolve({ w: img.width, h: img.height });
+              img.onerror = reject;
+              img.src = asset.url;
+            });
+            return {
+              ...asset,
+              metadata: { ...asset.metadata, width: dimensions.w, height: dimensions.h }
+            };
+          } catch (e) {
+            console.warn('[useAgentOrchestrator] Failed to load image dimensions, using default', e);
+            return asset;
+          }
+        }
+        return asset;
+      }));
 
       const newElements = assetsToCanvasElementsAtCenter(
-        assets,
+        assetsWithDimensions,
         containerW,
         containerH,
         canvasState.pan,

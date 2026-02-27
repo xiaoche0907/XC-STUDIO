@@ -61,6 +61,8 @@ export interface GeneratedAsset {
     prompt?: string;
     model?: string;
     agentId: AgentType;
+    width?: number;
+    height?: number;
   };
 }
 

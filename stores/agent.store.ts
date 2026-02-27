@@ -137,7 +137,7 @@ const initialState = {
   isTyping: false,
 
   modelMode: 'fast' as const,
-  webEnabled: true,
+  webEnabled: false,
   imageModelEnabled: false,
 
   imageGenRatio: '1:1',

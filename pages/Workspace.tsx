@@ -2841,11 +2841,11 @@ const Workspace: React.FC = () => {
 
         // Calculate scaling logic (cap the scaling to avoid huge toolbars when zoomed in, keep them reasonable sized)
         // Adjust baseline scale depending on viewport zoom
-        const adaptiveScale = Math.max(0.4, Math.min(2.0, zoom / 100));
-        const flexibleScale = 1 + ((1 / adaptiveScale) - 1) * 0.6;
-        const rightToolbarLeft = elX + el.width + (24 / adaptiveScale);
+        const adaptiveScale = Math.max(0.1, Math.min(2.0, zoom / 100));
+        const flexibleScale = 1 + ((1 / adaptiveScale) - 1) * 0.85;
+        const rightToolbarLeft = elX + el.width + (16 / adaptiveScale);
         const topToolbarTop = elY;
-        const bottomButtonTop = elY + el.height + (16 / adaptiveScale);
+        const bottomButtonTop = elY + el.height + (12 / adaptiveScale);
 
         // Text Edit Modal logic
         if (showTextEditModal) {
