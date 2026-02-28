@@ -21,12 +21,12 @@ export const geminiImageProvider: ImageProvider = {
 export const geminiVideoProvider: VideoProvider = {
   id: 'gemini',
   name: 'Gemini Veo',
-  models: ['Veo 3.1', 'Veo 3.1 Fast'],
+  models: ['Veo 3.1', 'Veo 3.1 Pro', 'Veo 3.1 Fast'],
 
   async generateVideo(request: VideoGenerationRequest, model: string): Promise<string | null> {
     return generateVideo({
       prompt: request.prompt,
-      model: model as 'Veo 3.1' | 'Veo 3.1 Fast',
+      model: model as 'Veo 3.1' | 'Veo 3.1 Pro' | 'Veo 3.1 Fast',
       aspectRatio: request.aspectRatio,
       startFrame: request.startFrame,
       endFrame: request.endFrame,

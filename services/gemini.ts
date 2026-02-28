@@ -87,7 +87,7 @@ export const fetchAvailableModels = async (provider: string, keys: string[], bas
     const allModels = new Set<string>();
 
     // 1. Special Handling: MemeFast Pricing API (Public list, high accuracy)
-    const isMemeFast = rootUrl.includes('memefast.top');
+    const isMemeFast = rootUrl.includes('memefast.top'); /* cspell:disable-line */
     if (isMemeFast) {
         try {
             const pricingUrl = `${rootUrl}/api/pricing_new`;
@@ -587,7 +587,7 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
 
 export interface VideoGenerationConfig {
     prompt: string;
-    model: 'Veo 3.1' | 'Veo 3.1 Fast';
+    model: 'Veo 3.1' | 'Veo 3.1 Pro' | 'Veo 3.1 Fast';
     aspectRatio: string;
     startFrame?: string; // base64
     endFrame?: string; // base64
@@ -596,7 +596,6 @@ export interface VideoGenerationConfig {
 
 export const generateVideo = async (config: VideoGenerationConfig): Promise<string | null> => {
     try {
-        // API Key Selection for Veo
         const win = window as any;
         if (win.aistudio) {
             const hasKey = await win.aistudio.hasSelectedApiKey();
@@ -605,33 +604,41 @@ export const generateVideo = async (config: VideoGenerationConfig): Promise<stri
             }
         }
 
-        // New instance for Veo requests
         const genAI = getClient();
-
         let validAspectRatio = config.aspectRatio;
-        // Veo models usually strictly support 16:9 or 9:16. 
+        
+        // Normalize aspect ratio for Veo
         if (validAspectRatio !== '16:9' && validAspectRatio !== '9:16') {
-            // Default to 16:9 if invalid for video (or map 1:1 to 16:9 for now as 1:1 is not strictly supported in standard Veo preview yet)
             validAspectRatio = '16:9';
         }
 
-        let operation;
+        // 1. Determine the target model ID
+        // Support both friendly names (from provider) and raw IDs (from localStorage)
+        let targetModelId = '';
+        
+        // Priority 1: Check config.model mapping
+        if (config.model === 'Veo 3.1' || config.model === 'Veo 3.1 Pro') targetModelId = VEO_PRO_MODEL;
+        else if (config.model === 'Veo 3.1 Fast') targetModelId = VEO_FAST_MODEL;
+        
+        // Priority 2: If not matched or using global rotation, pick from setting_video_models
+        if (!targetModelId) {
+            const selectedModels = JSON.parse(localStorage.getItem('setting_video_models') || '[]');
+            const candidates = selectedModels.length > 0 ? selectedModels : [VEO_FAST_MODEL];
+            
+            const storageKeyIdx = `service_poll_index_video`;
+            let currentIdx = parseInt(localStorage.getItem(storageKeyIdx) || '0', 10);
+            if (currentIdx >= candidates.length) currentIdx = 0;
+            
+            targetModelId = candidates[currentIdx];
+            localStorage.setItem(storageKeyIdx, ((currentIdx + 1) % candidates.length).toString());
+            
+            // Map common friendly names to internal IDs if found in rotation
+            if (targetModelId === 'Veo 3.1 Pro' || targetModelId === 'Veo 3.1') targetModelId = VEO_PRO_MODEL;
+            else if (targetModelId === 'Veo 3.1 Fast') targetModelId = VEO_FAST_MODEL;
+        }
 
-        // Pick video model from settings (Round Robin)
-        const selectedModels = JSON.parse(localStorage.getItem('setting_video_models') || '[]');
-        let targetModels = selectedModels.length > 0 ? selectedModels : [VEO_FAST_MODEL];
-
-        const storageKeyIdx = `service_poll_index_video`;
-        let currentIdx = parseInt(localStorage.getItem(storageKeyIdx) || '0', 10);
-        if (currentIdx >= targetModels.length) currentIdx = 0;
-
-        let targetModelId = targetModels[currentIdx];
-        localStorage.setItem(storageKeyIdx, ((currentIdx + 1) % targetModels.length).toString());
-
-        if (targetModelId === 'Veo 3.1 Pro' || targetModelId === 'Veo 3.1') targetModelId = VEO_PRO_MODEL;
-        else if (targetModelId === 'Veo 3.1 Fast') targetModelId = VEO_FAST_MODEL;
-
-        const modelId = targetModelId;
+        const modelId = targetModelId || VEO_FAST_MODEL;
+        console.log(`[generateVideo] Requesting model: ${modelId} for prompt: ${config.prompt.slice(0, 50)}...`);
 
         const commonConfig = {
             numberOfVideos: 1,
@@ -639,99 +646,107 @@ export const generateVideo = async (config: VideoGenerationConfig): Promise<stri
             aspectRatio: validAspectRatio
         };
 
-        if (config.model === 'Veo 3.1 Fast') {
-            // Fast Model: Supports prompt, image (start), lastFrame
-            const request: any = {
-                model: modelId,
-                prompt: config.prompt,
-                config: commonConfig
-            };
+        const request: any = {
+            model: modelId,
+            prompt: config.prompt,
+            config: commonConfig
+        };
 
-            if (config.startFrame) {
-                const matches = config.startFrame.match(/^data:(.+);base64,(.+)$/);
-                if (matches) {
-                    request.image = {
-                        mimeType: matches[1],
-                        imageBytes: matches[2]
-                    };
-                }
+        // Handle frames and reference images based on model capabilities
+        // Note: For Veo 3.1 Fast, we use image/lastFrame. 
+        // For Pro, we can use referenceImages.
+        
+        const isFastModel = modelId.includes('fast');
+
+        // Start Frame mapping
+        if (config.startFrame) {
+            const matches = config.startFrame.match(/^data:(.+);base64,(.+)$/);
+            if (matches) {
+                request.image = {
+                    mimeType: matches[1],
+                    imageBytes: matches[2]
+                };
             }
-            // Fast model doesn't officially document lastFrame in standard public docs yet but system rules say so.
-            // If provided, we add it.
-            if (config.endFrame) {
-                const matches = config.endFrame.match(/^data:(.+);base64,(.+)$/);
-                if (matches) {
-                    request.config.lastFrame = {
-                        mimeType: matches[1],
-                        imageBytes: matches[2]
-                    };
-                }
-            }
-            operation = await retryWithBackoff(() => genAI.models.generateVideos(request));
-
-        } else {
-            // Veo 3.1 (Pro): Supports referenceImages, and usually start/end frames too.
-            // Prioritize start/end if explicitly provided (First/Last mode).
-            // Otherwise use referenceImages.
-
-            const request: any = {
-                model: modelId,
-                prompt: config.prompt,
-                config: commonConfig
-            };
-
-            if (config.startFrame || config.endFrame) {
-                // Assuming Veo 3.1 supports image/lastFrame similar to Fast or better
-                if (config.startFrame) {
-                    const matches = config.startFrame.match(/^data:(.+);base64,(.+)$/);
-                    if (matches) request.image = { mimeType: matches[1], imageBytes: matches[2] };
-                }
-                if (config.endFrame) {
-                    const matches = config.endFrame.match(/^data:(.+);base64,(.+)$/);
-                    if (matches) request.config.lastFrame = { mimeType: matches[1], imageBytes: matches[2] };
-                }
-            } else if (config.referenceImages && config.referenceImages.length > 0) {
-                // Use Reference Images
-                const refPayload: VideoGenerationReferenceImage[] = [];
-                for (const imgStr of config.referenceImages) {
-                    const matches = imgStr.match(/^data:(.+);base64,(.+)$/);
-                    if (matches) {
-                        refPayload.push({
-                            image: {
-                                mimeType: matches[1],
-                                imageBytes: matches[2]
-                            },
-                            referenceType: 'ASSET' as any // Using ASSET as default reference type (or STYLE/CHARACTER if applicable)
-                        });
-                    }
-                }
-                request.config.referenceImages = refPayload;
-            }
-
-            operation = await retryWithBackoff(() => genAI.models.generateVideos(request));
         }
 
-        while (!operation.done) {
+        // End Frame mapping
+        if (config.endFrame) {
+            const matches = config.endFrame.match(/^data:(.+);base64,(.+)$/);
+            if (matches) {
+                request.config.lastFrame = {
+                    mimeType: matches[1],
+                    imageBytes: matches[2]
+                };
+            }
+        }
+
+        // Reference Images mapping (usually for Pro model or newer Fast capabilities)
+        if (config.referenceImages && config.referenceImages.length > 0 && !isFastModel) {
+            const refPayload: VideoGenerationReferenceImage[] = [];
+            for (const imgStr of config.referenceImages) {
+                const matches = imgStr.match(/^data:(.+);base64,(.+)$/);
+                if (matches) {
+                    refPayload.push({
+                        image: {
+                            mimeType: matches[1],
+                            imageBytes: matches[2]
+                        },
+                        referenceType: 'ASSET' as any
+                    });
+                }
+            }
+            if (refPayload.length > 0) {
+                request.config.referenceImages = refPayload;
+            }
+        }
+
+        // Execute generation
+        let operation = await retryWithBackoff(() => genAI.models.generateVideos(request));
+        console.log(`[generateVideo] Operation created: ${operation.name}`);
+
+        // Poll for completion
+        let pollCount = 0;
+        const MAX_POLLS = 60; // 5 minutes max
+        
+        while (!operation.done && pollCount < MAX_POLLS) {
             await new Promise(resolve => setTimeout(resolve, 5000));
-            operation = await retryWithBackoff(() => genAI.operations.getVideosOperation({ operation: operation }));
+            pollCount++;
+            try {
+                operation = await retryWithBackoff(() => genAI.operations.getVideosOperation({ operation: operation }));
+                console.log(`[generateVideo] Polling... Status=${operation.done ? 'Done' : 'Processing'} (${pollCount})`);
+            } catch (pollErr: any) {
+                console.warn(`[generateVideo] Polling error (will retry):`, pollErr.message || pollErr);
+                // Continue polling unless it's a fatal error
+                if (pollErr.status === 404) break; 
+            }
+        }
+
+        if (!operation.done) {
+            throw new Error("视频生成超时，请稍后在项目中查看。");
         }
 
         const uri = operation.response?.generatedVideos?.[0]?.video?.uri;
         if (uri) {
-            return `${uri}&key=${getApiKey()}`;
+            // Some providers might require passing the key in the URI for playback if not proxied
+            const apiKey = getApiKey();
+            return `${uri}${uri.includes('?') ? '&' : '?'}key=${apiKey}`;
         }
-        return null;
+        
+        const errorMsg = operation.error?.message || "未获取到生成的视频资源。";
+        throw new Error(`生成失败: ${errorMsg}`);
 
     } catch (error: any) {
-        console.error("Video Generation Error:", error);
-        if (error.message && error.message.includes('Requested entity was not found')) {
-            const win = window as any;
-            if (win.aistudio) {
-                // Reset key and prompt again if entity not found (key issue)
-                await win.aistudio.openSelectKey();
-                throw new Error("Please select a valid API key and try again.");
-            }
+        console.error("Video Generation Detailed Error:", error);
+        
+        const msg = (error.message || '').toLowerCase();
+        if (msg.includes('requested entity was not found')) {
+            throw new Error("模型无法在当前节点找到，请检查设置中的模型映射。");
+        } else if (msg.includes('503') || msg.includes('overloaded') || msg.includes('unavailable')) {
+            throw new Error("服务商节点当前过载 (503)，请稍后重试或切换 API 节点。");
+        } else if (msg.includes('403') || msg.includes('permission') || msg.includes('401')) {
+            throw new Error("API 密钥权限不足或已失效，请检查设置。");
         }
+        
         throw error;
     }
 }

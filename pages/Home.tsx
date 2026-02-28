@@ -30,69 +30,9 @@ import {
 import { Project } from "../types";
 import { getProjects } from "../services/storage";
 import { SettingsModal } from "../components/SettingsModal";
+import Sidebar from "../components/Sidebar";
 
-const Sidebar = () => {
-  const navigate = useNavigate();
 
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const handleNewProject = () => {
-    navigate(`/workspace/new-${Date.now()}`);
-  };
-
-  const handleSettings = () => {
-    setIsSettingsOpen(true);
-  };
-
-  return (
-    <motion.div
-      initial={{ x: -20, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      className="fixed left-6 top-1/2 -translate-y-1/2 flex flex-col gap-4 z-50"
-    >
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-      />
-      <div>
-        <button
-          onClick={handleNewProject}
-          className="w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 shadow-lg bg-black text-white hover:scale-105"
-          title="新建项目"
-        >
-          <Plus size={24} />
-        </button>
-      </div>
-
-      <div className="w-12 py-6 bg-white/80 backdrop-blur-md rounded-full shadow-xl flex flex-col items-center gap-6 border border-white/20">
-        <button
-          onClick={() => navigate("/")}
-          className="p-2 bg-gray-100 rounded-full text-black transition hover:bg-gray-200"
-        >
-          <HomeIcon size={20} />
-        </button>
-        <button
-          onClick={() => navigate("/projects")}
-          className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"
-        >
-          <Folder size={20} />
-        </button>
-        <button className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition">
-          <User size={20} />
-        </button>
-        <button className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition">
-          <Info size={20} />
-        </button>
-        <button
-          onClick={handleSettings}
-          className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"
-          title="Settings / API Key"
-        >
-          <Settings size={20} />
-        </button>
-      </div>
-    </motion.div>
-  );
-};
 
 const Header = () => (
   <header className="fixed top-0 left-0 right-0 h-16 px-8 flex items-center justify-between z-40 bg-white/70 backdrop-blur-md border-b border-white/20 shadow-sm shadow-gray-100/20">
