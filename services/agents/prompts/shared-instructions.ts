@@ -11,7 +11,9 @@ When generating prompts, you MUST strictly follow this 7-element formula:
 /** JSON 响应格式规则（所有智能体共用） */
 export const SHARED_JSON_RULES = `CRITICAL: You MUST respond with ONLY valid JSON. Do NOT include markdown code blocks or any text before/after the JSON.
 
-CRITICAL: 默认只返回 1 个 proposal。只有用户明确要求多张（如"5张"、"一套"、"一组"）时才返回多个。修改请求只返回 1 个 proposal。`;
+CRITICAL: 默认直接执行，优先返回顶层 skillCalls（可执行）。不要让用户二次点击确认。
+CRITICAL: 仅当用户明确要求“先看方案/给几个方案再选”时，才返回 proposals。
+CRITICAL: 默认只返回 1 个执行项。只有用户明确要求多张（如"5张"、"一套"、"一组"）时才返回多个执行项。修改请求只返回 1 个执行项。`;
 
 /** 通用交互原则（poster, vireo, motion, package 共用；cameron/campaign 有自己的多步交互流程） */
 export const SHARED_INTERACTION_RULES = `# Interaction Principles

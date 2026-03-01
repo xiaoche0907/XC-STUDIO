@@ -616,7 +616,53 @@ const Workspace: React.FC = () => {
         }
     };
 
-    const handleSmartGenerate = async (prompt: string) => {
+    const handleSmartGenerate = async (prompt: string, proposalId?: string) => {
+        if (proposalId) {
+            try {
+                setIsTyping(true);
+                await executeProposal(proposalId);
+                const latestTask = useAgentStore.getState().currentTask;
+                if (latestTask && latestTask.output) {
+                    const derivedImageUrls =
+                        (latestTask.output.imageUrls && latestTask.output.imageUrls.length > 0)
+                            ? latestTask.output.imageUrls
+                            : [
+                                ...(latestTask.output.assets || [])
+                                    .filter((a: any) => a?.type === 'image' && a?.url)
+                                    .map((a: any) => a.url),
+                                ...(latestTask.output.skillCalls || [])
+                                    .filter((s: any) => s?.success && typeof s?.result === 'string')
+                                    .map((s: any) => s.result),
+                            ];
+
+                    addMessage({
+                        id: `proposal-${latestTask.id}-${Date.now()}`,
+                        role: 'model',
+                        text: latestTask.output.message || '方案执行完成。',
+                        timestamp: Date.now(),
+                        agentData: {
+                            model: latestTask.agentId,
+                            title: '方案执行结果',
+                            imageUrls: Array.from(new Set(derivedImageUrls)),
+                            analysis: latestTask.output.analysis,
+                            suggestions: latestTask.output.adjustments || [],
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('[Workspace] executeProposal failed:', error);
+                addMessage({
+                    id: `proposal-err-${Date.now()}`,
+                    role: 'model',
+                    text: '方案执行失败，请重试。',
+                    timestamp: Date.now(),
+                });
+            } finally {
+                setIsTyping(false);
+            }
+            return;
+        }
+
         const id = `gen-${Date.now()}`;
         // Calculate center of visible canvas area
         const containerW = window.innerWidth - (showAssistant ? 480 : 0);
@@ -698,7 +744,7 @@ const Workspace: React.FC = () => {
 
     // Agent orchestration
     const projectContext = useProjectContext(id || '', projectTitle, elements);
-    const { currentTask, processMessage } = useAgentOrchestrator({
+    const { currentTask, processMessage, executeProposal } = useAgentOrchestrator({
         projectContext,
         canvasState: { elements, pan, zoom, showAssistant },
         onElementsUpdate: setElements,
@@ -774,6 +820,7 @@ const Workspace: React.FC = () => {
                         model: result.agentId,
                         title: '智能助理',
                         imageUrls: Array.from(new Set(derivedImageUrls)),
+                        proposals: result.output.proposals,
                         analysis: result.output.analysis,
                         suggestions: result.output.adjustments || [],
                     }

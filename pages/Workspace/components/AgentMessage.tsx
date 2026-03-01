@@ -10,7 +10,7 @@ interface AgentMessageProps {
     message: ChatMessage;
     onPreview: (url: string) => void;
     onAction?: (action: string) => void;
-    onSmartGenerate?: (prompt: string) => void;
+    onSmartGenerate?: (prompt: string, proposalId?: string) => void;
 }
 
 export const AgentMessage: React.FC<AgentMessageProps> = ({ message, onPreview, onAction, onSmartGenerate }) => {
@@ -25,9 +25,14 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({ message, onPreview, 
 
     // 解析 json:generation 块
     const { cleanText, proposals } = useMemo(() => {
+        // 优先使用结构化 proposals（来自 AgentTask.output.proposals）
+        if (message.agentData?.proposals && message.agentData.proposals.length > 0) {
+            return { cleanText: message.text, proposals: message.agentData.proposals as any[] };
+        }
+
         // 如果消息已经包含了生成的资产 url 或 assets，说明任务已自动执行，不再展示方案按钮
         const hasExecuted = (message.agentData?.imageUrls?.length || 0) > 0 || (message.agentData?.assets?.length || 0) > 0;
-        
+
         const proposalRegex = /```json:generation\n([\s\S]*?)\n```/g;
         const foundProposals: any[] = [];
         let match;
@@ -172,7 +177,7 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({ message, onPreview, 
                                             prop.skillCalls?.find((s: any) => s?.skillName === 'generateImage')?.params?.prompt ||
                                             '';
                                         if (prompt) {
-                                            onSmartGenerate?.(prompt);
+                                            onSmartGenerate?.(prompt, prop.id);
                                         }
                                     }}
                                     className="w-full py-1.5 bg-gray-900 hover:bg-black text-white rounded-md text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] shadow-sm"

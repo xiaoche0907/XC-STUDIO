@@ -108,6 +108,18 @@ export interface ChatMessage {
     imageUrls?: string[];
     videoUrls?: string[];
     assets?: any[];
+    proposals?: Array<{
+      id: string;
+      title: string;
+      description: string;
+      skillCalls?: Array<{
+        skillName: string;
+        params: Record<string, any>;
+      }>;
+      prompt?: string;
+      previewUrl?: string;
+      concept_image?: string;
+    }>;
     adjustments?: string[];
     analysis?: string;
     suggestions?: string[]; // 可点击的建议按钮（如"温馨日常故事"、"科技感风格"）

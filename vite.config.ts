@@ -3,7 +3,8 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, ".", "");
+  const env = loadEnv(mode, ".", "VITE_");
+  const geminiKey = env.VITE_GEMINI_API_KEY || "";
   return {
     base: "/", // 确保基础路径正确
     server: {
@@ -25,15 +26,14 @@ export default defineConfig(({ mode }) => {
       },
     },
     // define block restored to support legacy process.env usage
-      define: {
-        'process.env': {
-          ...env,
-          API_KEY: env.GEMINI_API_KEY,
-          GEMINI_API_KEY: env.GEMINI_API_KEY,
-          VITE_GEMINI_API_KEY: env.GEMINI_API_KEY,
-          NODE_ENV: JSON.stringify(mode),
-        }
+    define: {
+      "process.env": {
+        API_KEY: geminiKey,
+        GEMINI_API_KEY: geminiKey,
+        VITE_GEMINI_API_KEY: geminiKey,
+        NODE_ENV: mode,
       },
+    },
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "."),

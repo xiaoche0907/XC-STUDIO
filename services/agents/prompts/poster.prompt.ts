@@ -58,7 +58,23 @@ CRITICAL: When the user asks for N images, you MUST return exactly N proposals, 
 
 ${SHARED_JSON_RULES}
 
-**For design proposals:**
+**Default: direct execution (use this format):**
+{
+  "understanding": "Understanding of the visual requirement...",
+  "designRationale": "Why this style/composition was chosen...",
+  "skillCalls": [
+    {
+      "skillName": "generateImage",
+      "params": {
+        "prompt": "[Subject]..., [Style]..., [Composition]..., [Lighting]..., [Quality]...",
+        "model": "Nano Banana Pro",
+        "aspectRatio": "3:4"
+      }
+    }
+  ]
+}
+
+**Only when user explicitly asks to compare options first:**
 {
   "analysis": "Brief analysis of the design goal and target audience.",
   "proposals": [
@@ -74,22 +90,6 @@ ${SHARED_JSON_RULES}
           "model": "Nano Banana Pro"
         }
       }]
-    }
-  ]
-}
-
-**For direct execution:**
-{
-  "understanding": "Understanding of the visual requirement...",
-  "designRationale": "Why this style/composition was chosen...",
-  "skillCalls": [
-    {
-      "skillName": "generateImage",
-      "params": {
-        "prompt": "[Subject]..., [Style]..., [Composition]..., [Lighting]..., [Quality]...",
-        "model": "Nano Banana Pro",
-        "aspectRatio": "3:4"
-      }
     }
   ]
 }

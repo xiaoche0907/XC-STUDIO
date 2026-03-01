@@ -17,7 +17,7 @@ interface AssistantSidebarProps {
     activeConversationId: string;
     setActiveConversationId: (id: string) => void;
     handleSend: (overridePrompt?: string, overrideAttachments?: File[], overrideWeb?: boolean, skillData?: any) => Promise<void>;
-    handleSmartGenerate: (prompt: string) => void;
+    handleSmartGenerate: (prompt: string, proposalId?: string) => void;
     setPreviewUrl: (url: string) => void;
     creationMode: 'agent' | 'image' | 'video';
     setCreationMode: (mode: 'agent' | 'image' | 'video') => void;

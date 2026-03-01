@@ -366,25 +366,21 @@ export abstract class EnhancedBaseAgent {
 
     let plan: any;
 
-    // Patch v14/15: 快速生图通道 — 如果检测到明确生图意图且非深度思考模式，直接构造计划，跳过 LLM 分析
-    // Patch v16: 进入分析确认与方案推荐模式
+    // 快速生图通道：检测到明确生图意图且非深度思考模式时，直接执行，避免卡在“方案确认”
     const isThinkingMode = useAgentStore.getState().modelMode === 'thinking';
     if (forceImageToolCall && !isThinkingMode) {
-      console.log(`[${this.agentInfo.id}] Analyzing intent and preparing proposals...`);
-      const landscapeCall = this.buildForcedGenerateImageCall(message + " (landscape 16:9)", task.input.attachments, { ...task.input.metadata, preferredAspectRatio: "16:9" });
-      const portraitCall = this.buildForcedGenerateImageCall(message + " (portrait 9:16)", task.input.attachments, { ...task.input.metadata, preferredAspectRatio: "9:16" });
-      const squareCall = this.buildForcedGenerateImageCall(message + " (square 1:1)", task.input.attachments, { ...task.input.metadata, preferredAspectRatio: "1:1" });
-
+      console.log(`[${this.agentInfo.id}] Fast path: forceImageToolCall triggered, executing directly.`);
+      const directCall = this.buildForcedGenerateImageCall(
+        message,
+        task.input.attachments,
+        task.input.metadata,
+      );
       plan = {
-        analysis: `用户请求生成图片，我分析后为您准备了三个不同比例的设计方案：横版（16:9）适合电影感视觉，竖版（9:16）适合手机壁纸，正方形（1:1）适合社交媒体。`,
-        message: "好的，我已经分析了您的需求。为了达到最佳效果，我为您准备了三个不同比例的创作方案，您可以选择最满意的一个开始生成。",
-        skillCalls: [], // 顶层为空，引导用户选择 proposal
-        proposals: [
-          { id: "p1", title: "电影感横版 (16:9)", description: "采用宽荧幕比例，适合表现宏大的场景和电影质感。", skillCalls: [landscapeCall] },
-          { id: "p2", title: "手机壁纸竖版 (9:16)", description: "长竖屏比例，画面主体更突出，适合作为手机壁纸或海报。", skillCalls: [portraitCall] },
-          { id: "p3", title: "经典方图 (1:1)", description: "构图紧凑平稳，适合社交媒体头像或精致插画。", skillCalls: [squareCall] }
-        ],
-        suggestions: ["按照我的描述直接生成", "尝试换个艺术风格"]
+        analysis: "已识别为直接生图请求，进入快速生成通道。",
+        message: "好的，正在根据您的需求直接开始生成。",
+        skillCalls: [directCall],
+        proposals: [],
+        suggestions: ["换个风格重试", "改成其他比例"]
       };
     } else {
       try {
@@ -660,30 +656,7 @@ export abstract class EnhancedBaseAgent {
       );
     }
 
-    // 6.8 方案预览阶段：有 proposals 且未强制执行时，直接返回方案供用户选择
-    // Patch v16: 即使识别到生图意图 (forceImageToolCall)，也返回方案进行“确认环节”
-    if (effectiveProposals.length > 0 && !task.input.metadata?.forceSkills) {
-      const previewMessage = 
-        plan.message || "我已为您准备好方案，请选择一个继续生成。";
-      
-      const finishedTask: AgentTask = {
-        ...task,
-        status: "completed",
-        output: {
-          message: previewMessage,
-          analysis: plan.analysis,
-          proposals: effectiveProposals,
-          assets: [],
-          adjustments: plan.suggestions || [],
-        },
-        updatedAt: Date.now(),
-      };
-      
-      // 关键：清空当前任务状态，防止 UI 进度条卡住
-      store.actions.setCurrentTask(null);
-      
-      return finishedTask;
-    }
+    // 6.8 默认直执行：有 proposals 时不再停在预览确认，直接执行对应 skillCalls
 
     // 7. 执行技能：优先执行用户选中的 proposal skillCalls
     const selectedSkillCalls = Array.isArray(
@@ -699,12 +672,9 @@ export abstract class EnhancedBaseAgent {
         `[${this.agentInfo.id}] Executing selected proposal skillCalls: ${selectedSkillCalls.length}`,
       );
       activeSkillCalls = selectedSkillCalls;
-    } else if (
-      effectiveProposals.length > 0 &&
-      task.input.metadata?.forceSkills
-    ) {
+    } else if (effectiveProposals.length > 0) {
       console.log(
-        `[${this.agentInfo.id}] forceSkills enabled, executing all proposal skillCalls.`,
+        `[${this.agentInfo.id}] Auto executing proposal skillCalls: ${effectiveProposals.length} proposals.`,
       );
       for (const p of effectiveProposals) {
         if (p.skillCalls && p.skillCalls.length > 0) {
@@ -779,8 +749,8 @@ export abstract class EnhancedBaseAgent {
       output: {
         message: finalMessage,
         analysis: plan.analysis,
-        // 全自动执行后，清除 proposals 以隐藏 UI 中的方案卡片和“立即生成”按钮
-        proposals: assets.length > 0 ? [] : effectiveProposals,
+        // 默认直执行模式下，不返回 proposals，避免前端继续展示“立即生成”卡片
+        proposals: [],
         assets,
         imageUrls: assetUrls, // 同步到 imageUrls 供 AgentMessage 列表渲染
         skillCalls: skillResults,
@@ -913,13 +883,14 @@ ${(context.conversationHistory || [])
 ${smartEditSection}
 用户请求: ${message}
 ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}
-请分析用户需求，返回以下 JSON 格式:
+请分析用户需求，默认返回可直接执行的 JSON（不要让用户二次点击确认）:
 {
   "analysis": "用中文简要分析用户需求",
-  "proposals": [{"id": "1", "title": "中文标题", "description": "中文描述", "skillCalls": [{"skillName": "generateImage", "params": {"prompt": "...", "referenceImage": "ATTACHMENT_0", "aspectRatio": "1:1", "model": "Nano Banana Pro"}}]}],
+  "skillCalls": [{"skillName": "generateImage", "params": {"prompt": "...", "referenceImage": "ATTACHMENT_0", "aspectRatio": "1:1", "model": "Nano Banana Pro"}}],
   "message": "用中文回复用户",
   "suggestions": ["可选：如果需要用户提供更多信息或选择项，可在此提供1-4个建议短语供用户快速点击，例如'温馨日常故事'"]
-}`;
+}
+仅当用户明确要求“先看方案/给几个方案再选”时，才返回 proposals 字段。`;
 
       // Build content parts - text + image attachments for visual understanding
       const parts: any[] = [{ text: fullPrompt }];

@@ -25,7 +25,7 @@ const AttachmentPill = ({ url, index }: { url: string; index: number }) => (
 
 interface MessageListProps {
     onSend: (text: string) => void;
-    onSmartGenerate: (prompt: string) => void;
+    onSmartGenerate: (prompt: string, proposalId?: string) => void;
     onPreview: (url: string) => void;
 }
 
