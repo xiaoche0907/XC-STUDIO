@@ -120,8 +120,19 @@ export interface ChatMessage {
       previewUrl?: string;
       concept_image?: string;
     }>;
+    skillCalls?: Array<{
+      skillName: string;
+      success?: boolean;
+      description?: string;
+      title?: string;
+      result?: any;
+      params?: Record<string, any>;
+      error?: string;
+    }>;
     adjustments?: string[];
     analysis?: string;
+    preGenerationMessage?: string;
+    postGenerationSummary?: string;
     suggestions?: string[]; // 可点击的建议按钮（如"温馨日常故事"、"科技感风格"）
   };
   // User skill invocation structured data

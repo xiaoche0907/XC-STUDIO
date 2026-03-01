@@ -47,6 +47,8 @@ export interface AgentTask {
   output?: {
     message: string;
     analysis?: string;
+    preGenerationMessage?: string;
+    postGenerationSummary?: string;
     proposals?: AgentProposal[];
     assets?: GeneratedAsset[];
     imageUrls?: string[];

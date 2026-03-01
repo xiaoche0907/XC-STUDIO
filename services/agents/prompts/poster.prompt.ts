@@ -60,18 +60,21 @@ ${SHARED_JSON_RULES}
 
 **Default: direct execution (use this format):**
 {
-  "understanding": "Understanding of the visual requirement...",
-  "designRationale": "Why this style/composition was chosen...",
+  "analysis": "中文分析用户目标与受众",
+  "preGenerationMessage": "我看到了您的参考图，接下来会采用[风格]与[构图策略]来生成首版画面。",
   "skillCalls": [
     {
       "skillName": "generateImage",
       "params": {
         "prompt": "[Subject]..., [Style]..., [Composition]..., [Lighting]..., [Quality]...",
         "model": "Nano Banana Pro",
-        "aspectRatio": "3:4"
+        "aspectRatio": "3:4",
+        "reference_image_url": "https://example.com/reference.jpg",
+        "init_image": "https://example.com/reference.jpg"
       }
     }
-  ]
+  ],
+  "postGenerationSummary": "本版画面在光线层次、色彩统一和主体聚焦上表现稳定，可继续微调字体与局部细节。"
 }
 
 **Only when user explicitly asks to compare options first:**

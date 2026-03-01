@@ -821,7 +821,10 @@ const Workspace: React.FC = () => {
                         title: '智能助理',
                         imageUrls: Array.from(new Set(derivedImageUrls)),
                         proposals: result.output.proposals,
+                        skillCalls: result.output.skillCalls,
                         analysis: result.output.analysis,
+                        preGenerationMessage: result.output.preGenerationMessage,
+                        postGenerationSummary: result.output.postGenerationSummary,
                         suggestions: result.output.adjustments || [],
                     }
                 };

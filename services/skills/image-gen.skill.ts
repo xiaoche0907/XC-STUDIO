@@ -3,6 +3,12 @@ import { ImageGenSkillParams } from '../../types/skill.types';
 
 export async function imageGenSkill(params: ImageGenSkillParams): Promise<string | null> {
   let enhancedPrompt = params.prompt;
+  const normalizedReferenceImage =
+    params.referenceImage ||
+    params.referenceImageUrl ||
+    params.reference_image_url ||
+    params.initImage ||
+    params.init_image;
 
   if (params.brandContext?.colors?.length) {
     enhancedPrompt += `, color palette: ${params.brandContext.colors.join(', ')}`;
@@ -17,7 +23,7 @@ export async function imageGenSkill(params: ImageGenSkillParams): Promise<string
       prompt: enhancedPrompt,
       aspectRatio: params.aspectRatio,
       imageSize: params.imageSize || '2K',
-      referenceImage: params.referenceImage,
+      referenceImage: normalizedReferenceImage,
       referenceImages: params.referenceImages,
     },
     params.model

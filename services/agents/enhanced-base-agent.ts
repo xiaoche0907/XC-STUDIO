@@ -94,6 +94,11 @@ interface ExecutionConfig {
   enableCache: boolean;
 }
 
+interface ImageParamsSchema {
+  type: Type;
+  properties: Record<string, { type: Type }>;
+}
+
 const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   maxRetries: 0,
   timeout: 600000, // 10 分钟（图片生成 + 分析可能需要较长时间）
@@ -111,6 +116,24 @@ const SKILL_TIMEOUTS: Record<string, number> = {
   export: 30_000,
 };
 const DEFAULT_SKILL_TIMEOUT = 60_000;
+
+const IMAGE_TOOL_PARAMS_SCHEMA: ImageParamsSchema = {
+  type: Type.OBJECT,
+  properties: {
+    prompt: { type: Type.STRING },
+    model: { type: Type.STRING },
+    aspectRatio: { type: Type.STRING },
+    referenceImage: { type: Type.STRING },
+    referenceImageUrl: { type: Type.STRING },
+    reference_image_url: { type: Type.STRING },
+    initImage: { type: Type.STRING },
+    init_image: { type: Type.STRING },
+  },
+};
+const MULTI_IMAGE_REQUEST_RE = /(\d+)\s*张|(\d+)\s*images?|一套|一组|系列|套图/i;
+const ECOM_SET_RE = /亚马逊|amazon|listing|副图|电商|主图|详情图|套图/i;
+const BANNED_MULTI_FRAME_TERMS_RE =
+  /\b(collage|set of images|multiple views|listing template|contact sheet|mosaic|grid panel)\b/gi;
 
 export abstract class EnhancedBaseAgent {
   protected chat: Chat | null = null;
@@ -195,9 +218,116 @@ export abstract class EnhancedBaseAgent {
     // 有附件时默认绑定首张参考图，确保不会空跑
     if (attachments && attachments.length > 0) {
       forcedCall.params.referenceImage = "ATTACHMENT_0";
+      forcedCall.params.reference_image_url = "ATTACHMENT_0";
+      forcedCall.params.init_image = "ATTACHMENT_0";
     }
 
     return forcedCall;
+  }
+
+  private parseRequestedImageCount(message: string): number {
+    const match = message.match(MULTI_IMAGE_REQUEST_RE);
+    if (!match) return 0;
+    const parsed = parseInt(match[1] || match[2] || "0", 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    return 5;
+  }
+
+  private shouldBypassFastPath(message: string): boolean {
+    const requestedCount = this.parseRequestedImageCount(message);
+    return requestedCount > 1 || ECOM_SET_RE.test(message);
+  }
+
+  private shouldForceAutoExecution(
+    message: string,
+    requestedCount: number,
+    forceImageToolCall: boolean,
+  ): boolean {
+    return (
+      forceImageToolCall || requestedCount > 1 || ECOM_SET_RE.test(message)
+    );
+  }
+
+  private sanitizeSingleFramePrompt(prompt: string): string {
+    const cleaned = (prompt || "").replace(BANNED_MULTI_FRAME_TERMS_RE, "").trim();
+    if (!cleaned) {
+      return "Single product hero shot, one scene only, clean composition, commercial photography, 8k";
+    }
+    return `${cleaned}. Single frame only, one scene only, no collage, no multi-panel layout.`;
+  }
+
+  private buildMultiImageFallbackCalls(
+    message: string,
+    count: number,
+    attachments?: File[],
+    metadata?: Record<string, any>,
+  ): any[] {
+    const safeCount = Math.max(1, Math.min(count || 5, 8));
+    const aspectRatio = (metadata?.preferredAspectRatio as string) || "1:1";
+    const model = "Nano Banana Pro";
+    const variants = [
+      {
+        title: "白底主图",
+        prompt:
+          "Single hero product shot, pure white background, centered composition, soft shadow, commercial e-commerce style, 8k",
+      },
+      {
+        title: "卖点信息图",
+        prompt:
+          "Single product infographic composition, clean white background, callout-friendly layout, feature emphasis, commercial listing style, 8k",
+      },
+      {
+        title: "生活场景图",
+        prompt:
+          "Single lifestyle in-use scene with product as hero, warm natural light, authentic daily environment, editorial commercial photography, 8k",
+      },
+      {
+        title: "材质细节图",
+        prompt:
+          "Single macro close-up of product material and texture, premium studio lighting, sharp focus, craftsmanship detail, 8k",
+      },
+      {
+        title: "尺寸包装图",
+        prompt:
+          "Single size and packaging overview scene, product with box and accessories, clean informative composition, e-commerce visual language, 8k",
+      },
+      {
+        title: "对比优势图",
+        prompt:
+          "Single comparison-focused scene highlighting product advantage, clear contrast narrative, trustworthy commercial style, 8k",
+      },
+      {
+        title: "性能展示图",
+        prompt:
+          "Single performance demonstration scene with product as hero, controlled lighting, clear functionality communication, 8k",
+      },
+      {
+        title: "品牌氛围图",
+        prompt:
+          "Single premium brand storytelling scene with product hero and copy-safe negative space, campaign quality, 8k",
+      },
+    ];
+
+    return Array.from({ length: safeCount }).map((_, index) => {
+      const variant = variants[index] || variants[variants.length - 1];
+      const params: Record<string, any> = {
+        prompt: this.sanitizeSingleFramePrompt(
+          `${variant.prompt}. Product requirement: ${message}`,
+        ),
+        aspectRatio: aspectRatio,
+        model: model,
+      };
+
+      if (attachments && attachments.length > 0) {
+        params.referenceImage = "ATTACHMENT_0";
+      }
+
+      return {
+        skillName: "generateImage",
+        params,
+        description: `第 ${index + 1} 张（${variant.title}）`,
+      };
+    });
   }
 
   /**
@@ -366,21 +496,37 @@ export abstract class EnhancedBaseAgent {
 
     let plan: any;
 
-    // 快速生图通道：检测到明确生图意图且非深度思考模式时，直接执行，避免卡在“方案确认”
-    const isThinkingMode = useAgentStore.getState().modelMode === 'thinking';
-    if (forceImageToolCall && !isThinkingMode) {
-      console.log(`[${this.agentInfo.id}] Fast path: forceImageToolCall triggered, executing directly.`);
+    const workflowMode =
+      task.input.metadata?.workflowMode === "fast" ? "fast" : "designer";
+    const isThinkingMode = useAgentStore.getState().modelMode === "thinking";
+    const requestedCount = this.parseRequestedImageCount(message);
+    const bypassFastPath = this.shouldBypassFastPath(message);
+    const shouldUseFastPath =
+      workflowMode === "fast" &&
+      forceImageToolCall &&
+      !isThinkingMode &&
+      !bypassFastPath;
+
+    if (shouldUseFastPath) {
+      console.log(
+        `[${this.agentInfo.id}] Fast workflow enabled: skipping planning stage.`,
+      );
       const directCall = this.buildForcedGenerateImageCall(
         message,
         task.input.attachments,
         task.input.metadata,
       );
+      directCall.params.prompt = this.sanitizeSingleFramePrompt(
+        directCall.params.prompt || "",
+      );
       plan = {
-        analysis: "已识别为直接生图请求，进入快速生成通道。",
+        analysis: "已识别为快速生图模式，跳过方案沟通并直接执行。",
+        preGenerationMessage: "已收到需求，正在快速生成视觉稿。",
+        postGenerationSummary: "本次快速模式已完成基础构图与视觉输出，可继续精修。",
         message: "好的，正在根据您的需求直接开始生成。",
         skillCalls: [directCall],
         proposals: [],
-        suggestions: ["换个风格重试", "改成其他比例"]
+        suggestions: ["换个风格重试", "改成其他比例"],
       };
     } else {
       try {
@@ -397,12 +543,44 @@ export abstract class EnhancedBaseAgent {
       } catch (error) {
         console.error(`[${this.agentInfo.id}] analyzeAndPlan failed:`, error);
         if (forceImageToolCall) {
-          console.warn(`[${this.agentInfo.id}] Analysis failed but Image Intent detected. Using hardcoded fallback.`);
-          plan = {
-            analysis: "分析超时，已为您启用快速生图通道。",
-            message: "分析稍微慢了一点，但我这就直接为您开始生成图片...",
-            skillCalls: [this.buildForcedGenerateImageCall(message, task.input.attachments, task.input.metadata)],
-          };
+          if (requestedCount > 1 || bypassFastPath) {
+            const fallbackCount = Math.max(requestedCount, 5);
+            console.warn(
+              `[${this.agentInfo.id}] Analysis failed for multi-image task. Using decomposed fallback calls (${fallbackCount}).`,
+            );
+            plan = {
+              analysis: "分析阶段超时，已自动切换为多图拆解兜底执行。",
+              preGenerationMessage: `正在为您拆解并并行生成 ${fallbackCount} 张独立图片。`,
+              postGenerationSummary: "本次已按单图策略拆解生成，可继续逐张微调。",
+              message: `已按多图需求拆解为 ${fallbackCount} 个独立画面并开始生成。`,
+              skillCalls: this.buildMultiImageFallbackCalls(
+                message,
+                fallbackCount,
+                task.input.attachments,
+                task.input.metadata,
+              ),
+              proposals: [],
+            };
+          } else {
+            console.warn(
+              `[${this.agentInfo.id}] Analysis failed but image intent detected. Using single fallback call.`,
+            );
+            plan = {
+              analysis: "分析阶段超时，已为您进入安全降级的直接出图流程。",
+              preGenerationMessage:
+                "我已理解您的设计目标，先为您生成首版视觉稿，随后给出设计复盘。",
+              postGenerationSummary:
+                "首版已完成，后续可按风格、构图和光影继续微调。",
+              message: "分析稍慢，我先为您生成第一版图像。",
+              skillCalls: [
+                this.buildForcedGenerateImageCall(
+                  message,
+                  task.input.attachments,
+                  task.input.metadata,
+                ),
+              ],
+            };
+          }
         } else {
           throw error;
         }
@@ -415,6 +593,10 @@ export abstract class EnhancedBaseAgent {
       plan.proposals.forEach(fixSkillCalls);
     }
 
+    if (!plan.preGenerationMessage && forceImageToolCall) {
+      plan.preGenerationMessage = this.composePreGenerationMessage(task, plan);
+    }
+
     console.log(`[${this.agentInfo.id}] Plan received:`, {
       hasProposals: !!(plan.proposals && plan.proposals.length),
       proposalCount: plan.proposals?.length || 0,
@@ -424,12 +606,7 @@ export abstract class EnhancedBaseAgent {
     });
 
     // 2. 检测用户是否请求了多张图
-    const multiImageMatch = message.match(
-      /(\d+)\s*张|(\d+)\s*images?|一套|一组|系列/i,
-    );
-    const requestedCount = multiImageMatch
-      ? parseInt(multiImageMatch[1] || multiImageMatch[2]) || 5
-      : 0;
+    const requestedCountFromMessage = this.parseRequestedImageCount(message);
 
     let effectiveProposals =
       plan.proposals && plan.proposals.length > 0 ? [...plan.proposals] : [];
@@ -474,7 +651,7 @@ export abstract class EnhancedBaseAgent {
       );
 
       if (
-        requestedCount > 1 &&
+        requestedCountFromMessage > 1 &&
         plan.skillCalls.length === 1 &&
         !["cameron", "vireo", "motion"].includes(this.agentInfo.id)
       ) {
@@ -487,7 +664,7 @@ export abstract class EnhancedBaseAgent {
             aspectRatio: baseCall.params?.aspectRatio,
             model: baseCall.params?.model,
           },
-          requestedCount,
+          requestedCountFromMessage,
         );
         console.log(
           `[${this.agentInfo.id}] Created ${effectiveProposals.length} variant proposals from single skillCall`,
@@ -583,13 +760,19 @@ export abstract class EnhancedBaseAgent {
       }
     }
 
-    // 5.5 如果 AI 选择对话而非直接生成（proposals 为空但有 message，且不是被强制补充skillCall的），返回对话响应
+    const mustAutoExecute = this.shouldForceAutoExecution(
+      message,
+      requestedCountFromMessage,
+      forceImageToolCall,
+    );
+
+    // 5.5 如果 AI 选择对话而非直接生成（proposals 为空但有 message，且不是强制执行任务），返回对话响应
     if (
       effectiveProposals.length === 0 &&
       plan.message &&
       !plan.skillCalls?.length &&
       !task.input.metadata?.forceSkills &&
-      !forceImageToolCall
+      !mustAutoExecute
     ) {
       return {
         ...task,
@@ -648,6 +831,27 @@ export abstract class EnhancedBaseAgent {
             `[${this.agentInfo.id}] No skillCalls, no proposals with skills, no prompt found. Plan keys:`,
             Object.keys(plan),
           );
+
+          if (mustAutoExecute) {
+            fallbackSkillCalls =
+              requestedCountFromMessage > 1
+                ? this.buildMultiImageFallbackCalls(
+                    message,
+                    requestedCountFromMessage,
+                    task.input.attachments,
+                    task.input.metadata,
+                  )
+                : [
+                    this.buildForcedGenerateImageCall(
+                      message,
+                      task.input.attachments,
+                      task.input.metadata,
+                    ),
+                  ];
+            console.warn(
+              `[${this.agentInfo.id}] Forced execution guard activated. Built ${fallbackSkillCalls.length} fallback skillCalls.`,
+            );
+          }
         }
       }
     } else {
@@ -683,6 +887,30 @@ export abstract class EnhancedBaseAgent {
       }
     }
 
+    if (requestedCountFromMessage > 1) {
+      if (activeSkillCalls.length <= 1) {
+        activeSkillCalls = this.buildMultiImageFallbackCalls(
+          message,
+          requestedCountFromMessage,
+          task.input.attachments,
+          task.input.metadata,
+        );
+        console.warn(
+          `[${this.agentInfo.id}] Multi-image guard activated: expanded to ${activeSkillCalls.length} generateImage calls.`,
+        );
+      }
+
+      activeSkillCalls = activeSkillCalls.map((call: any) => {
+        if (call?.skillName === "generateImage") {
+          call.params = call.params || {};
+          call.params.prompt = this.sanitizeSingleFramePrompt(
+            call.params.prompt || "",
+          );
+        }
+        return call;
+      });
+    }
+
     let skillResults = [];
     if (activeSkillCalls.length > 0) {
       // Step 3: 生成中
@@ -704,7 +932,8 @@ export abstract class EnhancedBaseAgent {
       store.actions.setCurrentTask({
         ...task,
         status: "executing",
-        progressMessage: `方案已就绪，正在生成${genDesc}...`,
+        progressMessage:
+          plan.preGenerationMessage || `方案已就绪，正在生成${genDesc}...`,
         progressStep: 3,
         totalSteps: 4,
       });
@@ -735,6 +964,16 @@ export abstract class EnhancedBaseAgent {
           `我已根据方案为您生成了 ${assets.length} 张图片并添加至画布。`
         : plan.message || plan.analysis || "任务已完成";
 
+    const postGenerationSummary =
+      plan.postGenerationSummary ||
+      (assets.length > 0
+        ? this.composePostGenerationSummary(task, plan, assets.length)
+        : undefined);
+
+    if (assets.length > 0 && postGenerationSummary) {
+      finalMessage = `${finalMessage}\n\n${postGenerationSummary}`;
+    }
+
     // 彻底清理文本中的 json:generation 块（支持多行和代码块语法），防止前端渲染多余按钮
     finalMessage = finalMessage
       .replace(/```json:generation\s*[\s\S]*?```/g, "")
@@ -749,6 +988,8 @@ export abstract class EnhancedBaseAgent {
       output: {
         message: finalMessage,
         analysis: plan.analysis,
+        preGenerationMessage: plan.preGenerationMessage,
+        postGenerationSummary,
         // 默认直执行模式下，不返回 proposals，避免前端继续展示“立即生成”卡片
         proposals: [],
         assets,
@@ -841,6 +1082,19 @@ export abstract class EnhancedBaseAgent {
 `
         : "";
 
+      const multimodalRefUrls =
+        metadata?.multimodalContext?.referenceImageUrls || [];
+      const multimodalSection =
+        multimodalRefUrls.length > 0
+          ? `
+【多模态参考图 URL（优先用于 Tool 参数）】
+${multimodalRefUrls
+  .map((url: string, index: number) => `- REF_URL_${index}: ${url}`)
+  .join("\n")}
+- 当你构造 generateImage 参数时，优先把参考图填入 reference_image_url（也可同步填入 init_image）。
+- 若使用 ATTACHMENT_N，也请同时保证 referenceImage 字段存在。`
+          : "";
+
       const fullPrompt = `${this.systemPrompt}
 
 【语言要求】你必须用中文回复所有内容（analysis、message、title、description 等字段全部用中文）。只有 prompt 字段用英文（因为图片生成模型需要英文 prompt）。
@@ -882,12 +1136,14 @@ ${(context.conversationHistory || [])
 可用技能: ${this.preferredSkills.join(", ")}
 ${smartEditSection}
 用户请求: ${message}
-${productSection}${quantitySection}${multiImageSection}${forcedToolSection}
+${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${multimodalSection}
 请分析用户需求，默认返回可直接执行的 JSON（不要让用户二次点击确认）:
 {
   "analysis": "用中文简要分析用户需求",
+  "preGenerationMessage": "调用工具前的设计师沟通文案，需复述参考图内容并说明风格与构图策略",
   "skillCalls": [{"skillName": "generateImage", "params": {"prompt": "...", "referenceImage": "ATTACHMENT_0", "aspectRatio": "1:1", "model": "Nano Banana Pro"}}],
   "message": "用中文回复用户",
+  "postGenerationSummary": "工具执行后的简短设计复盘，描述灯光/色调/构图亮点",
   "suggestions": ["可选：如果需要用户提供更多信息或选择项，可在此提供1-4个建议短语供用户快速点击，例如'温馨日常故事'"]
 }
 仅当用户明确要求“先看方案/给几个方案再选”时，才返回 proposals 字段。`;
@@ -936,6 +1192,8 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}
             properties: {
               analysis: { type: Type.STRING },
               message: { type: Type.STRING },
+              preGenerationMessage: { type: Type.STRING },
+              postGenerationSummary: { type: Type.STRING },
               proposals: {
                 type: Type.ARRAY,
                 items: {
@@ -954,7 +1212,7 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}
                             type: Type.STRING,
                             enum: ["generateImage"],
                           },
-                          params: { type: Type.OBJECT },
+                          params: IMAGE_TOOL_PARAMS_SCHEMA,
                         },
                         required: ["skillName", "params"],
                       },
@@ -970,7 +1228,7 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}
                   type: Type.OBJECT,
                   properties: {
                     skillName: { type: Type.STRING, enum: ["generateImage"] },
-                    params: { type: Type.OBJECT },
+                    params: IMAGE_TOOL_PARAMS_SCHEMA,
                   },
                   required: ["skillName", "params"],
                 },
@@ -1071,8 +1329,6 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}
     skillCalls: any[],
     task: AgentTask,
   ): Promise<any[]> {
-    const results: any[] = [];
-
     // Skill name alias mapping (Gemini may return old-style names)
     const SKILL_ALIASES: Record<string, string> = {
       imageGenSkill: "generateImage",
@@ -1084,7 +1340,15 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}
       exportSkill: "export",
       touchEditSkill: "touchEdit",
     };
-    
+
+    const normalizedCalls = (skillCalls || []).map((rawCall) => {
+      const call = this.normalizeImageReferenceParams(rawCall);
+      if (SKILL_ALIASES[call.skillName]) {
+        call.skillName = SKILL_ALIASES[call.skillName];
+      }
+      return call;
+    });
+
     // --- 进度反馈增强逻辑 (Patch v16) ---
     const progressSteps = [
       "正在连接 Nano Banana Pro 模型...",
@@ -1110,192 +1374,193 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}
     }, 3000);
 
     try {
-      for (const call of skillCalls) {
-      try {
-        // Normalize skill name via alias
-        if (SKILL_ALIASES[call.skillName]) {
-          call.skillName = SKILL_ALIASES[call.skillName];
+      const jobs = normalizedCalls.map((call, callIndex) => async () => {
+        try {
+          const result = await this.executeSingleSkillCall(
+            call,
+            callIndex,
+            task,
+          );
+          return { ...call, result, success: true };
+        } catch (error) {
+          const appError = errorHandler.handleError(error, {
+            skill: call?.skillName,
+            agent: this.agentInfo.id,
+          });
+          return {
+            ...call,
+            error: appError.message,
+            success: false,
+          };
         }
+      });
 
-        console.log(
-          `[${this.agentInfo.id}] [executeSkills] 解析技能参数: ${call.skillName}`,
-        );
-
-        // 安全解析：某些模型会返回字符串化 JSON 或 markdown 包裹的参数
-        if (typeof call.params === "string") {
-          try {
-            let cleanedParams = call.params.trim();
-            const codeBlockMatch = cleanedParams.match(
-              /```(?:json)?\s*\n?([\s\S]*?)\n?```/,
-            );
-            if (codeBlockMatch) {
-              cleanedParams = codeBlockMatch[1].trim();
-            }
-            call.params = JSON.parse(cleanedParams);
-          } catch (parseError) {
-            console.error(
-              `[${this.agentInfo.id}] 参数 JSON 解析失败:`,
-              parseError,
-            );
-            call.params = {};
-          }
+      const settled = await runWithConcurrency(jobs, this.maxConcurrency);
+      return settled.map((item) => {
+        if (item.status === "fulfilled") {
+          return item.value;
         }
-
-        if (!call.params || typeof call.params !== "object") {
-          call.params = {};
-        }
-
-        // 验证技能存在
-        if (
-          !AVAILABLE_SKILLS[call.skillName as keyof typeof AVAILABLE_SKILLS]
-        ) {
-          throw new Error(`Skill ${call.skillName} not found`);
-        }
-
-        // 注入前端显式选择的比例，确保请求参数使用用户所选值
-        const preferredAspectRatio = task.input.metadata?.preferredAspectRatio;
-        const creationMode = task.input.metadata?.creationMode;
-        if (
-          typeof preferredAspectRatio === "string" &&
-          preferredAspectRatio &&
-          ((creationMode === "image" && call.skillName === "generateImage") ||
-            (creationMode === "video" && call.skillName === "generateVideo"))
-        ) {
-          call.params = call.params || {};
-          call.params.aspectRatio = preferredAspectRatio;
-        }
-
-        if (
-          (call.skillName === "generateImage" ||
-            call.skillName === "generateVideo" ||
-            call.skillName === "smartEdit") &&
-          task.input.metadata?.forceSkills
-        ) {
-          const refKey =
-            call.skillName === "smartEdit" ? "sourceUrl" : "referenceImage";
-          const refVal = call.params?.[refKey];
-          const requiresAttachment =
-            (typeof refVal === "string" && refVal.startsWith("ATTACHMENT_")) ||
-            call.skillName === "smartEdit";
-
-          if (
-            requiresAttachment &&
-            (!task.input.attachments || task.input.attachments.length === 0)
-          ) {
-            throw new Error(
-              "执行方案时缺少参考附件，请先在输入区保留产品图/标记图后再执行。",
-            );
-          }
-        }
-
-        // 解析 attachment引用
-        if (
-          call.skillName === "generateImage" ||
-          call.skillName === "generateVideo" ||
-          call.skillName === "smartEdit"
-        ) {
-          // Check for referenceImage (gen) or sourceUrl (edit)
-          const paramKey =
-            call.skillName === "smartEdit" ? "sourceUrl" : "referenceImage";
-
-          // 自动注入产品参考图：如果有附件但 Gemini 没设置 referenceImage，自动注入
-          if (
-            call.skillName === "generateImage" &&
-            !call.params[paramKey] &&
-            task.input.attachments &&
-            task.input.attachments.length > 0
-          ) {
-            const imageAttachments = task.input.attachments.filter(
-              (f) => f.type && f.type.startsWith("image/"),
-            );
-            if (imageAttachments.length > 0) {
-              // 如果只有一张图，所有 proposal 都用它；多张图时按 proposal 索引分配
-              const callIndex = skillCalls.indexOf(call);
-              const attachIdx =
-                imageAttachments.length === 1
-                  ? 0
-                  : Math.min(callIndex, imageAttachments.length - 1);
-              const actualIdx = task.input.attachments.indexOf(
-                imageAttachments[attachIdx],
-              );
-              call.params[paramKey] = `ATTACHMENT_${actualIdx}`;
-              console.log(
-                `[${this.agentInfo.id}] Auto-injected referenceImage=ATTACHMENT_${actualIdx} for proposal #${callIndex}`,
-              );
-            }
-          }
-
-          if (
-            call.params[paramKey] &&
-            typeof call.params[paramKey] === "string" &&
-            call.params[paramKey].startsWith("ATTACHMENT_")
-          ) {
-            const index = parseInt(call.params[paramKey].split("_")[1]);
-            const availableAttachments = task.input.attachments || [];
-            if (availableAttachments[index]) {
-              const file = availableAttachments[index];
-              const reader = new FileReader();
-              const base64 = await new Promise<string>((resolve) => {
-                reader.onload = () => {
-                  const res = reader.result as string;
-                  resolve(res);
-                };
-                reader.readAsDataURL(file);
-              });
-              call.params[paramKey] = base64;
-
-              // For smartEdit, inject aspect ratio if available
-              if (call.skillName === "smartEdit" && (file as any).markerInfo) {
-                const info = (file as any).markerInfo;
-                // Simple ratio mapping
-                const ratio = info.width / info.height;
-                let aspect = "1:1";
-                if (ratio > 1.5) aspect = "16:9";
-                else if (ratio < 0.7) aspect = "9:16";
-                else if (ratio > 1.2) aspect = "4:3";
-                else if (ratio < 0.8) aspect = "3:4";
-
-                call.params.aspectRatio = aspect;
-              }
-            }
-          }
-        }
-
-        const skillTimeout =
-          SKILL_TIMEOUTS[call.skillName] || DEFAULT_SKILL_TIMEOUT;
-        const result = await Promise.race([
-          executeSkill(call.skillName, call.params),
-          new Promise<never>((_, reject) =>
-            setTimeout(
-              () =>
-                reject(
-                  new Error(
-                    `Skill ${call.skillName} 执行超时(${skillTimeout / 1000}s)`,
-                  ),
-                ),
-              skillTimeout,
-            ),
-          ),
-        ]);
-        results.push({ ...call, result, success: true });
-      } catch (error) {
-        const appError = errorHandler.handleError(error, {
-          skill: call.skillName,
-          agent: this.agentInfo.id,
-        });
-        results.push({
-          ...call,
-          error: appError.message,
+        return {
+          skillName: "unknown",
           success: false,
-        });
-      }
-    }
+          error: String(item.reason || "Unknown error"),
+        };
+      });
 
     } finally {
       clearInterval(pInterval);
     }
+  }
 
-    return results;
+  private async executeSingleSkillCall(
+    call: any,
+    callIndex: number,
+    task: AgentTask,
+  ): Promise<any> {
+    console.log(
+      `[${this.agentInfo.id}] [executeSkills] 解析技能参数: ${call.skillName}`,
+    );
+
+    if (typeof call.params === "string") {
+      try {
+        let cleanedParams = call.params.trim();
+        const codeBlockMatch = cleanedParams.match(
+          /```(?:json)?\s*\n?([\s\S]*?)\n?```/,
+        );
+        if (codeBlockMatch) {
+          cleanedParams = codeBlockMatch[1].trim();
+        }
+        call.params = JSON.parse(cleanedParams);
+      } catch (parseError) {
+        console.error(
+          `[${this.agentInfo.id}] 参数 JSON 解析失败:`,
+          parseError,
+        );
+        call.params = {};
+      }
+    }
+
+    if (!call.params || typeof call.params !== "object") {
+      call.params = {};
+    }
+
+    if (!AVAILABLE_SKILLS[call.skillName as keyof typeof AVAILABLE_SKILLS]) {
+      throw new Error(`Skill ${call.skillName} not found`);
+    }
+
+    const preferredAspectRatio = task.input.metadata?.preferredAspectRatio;
+    const creationMode = task.input.metadata?.creationMode;
+    if (
+      typeof preferredAspectRatio === "string" &&
+      preferredAspectRatio &&
+      ((creationMode === "image" && call.skillName === "generateImage") ||
+        (creationMode === "video" && call.skillName === "generateVideo"))
+    ) {
+      call.params = call.params || {};
+      call.params.aspectRatio = preferredAspectRatio;
+    }
+
+    if (
+      (call.skillName === "generateImage" ||
+        call.skillName === "generateVideo" ||
+        call.skillName === "smartEdit") &&
+      task.input.metadata?.forceSkills
+    ) {
+      const refKey =
+        call.skillName === "smartEdit" ? "sourceUrl" : "referenceImage";
+      const refVal = call.params?.[refKey];
+      const requiresAttachment =
+        (typeof refVal === "string" && refVal.startsWith("ATTACHMENT_")) ||
+        call.skillName === "smartEdit";
+
+      if (
+        requiresAttachment &&
+        (!task.input.attachments || task.input.attachments.length === 0)
+      ) {
+        throw new Error(
+          "执行方案时缺少参考附件，请先在输入区保留产品图/标记图后再执行。",
+        );
+      }
+    }
+
+    if (
+      call.skillName === "generateImage" ||
+      call.skillName === "generateVideo" ||
+      call.skillName === "smartEdit"
+    ) {
+      const paramKey =
+        call.skillName === "smartEdit" ? "sourceUrl" : "referenceImage";
+
+      if (
+        call.skillName === "generateImage" &&
+        !call.params[paramKey] &&
+        task.input.attachments &&
+        task.input.attachments.length > 0
+      ) {
+        const imageAttachments = task.input.attachments.filter(
+          (f) => f.type && f.type.startsWith("image/"),
+        );
+        if (imageAttachments.length > 0) {
+          const attachIdx =
+            imageAttachments.length === 1
+              ? 0
+              : Math.min(callIndex, imageAttachments.length - 1);
+          const actualIdx = task.input.attachments.indexOf(
+            imageAttachments[attachIdx],
+          );
+          call.params[paramKey] = `ATTACHMENT_${actualIdx}`;
+          console.log(
+            `[${this.agentInfo.id}] Auto-injected referenceImage=ATTACHMENT_${actualIdx} for proposal #${callIndex}`,
+          );
+        }
+      }
+
+      if (
+        call.params[paramKey] &&
+        typeof call.params[paramKey] === "string" &&
+        call.params[paramKey].startsWith("ATTACHMENT_")
+      ) {
+        const index = parseInt(call.params[paramKey].split("_")[1]);
+        const availableAttachments = task.input.attachments || [];
+        if (availableAttachments[index]) {
+          const file = availableAttachments[index];
+          const reader = new FileReader();
+          const base64 = await new Promise<string>((resolve) => {
+            reader.onload = () => {
+              const res = reader.result as string;
+              resolve(res);
+            };
+            reader.readAsDataURL(file);
+          });
+          call.params[paramKey] = base64;
+
+          if (call.skillName === "smartEdit" && (file as any).markerInfo) {
+            const info = (file as any).markerInfo;
+            const ratio = info.width / info.height;
+            let aspect = "1:1";
+            if (ratio > 1.5) aspect = "16:9";
+            else if (ratio < 0.7) aspect = "9:16";
+            else if (ratio > 1.2) aspect = "4:3";
+            else if (ratio < 0.8) aspect = "3:4";
+            call.params.aspectRatio = aspect;
+          }
+        }
+      }
+    }
+
+    const skillTimeout = SKILL_TIMEOUTS[call.skillName] || DEFAULT_SKILL_TIMEOUT;
+    return Promise.race([
+      executeSkill(call.skillName, call.params),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(`Skill ${call.skillName} 执行超时(${skillTimeout / 1000}s)`),
+            ),
+          skillTimeout,
+        ),
+      ),
+    ]);
   }
 
   /**
@@ -1361,6 +1626,67 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}
     suggestions.push("换个风格", "换个配色", "重新生成");
     
     return suggestions.slice(0, 4);
+  }
+
+  private composePreGenerationMessage(task: AgentTask, plan: any): string {
+    const uploaded = task.input.uploadedAttachments || [];
+    const ctxRefs =
+      task.input.metadata?.multimodalContext?.referenceImageUrls || [];
+    const refCount = Math.max(uploaded.length, ctxRefs.length);
+    const styleHint =
+      typeof plan?.analysis === "string" && plan.analysis.trim().length > 0
+        ? plan.analysis.trim().slice(0, 48)
+        : "电影质感与高级商业构图";
+
+    if (refCount > 0) {
+      return `我看到了您上传的 ${refCount} 张参考图，接下来我会围绕主体特征进行设计，采用${styleHint}的方向来完成本次视觉稿。`;
+    }
+
+    return `我已理解您的需求，接下来我会以${styleHint}为核心，先完成一版主视觉并保证构图与氛围统一。`;
+  }
+
+  private composePostGenerationSummary(
+    task: AgentTask,
+    plan: any,
+    assetCount: number,
+  ): string {
+    const hasRefs =
+      (task.input.uploadedAttachments?.length || 0) > 0 ||
+      (task.input.metadata?.multimodalContext?.referenceImageUrls?.length || 0) >
+        0;
+    const lighting = /夜景|cinematic|电影|neon|霓虹/i.test(
+      task.input.message || "",
+    )
+      ? "光影层次更偏电影感"
+      : "光线分布更强调主体识别";
+    const colorTone = /暖|warm|橙|gold/i.test(task.input.message || "")
+      ? "色调偏暖，氛围更亲和"
+      : "色调控制在清晰且耐看的商业区间";
+
+    const planTail =
+      typeof plan?.analysis === "string" && plan.analysis.trim().length > 0
+        ? `，并延续了“${plan.analysis.trim().slice(0, 24)}”的设计目标`
+        : "";
+
+    return `设计复盘：本次共输出 ${assetCount} 张结果，${lighting}，${colorTone}，构图重点突出核心信息${planTail}${hasRefs ? "，并保持了与参考图的主体一致性" : ""}。`;
+  }
+
+  private normalizeImageReferenceParams(call: any): any {
+    if (!call?.params || typeof call.params !== "object") return call;
+    const params = call.params as Record<string, any>;
+
+    const aliasRef =
+      params.referenceImage ||
+      params.referenceImageUrl ||
+      params.reference_image_url ||
+      params.initImage ||
+      params.init_image;
+
+    if (aliasRef && !params.referenceImage) {
+      params.referenceImage = aliasRef;
+    }
+
+    return { ...call, params };
   }
 
   /**

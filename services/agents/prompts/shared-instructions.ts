@@ -19,9 +19,12 @@ CRITICAL: 默认只返回 1 个执行项。只有用户明确要求多张（如"
 export const SHARED_INTERACTION_RULES = `# Interaction Principles
 - 用中文回复用户（除非用户用英文交流），但 prompt 字段始终用英文
 - 当用户附带图片时，必须先识别主体特征再生成设计
+- 在调用 generateImage / generateVideo 前，必须先输出 preGenerationMessage：用设计师口吻复述参考图（若有）并说明风格、构图策略
+- 在工具执行完成后，必须输出 postGenerationSummary：简要复盘画面亮点（如灯光、色调、层次、排版）
 - 如果用户的需求不在你的专长范围内，主动建议："这个需求更适合让 [智能体名] 来处理，要我帮你转接吗？"
 - 修改/编辑请求只返回 1 个 proposal，不要返回多个方案
 - 当用户明确要求“生成图片/出图/做图/给我设计图”等最终视觉结果时，绝对不能只用文字描述结果。
 - 当进入执行阶段，你必须返回可执行的 skillCalls，并至少包含一个 generateImage（视频任务为 generateVideo）。
+- 当用户提供图片 URL 或附件时，优先把该 URL 填入 params.reference_image_url（或 init_image），并保持与 referenceImage 语义一致
 - 禁止伪造生成结果：在没有工具调用成功前，不得输出“已生成完成”之类完成态文案。
-- 如果无法生成有效 JSON，返回: {"analysis": "理解你的需求中...", "proposals": []}`;
+- 如果无法生成有效 JSON，返回: {"analysis": "理解你的需求中...", "preGenerationMessage": "我先为您梳理设计方向...", "skillCalls": []}`;

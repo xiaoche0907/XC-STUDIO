@@ -241,6 +241,14 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
 
       console.log('[useAgentOrchestrator] Routed to:', decision.targetAgent);
 
+      const taskMetadata = {
+        ...(metadata || {}),
+        multimodalContext: {
+          referenceImageUrls: uploadedUrls,
+          hasReferenceImages: uploadedUrls.length > 0,
+        },
+      };
+
       const task: AgentTask = {
         id: `task-${Date.now()}`,
         agentId: decision.targetAgent,
@@ -249,7 +257,8 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
           message,
           attachments,
           uploadedAttachments: uploadedUrls.length > 0 ? uploadedUrls : undefined,
-          context: updatedContext
+          context: updatedContext,
+          metadata: taskMetadata,
         },
         createdAt: Date.now(),
         updatedAt: Date.now()
