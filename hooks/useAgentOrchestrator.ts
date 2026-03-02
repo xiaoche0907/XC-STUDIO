@@ -7,6 +7,7 @@ import { useAgentStore } from '../stores/agent.store';
 import { uploadImage } from '../utils/uploader';
 import { useImageHostStore } from '../stores/imageHost.store';
 import { localPreRoute } from '../services/agents/local-router';
+import { addTopicMemoryItem, buildTopicPinnedContext, extractConstraintHints, upsertTopicSnapshot } from '../services/topic-memory';
 
 interface CanvasState {
   elements: CanvasElement[];
@@ -184,6 +185,36 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
         conversationHistory: useAgentStore.getState().messages
       };
 
+      const topicId = String((metadata as any)?.topicId || projectContext.projectId || '').trim();
+      let topicPinnedContext = '';
+      let topicPinnedRefs: string[] = [];
+      if (topicId) {
+        try {
+          const pinned = await buildTopicPinnedContext(topicId);
+          topicPinnedContext = pinned.text;
+          topicPinnedRefs = pinned.refs;
+
+          const hints = extractConstraintHints(message);
+          if (hints.length > 0) {
+            await upsertTopicSnapshot(topicId, {
+              pinned: {
+                constraints: hints,
+                decisions: [],
+              },
+            });
+          }
+
+          if (message.trim()) {
+            await addTopicMemoryItem({
+              topicId,
+              type: 'instruction',
+              text: message.trim(),
+            });
+          }
+        } catch {
+        }
+      }
+
       // Pipeline detection
       const pipelineId = detectPipeline(message);
       if (pipelineId && PIPELINES[pipelineId]) {
@@ -263,9 +294,11 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
 
       const taskMetadata = {
         ...(metadata || {}),
+        topicId,
+        topicPinnedContext,
         multimodalContext: {
-          referenceImageUrls: uploadedUrls,
-          hasReferenceImages: uploadedUrls.length > 0,
+          referenceImageUrls: [...topicPinnedRefs, ...uploadedUrls].slice(0, 4),
+          hasReferenceImages: topicPinnedRefs.length + uploadedUrls.length > 0,
         },
       };
 

@@ -445,11 +445,22 @@ export const getBestModelId = (type: 'text' | 'image' | 'video' | 'thinking' = '
 
     if (type === 'thinking') {
         const selected = getSelectedScriptModel();
-        return selected || THINKING_MODEL;
+        if (selected) {
+            // 兼容性：如果用户存了旧的 1.5 系列，强制升级到最新的 3.1 Pro 思考模型
+            const low = selected.toLowerCase();
+            if (low.includes('1.5-pro') || low.includes('3-pro-preview')) return THINKING_MODEL;
+            return selected;
+        }
+        return THINKING_MODEL;
     }
 
     const selectedTextModel = getSelectedScriptModel();
-    return selectedTextModel || FLASH_MODEL;
+    if (selectedTextModel) {
+        // 快速模式兼容性：强制升级到 3.0 Flash
+        if (selectedTextModel.toLowerCase().includes('1.5-flash')) return FLASH_MODEL;
+        return selectedTextModel;
+    }
+    return FLASH_MODEL;
 };
 
 export const getClient = () => {

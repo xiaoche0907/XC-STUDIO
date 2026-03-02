@@ -97,7 +97,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                             </div>
                         )
                     ) : msg.error ? (
-                        <div className="max-w-[90%] rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
+                        <div className="max-w-[90%] rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700 whitespace-pre-wrap break-words">
                             {msg.text}
                         </div>
                     ) : (

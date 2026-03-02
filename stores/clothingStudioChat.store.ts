@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ClothingStep, Requirements, ModelGenOptions } from '../types/workflow.types';
+import type { ClothingStep, Requirements, ModelGenOptions, ClothingAnalysis } from '../types/workflow.types';
 
 export type WorkflowImageItem = {
   id: string;
@@ -16,7 +16,11 @@ type ProgressState = {
 interface ClothingStudioChatState {
   step: ClothingStep;
   productImages: WorkflowImageItem[];
+  productAnchorUrl: string | null;
+  analysis: ClothingAnalysis | null;
   modelImage: WorkflowImageItem | null;
+  modelViews: WorkflowImageItem[];
+  modelAnchorSheetUrl: string | null;
   modelCandidates: WorkflowImageItem[];
   requirements: Requirements;
   modelOptions: ModelGenOptions;
@@ -30,7 +34,11 @@ interface ClothingStudioChatState {
     reset: () => void;
     setStep: (step: ClothingStep) => void;
     addProductImages: (images: WorkflowImageItem[]) => void;
+    setProductAnchorUrl: (url: string | null) => void;
+    setAnalysis: (analysis: ClothingAnalysis | null) => void;
     setModelImage: (image: WorkflowImageItem | null) => void;
+    setModelViews: (images: WorkflowImageItem[]) => void;
+    setModelAnchorSheetUrl: (url: string | null) => void;
     setModelCandidates: (images: WorkflowImageItem[]) => void;
     setRequirements: (next: Partial<Requirements>) => void;
     setModelOptions: (next: Partial<ModelGenOptions>) => void;
@@ -76,7 +84,11 @@ const toId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toStri
 export const useClothingStudioChatStore = create<ClothingStudioChatState>((set, get) => ({
   step: 'WAIT_PRODUCT',
   productImages: [],
+  productAnchorUrl: null,
+  analysis: null,
   modelImage: null,
+  modelViews: [],
+  modelAnchorSheetUrl: null,
   modelCandidates: [],
   requirements: DEFAULT_REQUIREMENTS,
   modelOptions: DEFAULT_MODEL_OPTIONS,
@@ -90,7 +102,11 @@ export const useClothingStudioChatStore = create<ClothingStudioChatState>((set, 
     reset: () => set({
       step: 'WAIT_PRODUCT',
       productImages: [],
+      productAnchorUrl: null,
+      analysis: null,
       modelImage: null,
+      modelViews: [],
+      modelAnchorSheetUrl: null,
       modelCandidates: [],
       requirements: { ...DEFAULT_REQUIREMENTS },
       modelOptions: { ...DEFAULT_MODEL_OPTIONS },
@@ -113,7 +129,12 @@ export const useClothingStudioChatStore = create<ClothingStudioChatState>((set, 
       return { productImages: merged };
     }),
 
+    setProductAnchorUrl: (productAnchorUrl) => set({ productAnchorUrl }),
+    setAnalysis: (analysis) => set({ analysis }),
+
     setModelImage: (image) => set({ modelImage: image ? { ...image, id: image.id || toId('model') } : null }),
+    setModelViews: (images) => set({ modelViews: images }),
+    setModelAnchorSheetUrl: (modelAnchorSheetUrl) => set({ modelAnchorSheetUrl }),
     setModelCandidates: (images) => set({ modelCandidates: images }),
     setRequirements: (next) => set((state) => ({ requirements: { ...state.requirements, ...next } })),
     setModelOptions: (next) => set((state) => ({ modelOptions: { ...state.modelOptions, ...next } })),

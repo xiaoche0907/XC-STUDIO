@@ -6,7 +6,8 @@ import {
   Box, Image as ImageIcon, Video, Hash, Search, Filter, MoreHorizontal, Trash2, CheckSquare, X, Edit2, Settings
 } from 'lucide-react';
 import { Project } from '../types';
-import { getProjects, deleteProject, saveProject } from '../services/storage';
+import { getProject, getProjects, deleteProject, saveProject } from '../services/storage';
+import { deleteTopicMemory } from '../services/topic-memory';
 import { AnimatePresence } from 'framer-motion';
 import { SettingsModal } from '../components/SettingsModal';
 import Sidebar from '../components/Sidebar';
@@ -238,6 +239,12 @@ const Projects: React.FC<{ onExit?: () => void }> = ({ onExit }) => {
   const handleDelete = async (id: string, e?: React.MouseEvent) => {
       e?.stopPropagation();
       if (confirm('确定要删除这个项目吗？此操作无法撤销。')) {
+          const project = await getProject(id);
+          const conversations = project?.conversations || [];
+          for (const conversation of conversations) {
+              await deleteTopicMemory(conversation.id);
+          }
+          await deleteTopicMemory(id);
           await deleteProject(id);
           await loadProjects();
       }
@@ -247,6 +254,12 @@ const Projects: React.FC<{ onExit?: () => void }> = ({ onExit }) => {
       if (selectedIds.size === 0) return;
       if (confirm(`确定要删除选中的 ${selectedIds.size} 个项目吗？`)) {
           for (const id of selectedIds) {
+              const project = await getProject(id);
+              const conversations = project?.conversations || [];
+              for (const conversation of conversations) {
+                  await deleteTopicMemory(conversation.id);
+              }
+              await deleteTopicMemory(id);
               await deleteProject(id);
           }
           await loadProjects();

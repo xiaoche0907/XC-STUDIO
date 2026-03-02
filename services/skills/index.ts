@@ -9,8 +9,9 @@ import { touchEditSkill } from './touch-edit.skill';
 import { runXcAiOneclick, formatXcaiOneclickResult } from './xcai-oneclick.skill';
 import { clothingStudioWorkflowSkill } from './clothing-studio-workflow.skill';
 import { generateModelSkill } from './generate-model.skill';
+import { analyzeClothingProductSkill } from './analyze-clothing-product.skill';
 
-export { imageGenSkill, videoGenSkill, textExtractSkill, regionAnalyzeSkill, copyGenSkill, smartEditSkill, exportSkill, touchEditSkill, runXcAiOneclick, clothingStudioWorkflowSkill, generateModelSkill };
+export { imageGenSkill, videoGenSkill, textExtractSkill, regionAnalyzeSkill, copyGenSkill, smartEditSkill, exportSkill, touchEditSkill, runXcAiOneclick, clothingStudioWorkflowSkill, generateModelSkill, analyzeClothingProductSkill };
 
 export const AVAILABLE_SKILLS = {
   generateImage: imageGenSkill,
@@ -24,6 +25,7 @@ export const AVAILABLE_SKILLS = {
   xcaiOneclick: runXcAiOneclick,
   clothingStudioWorkflow: clothingStudioWorkflowSkill,
   generateModel: generateModelSkill,
+  analyzeClothingProduct: analyzeClothingProductSkill,
 };
 
 export async function executeSkill(skillName: string, params: any): Promise<any> {

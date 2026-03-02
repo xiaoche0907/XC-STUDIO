@@ -1,5 +1,6 @@
 export type ClothingStep =
   | 'WAIT_PRODUCT'
+  | 'ANALYZING_PRODUCT'
   | 'WAIT_MODEL_OPTIONAL'
   | 'NEED_MODEL'
   | 'MODEL_GENERATING'
@@ -7,12 +8,34 @@ export type ClothingStep =
   | 'GENERATING'
   | 'DONE';
 
+export type ProductType = 'top' | 'dress' | 'pants' | 'skirt' | 'set' | 'outerwear' | 'unknown';
+
+export type ClothingAnalysis = {
+  productType: ProductType;
+  isSet: boolean;
+  keyFeatures: string[];
+  materialGuess: string[];
+  colorPalette: string[];
+  fitSilhouette: string[];
+  anchorDescription: string;
+  forbiddenChanges: string[];
+  recommendedStyling: {
+    accessories: string[];
+    bottoms: string[];
+    bags: string[];
+    shoes: string[];
+  };
+  recommendedPoses: string[];
+  shotListHints: string[];
+  productAnchorIndex: number;
+};
+
 export type Requirements = {
   platform: string;
   description: string;
   targetLanguage: string;
   aspectRatio: string;
-  clarity: '1K' | '2K' | '4K';
+  clarity: '2K';
   count: number;
   templateId?: string;
   styleTags?: string[];
@@ -20,6 +43,7 @@ export type Requirements = {
   cameraTags?: string[];
   focusTags?: string[];
   extraText?: string;
+  referenceUrl?: string;
 };
 
 export type ModelGenOptions = {
@@ -36,6 +60,8 @@ export type ModelGenOptions = {
 
 export type WorkflowUiMessage =
   | { type: 'clothingStudio.product'; productCount: number; max: 6 }
+  | { type: 'clothingStudio.analyzing' }
+  | { type: 'clothingStudio.analysis'; analysis: ClothingAnalysis }
   | { type: 'clothingStudio.needModel' }
   | { type: 'clothingStudio.generateModelForm'; defaults: ModelGenOptions }
   | { type: 'clothingStudio.modelCandidates'; images: Array<{ url: string }> }

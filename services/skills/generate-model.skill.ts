@@ -1,8 +1,11 @@
 import { z } from 'zod';
 import { imageGenSkill } from './image-gen.skill';
 import type { ModelGenOptions } from '../../types/workflow.types';
+import type { ImageModel } from '../../types';
 import { loadProviderSettings } from '../provider-settings';
 import { buildModelConstraintsText } from '../../utils/clothing-prompt';
+import { ensureWhiteBackground } from '../image-postprocess';
+import { composeFourViews } from '../four-views';
 
 const schema = z.object({
   options: z.object({
@@ -10,13 +13,13 @@ const schema = z.object({
     ageRange: z.string().optional(),
     skinTone: z.string().optional(),
     extra: z.string().optional(),
-    count: z.number().int().min(1).max(4).default(1),
+    count: z.number().int().min(1).max(4).default(4),
   }),
 });
 
-export async function generateModelSkill(params: { options: ModelGenOptions }): Promise<Array<{ url: string }>> {
+export async function generateModelSkill(params: { options: ModelGenOptions; preferredImageModel?: ImageModel }): Promise<{ images: Array<{ url: string }>; anchorSheetUrl: string }> {
   const parsed = schema.parse(params);
-  const count = parsed.options.count || 1;
+  const count = 4;
   const providerSettings = loadProviderSettings();
   const activeProvider = providerSettings.providers.find(p => p.id === providerSettings.activeProviderId);
   const hasKey = !!activeProvider?.apiKey?.trim();
@@ -30,19 +33,34 @@ export async function generateModelSkill(params: { options: ModelGenOptions }): 
   const skinTone = parsed.options.skinTone?.trim() || 'natural skin tone';
   const extra = parsed.options.extra?.trim() || 'clean studio fashion model photo, full body';
   const modelConstraints = buildModelConstraintsText(parsed.options);
+  const views = ['front view', 'left side view', 'back view', 'right side view'];
 
   const outputs: Array<{ url: string }> = [];
 
   for (let i = 0; i < count; i += 1) {
-    const prompt = `Fashion model portrait for clothing try-on reference. gender: ${gender}; age: ${ageRange}; skin tone: ${skinTone}; ${extra}. neutral expression, clean background, full body, high-detail textile-friendly lighting.\n${modelConstraints}`;
-    const url = await imageGenSkill({
+    const prompt = `Generate a studio model identity anchor image, ${views[i]}. gender: ${gender}; age: ${ageRange}; skin tone: ${skinTone}; ${extra}.\nSTRICT OUTFIT: plain white top and plain white long pants only, no logo, no prints, no jewelry, no bag, no hat, no extra accessories.\nSTRICT BACKGROUND: pure white background #FFFFFF, no props, no scene, no gradient.\nPOSE: full body in frame, natural standing, arms down, consistent identity.\n${modelConstraints}`;
+    const rawUrl = await imageGenSkill({
       prompt,
-      model: 'Nano Banana Pro',
+      model: params.preferredImageModel || 'Nano Banana Pro',
       aspectRatio: '3:4',
       imageSize: '2K',
     });
-    if (url) outputs.push({ url });
+    if (rawUrl) {
+      const whiteBg = await ensureWhiteBackground(rawUrl);
+      outputs.push({ url: whiteBg });
+    }
   }
 
-  return outputs;
+  if (outputs.length < 4) {
+    throw new Error('模特四视图生成不足 4 张，请重试');
+  }
+
+  const anchorSheetUrl = await composeFourViews({
+    front: outputs[0].url,
+    left: outputs[1].url,
+    back: outputs[2].url,
+    right: outputs[3].url,
+  });
+
+  return { images: outputs, anchorSheetUrl };
 }

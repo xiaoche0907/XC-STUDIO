@@ -1,10 +1,13 @@
 import { Project } from '../types';
 
-const DB_NAME = 'XcStudioDB';
-const STORE_NAME = 'projects';
-const DB_VERSION = 1;
+export const DB_NAME = 'XcStudioDB';
+export const STORE_NAME = 'projects';
+export const TOPIC_SNAPSHOT_STORE = 'topic_snapshots';
+export const TOPIC_MEMORY_ITEM_STORE = 'topic_memory_items';
+export const TOPIC_ASSET_STORE = 'topic_assets';
+const DB_VERSION = 2;
 
-const openDB = (): Promise<IDBDatabase> => {
+export const openWorkspaceDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onerror = () => reject(request.error);
@@ -14,9 +17,26 @@ const openDB = (): Promise<IDBDatabase> => {
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: 'id' });
       }
+      if (!db.objectStoreNames.contains(TOPIC_SNAPSHOT_STORE)) {
+        db.createObjectStore(TOPIC_SNAPSHOT_STORE, { keyPath: 'topicId' });
+      }
+      if (!db.objectStoreNames.contains(TOPIC_MEMORY_ITEM_STORE)) {
+        const store = db.createObjectStore(TOPIC_MEMORY_ITEM_STORE, { keyPath: 'id' });
+        store.createIndex('topicId', 'topicId', { unique: false });
+        store.createIndex('type', 'type', { unique: false });
+        store.createIndex('createdAt', 'createdAt', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(TOPIC_ASSET_STORE)) {
+        const store = db.createObjectStore(TOPIC_ASSET_STORE, { keyPath: 'assetId' });
+        store.createIndex('topicId', 'topicId', { unique: false });
+        store.createIndex('role', 'role', { unique: false });
+        store.createIndex('createdAt', 'createdAt', { unique: false });
+      }
     };
   });
 };
+
+const openDB = openWorkspaceDB;
 
 export const getProjects = async (): Promise<Project[]> => {
   try {

@@ -110,7 +110,7 @@ interface AgentState {
   inputBlocks: InputBlock[];
   activeBlockId: string;
   selectionIndex: number | null;
-  pendingAttachment: AttachmentItem | null;
+  pendingAttachments: AttachmentItem[];
   confirmedAttachments: AttachmentItem[];
 
   // 聊天状态
@@ -169,8 +169,11 @@ interface AgentState {
     setSelectionIndex: (index: number | null) => void;
     insertInputFile: (file: File) => void;
     appendInputFile: (file: File) => void;
-    setPendingAttachment: (attachment: AttachmentItem | null) => void;
-    confirmPendingAttachment: () => void;
+    setPendingAttachments: (attachments: AttachmentItem[]) => void;
+    addPendingAttachment: (attachment: AttachmentItem) => void;
+    removePendingAttachment: (id: string) => void;
+    confirmPendingAttachments: () => void;
+    clearPendingAttachments: () => void;
 
     setIsTyping: (typing: boolean) => void;
 
@@ -215,7 +218,7 @@ const initialState = {
   inputBlocks: [{ id: 'init', type: 'text' as const, text: '' }],
   activeBlockId: 'init',
   selectionIndex: null,
-  pendingAttachment: null,
+  pendingAttachments: [] as AttachmentItem[],
   confirmedAttachments: [] as AttachmentItem[],
 
   isTyping: false,
@@ -272,7 +275,7 @@ export const useAgentStore = create<AgentState>()(
 
         setMessages: (messages) => set({ messages }),
 
-        clearMessages: () => set({ messages: [], inputBlocks: [{ id: 'init', type: 'text', text: '' }], pendingAttachment: null, confirmedAttachments: [] }),
+        clearMessages: () => set({ messages: [], inputBlocks: [{ id: 'init', type: 'text', text: '' }], pendingAttachments: [], confirmedAttachments: [] }),
 
         setInputBlocks: (blocks) => {
           const normalized = normalizeInputBlocks(blocks);
@@ -362,20 +365,34 @@ export const useAgentStore = create<AgentState>()(
           state.confirmedAttachments = collectConfirmedAttachmentsFromBlocks(state.inputBlocks);
         }),
 
-        setPendingAttachment: (attachment) => set((state) => {
-          state.pendingAttachment = attachment;
+        setPendingAttachments: (attachments) => set((state) => {
+          state.pendingAttachments = attachments;
         }),
 
-        confirmPendingAttachment: () => set((state) => {
-          const pending = state.pendingAttachment;
-          if (!pending) return;
+        addPendingAttachment: (attachment) => set((state) => {
+          if (!state.pendingAttachments.find(a => a.id === attachment.id)) {
+            state.pendingAttachments.push(attachment);
+          }
+        }),
 
-          (pending.file as any)._canvasAutoInsert = false;
-          appendFileBlockToInput(state, pending.file);
+        removePendingAttachment: (id) => set((state) => {
+          state.pendingAttachments = state.pendingAttachments.filter(a => a.id !== id);
+        }),
+
+        confirmPendingAttachments: () => set((state) => {
+          const pendings = state.pendingAttachments;
+          if (pendings.length === 0) return;
+
+          for (const pending of pendings) {
+            (pending.file as any)._canvasAutoInsert = false;
+            appendFileBlockToInput(state, pending.file);
+          }
+          
           state.confirmedAttachments = collectConfirmedAttachmentsFromBlocks(state.inputBlocks);
-
-          state.pendingAttachment = null;
+          state.pendingAttachments = [];
         }),
+
+        clearPendingAttachments: () => set({ pendingAttachments: [] }),
 
         setIsTyping: (typing) => set({ isTyping: typing }),
 

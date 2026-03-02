@@ -1085,7 +1085,8 @@ export abstract class EnhancedBaseAgent {
 - 如果用户附带了图片（附件），这些图片就是用户的产品/素材。你必须仔细观察每张图片，识别出产品的具体类型、颜色、材质、形状、品牌元素等细节。
 - 在每个 generateImage 的 prompt 中，必须以产品的精确英文描述开头（例如 "A matte black stainless steel water bottle with bamboo lid and minimalist logo" 而不是 "a water bottle"）。
 - 所有生成的图片必须围绕这些具体产品，不能生成无关的随机产品。
-- 重要：每个 generateImage 的 params 中必须包含 "referenceImage": "ATTACHMENT_N"（N 是附件索引，从0开始）。如果只有1张附件，所有 proposal 都用 "ATTACHMENT_0"；如果有多张附件，每个 proposal 可以引用不同的附件（如 ATTACHMENT_0, ATTACHMENT_1, ATTACHMENT_2...）。
+- 重要：如果用户上传了多张图片并要求生成，你必须为每一张图片独立创建一个 proposal，并在 params 中设置 "referenceImage": "ATTACHMENT_N"。严禁在多图场景下只参考第一张图。
+- 每个 generateImage 的 prompt 必须以产品的精确英文描述开头。
 `
           : "";
 
@@ -1132,6 +1133,14 @@ ${multimodalRefUrls
 - 若使用 ATTACHMENT_N，也请同时保证 referenceImage 字段存在。`
           : "";
 
+      const topicPinnedContext =
+        typeof metadata?.topicPinnedContext === "string" && metadata.topicPinnedContext.trim().length > 0
+          ? `
+【话题长期记忆（必须优先遵守）】
+${metadata.topicPinnedContext}
+`
+          : "";
+
       const fullPrompt = `${this.systemPrompt}
 
 【语言要求】你必须用中文回复所有内容（analysis、message、title、description 等字段全部用中文）。只有 prompt 字段用英文（因为图片生成模型需要英文 prompt）。
@@ -1174,7 +1183,7 @@ ${(context.conversationHistory || [])
 可用技能: ${this.preferredSkills.join(", ")}
 ${smartEditSection}
 用户请求: ${message}
-${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${multimodalSection}
+${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${multimodalSection}${topicPinnedContext}
 请分析用户需求，默认返回可直接执行的 JSON（不要让用户二次点击确认）:
 {
   "analysis": "用中文简要分析用户需求",
@@ -1542,7 +1551,7 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${mul
           const attachIdx =
             imageAttachments.length === 1
               ? 0
-              : Math.min(callIndex, imageAttachments.length - 1);
+              : callIndex % imageAttachments.length;
           const actualIdx = task.input.attachments.indexOf(
             imageAttachments[attachIdx],
           );

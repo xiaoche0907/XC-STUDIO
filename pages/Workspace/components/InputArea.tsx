@@ -163,7 +163,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
     const webEnabled = useAgentStore(s => s.webEnabled);
     const imageGenUpload = useAgentStore(s => s.imageGenUpload);
     const isPickingFromCanvas = useAgentStore(s => s.isPickingFromCanvas);
-    const pendingAttachment = useAgentStore(s => s.pendingAttachment);
+    const pendingAttachments = useAgentStore(s => s.pendingAttachments);
 
     const {
         setInputBlocks, removeInputBlock, appendInputFile,
@@ -171,7 +171,8 @@ export const InputArea: React.FC<InputAreaProps> = ({
         setVideoGenRatio, setVideoGenDuration, setVideoGenModel, setVideoGenMode,
         setVideoStartFrame, setVideoEndFrame, setVideoMultiRefs,
         setShowVideoModelDropdown, setWebEnabled, setIsAgentMode,
-        setImageGenUpload, setIsPickingFromCanvas, confirmPendingAttachment,
+        setImageGenUpload, setIsPickingFromCanvas, 
+        confirmPendingAttachments, removePendingAttachment,
     } = useAgentStore(s => s.actions);
 
     const imageGenRatio = useAgentStore(s => s.imageGenRatio);
@@ -187,9 +188,9 @@ export const InputArea: React.FC<InputAreaProps> = ({
         }
     };
 
-    const commitPendingAttachment = () => {
-        if (pendingAttachment) {
-            confirmPendingAttachment();
+    const commitPendingAttachments = () => {
+        if (pendingAttachments.length > 0) {
+            confirmPendingAttachments();
         }
     };
 
@@ -429,7 +430,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
                 <div
                     className={`px-3 pt-1.5 pb-1.5 cursor-text transition-all`}
                     onMouseDown={(e) => {
-                        commitPendingAttachment();
+                        commitPendingAttachments();
                         const target = e.target as HTMLElement;
                         if (target.closest('[id^="file-chip-"]') || target.closest('[id^="marker-chip-"]')) return;
                         selectLatestCanvasChip();
@@ -632,14 +633,14 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                         suppressContentEditableWarning
                                         className="ce-placeholder bg-transparent border-none outline-none text-sm text-gray-800"
                                         data-placeholder={placeholder}
-                                        style={{ display: 'inline-block', verticalAlign: 'top', lineHeight: '22px', whiteSpace: 'pre-wrap', wordBreak: 'break-all', caretColor: '#111827', minWidth: '2px', flex: isLastTextBlock ? (pendingAttachment ? '0 1 auto' : '1 1 auto') : '0 1 auto' }}
+                                        style={{ display: 'inline-block', verticalAlign: 'top', lineHeight: '22px', whiteSpace: 'pre-wrap', wordBreak: 'break-all', caretColor: '#111827', minWidth: '2px', flex: isLastTextBlock ? (pendingAttachments.length > 0 ? '0 1 auto' : '1 1 auto') : '0 1 auto' }}
                                         ref={el => { if (el && document.activeElement !== el && el.textContent !== (block.text || '')) el.textContent = block.text || ''; }}
                                         onInput={(e) => {
                                             setInputBlocks(useAgentStore.getState().inputBlocks.map(b => b.id === block.id ? { ...b, text: e.currentTarget.textContent || '' } : b));
                                             if (selectedChipId) setSelectedChipId(null);
                                         }}
                                         onPaste={(e) => handleEditorPaste(e, block.id)}
-                                        onFocus={() => { commitPendingAttachment(); setActiveBlockId(block.id); setIsInputFocused(true); }}
+                                        onFocus={() => { commitPendingAttachments(); setActiveBlockId(block.id); setIsInputFocused(true); }}
                                         onBlur={() => setIsInputFocused(false)}
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); return; }
@@ -742,19 +743,25 @@ export const InputArea: React.FC<InputAreaProps> = ({
                             return null;
                         })}
 
-                        {pendingAttachment && (
+                        {pendingAttachments.map((pending) => (
                             <div
-                                id="pending-attachment-chip"
-                                className="inline-flex items-center gap-1 rounded-full pl-[2px] pr-1.5 select-none relative h-6 cursor-default transition-all border border-dashed border-blue-300 bg-blue-50/50 shrink-0 opacity-50 grayscale"
+                                key={pending.id}
+                                className="inline-flex items-center gap-1 rounded-full pl-[2px] pr-1 select-none relative h-6 cursor-default transition-all border border-dashed border-blue-300 bg-blue-50/50 shrink-0 opacity-60 hover:opacity-100 group/pending"
                             >
                                 <div className="w-5 h-5 rounded-full overflow-hidden flex-shrink-0 border border-blue-200 shadow-sm">
-                                    {pendingAttachment.file.type.startsWith('image/')
-                                        ? <img src={URL.createObjectURL(pendingAttachment.file)} className="w-full h-full object-cover" />
+                                    {pending.file.type.startsWith('image/')
+                                        ? <img src={URL.createObjectURL(pending.file)} className="w-full h-full object-cover" />
                                         : <FileText size={10} className="text-blue-500" />}
                                 </div>
                                 <span className="text-[11px] text-blue-700 font-bold max-w-[100px] truncate ml-0.5">待确认</span>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); removePendingAttachment(pending.id); }}
+                                    className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-blue-400 hover:text-red-500 hover:bg-red-50 transition opacity-0 group-hover/pending:opacity-100"
+                                >
+                                    <X size={10} />
+                                </button>
                             </div>
-                        )}
+                        ))}
                     </div>
                 </div>
 

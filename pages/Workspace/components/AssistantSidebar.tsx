@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useAgentStore } from '../../../stores/agent.store';
 import { useClothingStudioChatStore } from '../../../stores/clothingStudioChat.store';
+import { deleteTopicMemory } from '../../../services/topic-memory';
 import { MessageList } from './MessageList';
 import { InputArea } from './InputArea';
 import { ConversationSession, ImageModel, VideoModel, Marker } from '../../../types';
@@ -185,6 +186,7 @@ export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
                                                         e.stopPropagation();
                                                         const updated = conversations.filter(c => c.id !== conversation.id);
                                                         setConversations(updated);
+                                                        void deleteTopicMemory(conversation.id);
                                                         if (activeConversationId === conversation.id) { setActiveConversationId(''); clearMessages(); }
                                                     }}
                                                     className="text-gray-300 hover:text-red-400 transition flex-shrink-0"

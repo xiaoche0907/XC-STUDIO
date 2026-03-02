@@ -39,7 +39,19 @@
     "NanoBanana",
     "doubao",
     "dall",
-    "Dall"
+    "Dall",
+    "Bytedance",
+    "Imagen",
+    "Seedance",
+    "Hailuo",
+    "Vidu",
+    "Tripo",
+    "ECOM",
+    "xcai",
+    "oneclick",
+    "Oneclick",
+    "SKYSPER",
+    "pendings"
   ],
   "ignorePaths": ["node_modules", "dist", "public"]
 }
