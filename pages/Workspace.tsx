@@ -41,6 +41,10 @@ import { videoGenSkill } from '../services/skills/video-gen.skill';
 import { smartEditSkill } from '../services/skills/smart-edit.skill';
 import { touchEditSkill } from '../services/skills/touch-edit.skill';
 import { exportSkill } from '../services/skills/export.skill';
+import { executeSkill } from '../services/skills';
+import { useClothingStudioChatStore } from '../stores/clothingStudioChat.store';
+import { uploadImage } from '../utils/uploader';
+import type { Requirements, ModelGenOptions, WorkflowUiMessage } from '../types/workflow.types';
 
 
 const TEMPLATES: Template[] = [
@@ -438,6 +442,193 @@ const Workspace: React.FC = () => {
     const [showUpscalePanel, setShowUpscalePanel] = useState(false);
     const [selectedUpscaleRes, setSelectedUpscaleRes] = useState<'2K' | '4K' | '8K'>('2K');
     const [showUpscaleResDropdown, setShowUpscaleResDropdown] = useState(false);
+    const [upscaleSourceSize, setUpscaleSourceSize] = useState<{ width: number; height: number } | null>(null);
+    const clothingState = useClothingStudioChatStore();
+    const clothingActions = useClothingStudioChatStore(s => s.actions);
+    const [clothingWorkflowError, setClothingWorkflowError] = useState<string | null>(null);
+
+    const pushWorkflowUiMessage = (ui: WorkflowUiMessage, text = '服装棚拍组图工作流') => {
+        addMessage({
+            id: `workflow-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            role: 'model',
+            text,
+            kind: 'workflow_ui',
+            workflowUi: ui,
+            timestamp: Date.now(),
+        } as any);
+    };
+
+    const insertResultToCanvas = (url: string, label?: string) => {
+        const containerW = window.innerWidth - (showAssistant ? 480 : 0);
+        const containerH = window.innerHeight;
+        const centerX = (containerW / 2 - pan.x) / (zoom / 100);
+        const centerY = (containerH / 2 - pan.y) / (zoom / 100);
+        const newEl: CanvasElement = {
+            id: `workflow-img-${Date.now()}`,
+            type: 'image',
+            url,
+            x: centerX - 240,
+            y: centerY - 320,
+            width: 480,
+            height: 640,
+            zIndex: elements.length + 1,
+            genPrompt: label || '服装棚拍组图',
+        };
+        const next = [...elements, newEl];
+        setElements(next);
+        saveToHistory(next, markers);
+        setSelectedElementId(newEl.id);
+    };
+
+    const startClothingWorkflow = () => {
+        clothingActions.reset();
+        setClothingWorkflowError(null);
+        clothingActions.setStep('WAIT_PRODUCT');
+        pushWorkflowUiMessage({ type: 'clothingStudio.product', productCount: 0, max: 6 });
+    };
+
+    const handleClothingGenerateModel = async (options: ModelGenOptions) => {
+        clothingActions.setStep('MODEL_GENERATING');
+        clothingActions.setModelOptions(options);
+        setClothingWorkflowError(null);
+        pushWorkflowUiMessage({ type: 'clothingStudio.progress', done: 0, total: Math.max(1, options.count || 1), text: '正在生成模特图...' }, '正在生成模特图，请稍候');
+        try {
+            const candidates = await executeSkill('generateModel', { options });
+            const images = Array.isArray(candidates) ? candidates : [];
+            if (images.length === 0) {
+                throw new Error('未生成可用模特图，请重试或调整参数');
+            }
+            clothingActions.setModelCandidates(images.map((item: any, idx: number) => ({ id: `model-${idx}-${Date.now()}`, url: item.url })));
+            if (images.length === 1) {
+                const picked = images[0];
+                clothingActions.setModelImage({ id: `model-auto-${Date.now()}`, url: picked.url });
+                clothingActions.setStep('WAIT_REQUIREMENTS');
+                pushWorkflowUiMessage({ type: 'clothingStudio.requirementsForm', defaults: clothingState.requirements }, '模特图已自动选中并作为视觉锚点，继续填写组图要求');
+            } else {
+                pushWorkflowUiMessage({ type: 'clothingStudio.modelCandidates', images }, '模特图已生成，请选择一张作为视觉锚点');
+            }
+        } catch (error: any) {
+            const msg = error?.message || '生成模特图失败，请检查 API Key 或网络后重试';
+            setClothingWorkflowError(msg);
+            addMessage({
+                id: `workflow-model-err-${Date.now()}`,
+                role: 'model',
+                text: `生成模特图失败：${msg}`,
+                timestamp: Date.now(),
+                error: true,
+            });
+            pushWorkflowUiMessage({ type: 'clothingStudio.generateModelForm', defaults: clothingState.modelOptions }, '请调整参数后重试生成模特图');
+        }
+    };
+
+    const handleClothingPickModel = (url: string) => {
+        clothingActions.setModelImage({ id: `model-pick-${Date.now()}`, url });
+        clothingActions.setStep('WAIT_REQUIREMENTS');
+        addMessage({
+            id: `workflow-model-anchor-${Date.now()}`,
+            role: 'model',
+            text: '模特锚点已确认，后续生成将固定人物身份并与产品锚点联合约束。',
+            timestamp: Date.now(),
+        });
+        pushWorkflowUiMessage({ type: 'clothingStudio.requirementsForm', defaults: clothingState.requirements });
+    };
+
+    const runClothingGeneration = async (requirements: Requirements, retryFailed = false) => {
+        if (!clothingState.modelImage?.url) {
+            clothingActions.setStep('NEED_MODEL');
+            pushWorkflowUiMessage({ type: 'clothingStudio.needModel' }, '未选择模特图，无法保持人物一致性。请先上传或生成模特图。');
+            return;
+        }
+
+        clothingActions.setRequirements(requirements);
+        clothingActions.setStep('GENERATING');
+        clothingActions.setGenerating(true);
+        const ctrl = clothingActions.startAbortSession();
+
+        pushWorkflowUiMessage({ type: 'clothingStudio.progress', done: 0, total: requirements.count, text: '准备开始生成...' });
+
+        const result = await executeSkill('clothingStudioWorkflow', {
+            productImages: clothingState.productImages.map(i => i.url),
+            modelImage: clothingState.modelImage?.url,
+            requirements,
+            retryFailedItems: retryFailed ? clothingState.failedItems : undefined,
+            signal: ctrl.signal,
+            onProgress: (done: number, total: number, text?: string) => {
+                clothingActions.setProgress({ done, total, text });
+                pushWorkflowUiMessage({ type: 'clothingStudio.progress', done, total, text });
+            },
+        });
+
+        clothingActions.clearAbortSession();
+        clothingActions.setGenerating(false);
+
+        const images = result?.images || result?.ui?.images || [];
+        const failedItems = result?.failedItems || [];
+        clothingActions.setResults(images);
+        clothingActions.setFailedItems(failedItems);
+        clothingActions.setStep('DONE');
+        pushWorkflowUiMessage({ type: 'clothingStudio.results', images }, '服装棚拍组图已完成');
+    };
+
+    const handleClothingSubmitRequirements = async (requirements: Requirements) => {
+        await runClothingGeneration(requirements, false);
+    };
+
+    const handleClothingRetryFailed = async () => {
+        if (!clothingState.failedItems.length) return;
+        await runClothingGeneration(clothingState.requirements, true);
+    };
+
+    const getUpscaleFactor = (res: '2K' | '4K' | '8K') => (res === '2K' ? 2 : res === '4K' ? 4 : 8);
+
+    const getNearestAspectRatio = (width: number, height: number): string => {
+        const ratio = width / height;
+        const supported = ['1:1', '3:4', '4:3', '9:16', '16:9', '21:9', '3:2', '2:3', '5:4', '4:5'];
+        let nearest = supported[0];
+        let minDiff = Number.POSITIVE_INFINITY;
+
+        for (const item of supported) {
+            const [w, h] = item.split(':').map(Number);
+            const candidate = w / h;
+            const diff = Math.abs(candidate - ratio);
+            if (diff < minDiff) {
+                minDiff = diff;
+                nearest = item;
+            }
+        }
+
+        return nearest;
+    };
+
+    const loadElementSourceSize = async (element: CanvasElement): Promise<{ width: number; height: number }> => {
+        if (!element.url) return { width: Math.max(1, Math.round(element.width)), height: Math.max(1, Math.round(element.height)) };
+
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                resolve({
+                    width: img.naturalWidth || Math.max(1, Math.round(element.width)),
+                    height: img.naturalHeight || Math.max(1, Math.round(element.height)),
+                });
+            };
+            img.onerror = () => {
+                resolve({ width: Math.max(1, Math.round(element.width)), height: Math.max(1, Math.round(element.height)) });
+            };
+            img.src = element.url as string;
+        });
+    };
+
+    const calcUpscaleTargetSize = (sourceWidth: number, sourceHeight: number, factor: number) => ({
+        width: Math.max(1, Math.round(sourceWidth * factor)),
+        height: Math.max(1, Math.round(sourceHeight * factor)),
+    });
+
+    useEffect(() => {
+        if (!showUpscalePanel || !selectedElementId) return;
+        const el = elements.find(e => e.id === selectedElementId);
+        if (!el || !el.url) return;
+        loadElementSourceSize(el).then(setUpscaleSourceSize);
+    }, [showUpscalePanel, selectedElementId, elements]);
 
     // Export States
     const [showExportMenu, setShowExportMenu] = useState(false);
@@ -591,6 +782,10 @@ const Workspace: React.FC = () => {
         const el = elements.find(e => e.id === selectedElementId);
         if (!el || !el.url) return;
 
+        const sourceSize = await loadElementSourceSize(el);
+        const targetSize = calcUpscaleTargetSize(sourceSize.width, sourceSize.height, factor);
+        const targetAspectRatio = getNearestAspectRatio(sourceSize.width, sourceSize.height);
+
         const newId = `upscale-${Date.now()}`;
         const newEl: CanvasElement = {
             ...el,
@@ -613,7 +808,12 @@ const Workspace: React.FC = () => {
                 editType: 'upscale',
                 parameters: {
                     factor,
-                    prompt
+                    prompt,
+                    targetWidth: targetSize.width,
+                    targetHeight: targetSize.height,
+                    aspectRatio: targetAspectRatio,
+                    sourceWidth: sourceSize.width,
+                    sourceHeight: sourceSize.height,
                 }
             });
             if (result) {
@@ -624,8 +824,8 @@ const Workspace: React.FC = () => {
                         ...e,
                         isGenerating: false,
                         url: result,
-                        width: el.width * factor,
-                        height: el.height * factor
+                        width: targetSize.width,
+                        height: targetSize.height
                     } : e));
                     saveToHistory(elements, markers);
                 };
@@ -915,6 +1115,86 @@ const Workspace: React.FC = () => {
         const text = overridePrompt ?? currentBlocks.filter(b => b.type === 'text').map(b => b.text).join(' ').trim();
         const attachments = overrideAttachments ?? currentBlocks.filter(b => b.type === 'file' && b.file).map(b => b.file!) as File[];
         const isWeb = overrideWeb ?? webEnabled;
+
+        if (skillData?.id === 'clothing-studio-workflow') {
+            try {
+                setIsTyping(true);
+
+                if (attachments.length > 0) {
+                    const uploaded: Array<{ id: string; url: string; name?: string }> = [];
+                    for (const file of attachments) {
+                        try {
+                            const url = await uploadImage(file);
+                            uploaded.push({ id: `up-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, url, name: file.name });
+                        } catch {
+                            const fallback = await new Promise<string>((resolve) => {
+                                const r = new FileReader();
+                                r.onloadend = () => resolve(r.result as string);
+                                r.readAsDataURL(file);
+                            });
+                            uploaded.push({ id: `up-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, url: fallback, name: file.name });
+                        }
+                    }
+
+                    if (clothingState.step === 'WAIT_PRODUCT') {
+                        clothingActions.addProductImages(uploaded);
+                        const nextCount = Math.min(6, clothingState.productImages.length + uploaded.length);
+                        clothingActions.setStep('WAIT_MODEL_OPTIONAL');
+                        pushWorkflowUiMessage({ type: 'clothingStudio.product', productCount: nextCount, max: 6 }, `已接收产品图 ${nextCount}/6`);
+                        pushWorkflowUiMessage({ type: 'clothingStudio.needModel' }, '可继续上传模特图，或 AI 生成模特图');
+                        pushWorkflowUiMessage({ type: 'clothingStudio.generateModelForm', defaults: clothingState.modelOptions }, '若没有模特图，可直接 AI 生成');
+                    } else if (['NEED_MODEL', 'MODEL_GENERATING', 'WAIT_MODEL_OPTIONAL'].includes(clothingState.step)) {
+                        const last = uploaded[uploaded.length - 1];
+                        if (last) {
+                            clothingActions.setModelImage(last);
+                            clothingActions.setStep('WAIT_REQUIREMENTS');
+                            pushWorkflowUiMessage({ type: 'clothingStudio.requirementsForm', defaults: clothingState.requirements }, '模特图已确认，请填写组图要求');
+                        }
+                    } else {
+                        clothingActions.addProductImages(uploaded);
+                        pushWorkflowUiMessage({ type: 'clothingStudio.product', productCount: Math.min(6, clothingState.productImages.length + uploaded.length), max: 6 }, '已作为产品图接收');
+                    }
+
+                    const hasModel = !!clothingState.modelImage;
+                    const productCount = Math.min(6, clothingState.productImages.length + uploaded.length);
+                    addMessage({
+                        id: `workflow-anchor-${Date.now()}`,
+                        role: 'model',
+                        text: hasModel
+                            ? `视觉锚点已就绪：模特锚点 1 张，产品锚点 ${productCount} 张。后续生成将严格参考这些锚点。`
+                            : `产品锚点已接收 ${productCount} 张。请补充模特图后可启用“模特+产品”双锚点一致性生成。`,
+                        timestamp: Date.now(),
+                    });
+                } else {
+                    if (clothingState.step === 'WAIT_PRODUCT') {
+                        pushWorkflowUiMessage({ type: 'clothingStudio.product', productCount: clothingState.productImages.length, max: 6 }, '请先上传 1~6 张产品图');
+                        if (clothingWorkflowError) {
+                            addMessage({
+                                id: `workflow-warn-${Date.now()}`,
+                                role: 'model',
+                                text: `提示：${clothingWorkflowError}`,
+                                timestamp: Date.now(),
+                                error: true,
+                            });
+                        }
+                    } else if (clothingState.step === 'WAIT_MODEL_OPTIONAL') {
+                        if (!clothingState.modelImage) {
+                            clothingActions.setStep('NEED_MODEL');
+                            pushWorkflowUiMessage({ type: 'clothingStudio.needModel' }, '当前缺少模特图，请上传或生成');
+                            pushWorkflowUiMessage({ type: 'clothingStudio.generateModelForm', defaults: clothingState.modelOptions }, '你也可以直接 AI 生成模特图');
+                        } else {
+                            clothingActions.setStep('WAIT_REQUIREMENTS');
+                            pushWorkflowUiMessage({ type: 'clothingStudio.requirementsForm', defaults: clothingState.requirements }, '请填写组图要求');
+                        }
+                    }
+                }
+
+                setInputBlocks([{ id: 'init', type: 'text', text: '' }]);
+            } finally {
+                setIsTyping(false);
+            }
+            return;
+        }
 
         if (!text && attachments.length === 0) return;
 
@@ -3266,8 +3546,10 @@ const Workspace: React.FC = () => {
                                                     <span className="font-bold">{selectedUpscaleRes}</span>
                                                     <span className="text-[10px] text-gray-400 font-normal">
                                                         {(() => {
-                                                            const factor = selectedUpscaleRes === '2K' ? 2 : selectedUpscaleRes === '4K' ? 4 : 8;
-                                                            return `${Math.round(el.width * factor)}x${Math.round(el.height * factor)}`;
+                                                            const factor = getUpscaleFactor(selectedUpscaleRes);
+                                                            const source = upscaleSourceSize || { width: Math.round(el.width), height: Math.round(el.height) };
+                                                            const target = calcUpscaleTargetSize(source.width, source.height, factor);
+                                                            return `${target.width}x${target.height}`;
                                                         })()}
                                                     </span>
                                                 </div>
@@ -3289,8 +3571,10 @@ const Workspace: React.FC = () => {
                                                                 <span>{res}</span>
                                                                 <span className="text-[10px] text-gray-400 font-normal">
                                                                     {(() => {
-                                                                        const factor = res === '2K' ? 2 : res === '4K' ? 4 : 8;
-                                                                        return `${Math.round(el.width * factor)}x${Math.round(el.height * factor)}`;
+                                                                        const factor = getUpscaleFactor(res);
+                                                                        const source = upscaleSourceSize || { width: Math.round(el.width), height: Math.round(el.height) };
+                                                                        const target = calcUpscaleTargetSize(source.width, source.height, factor);
+                                                                        return `${target.width}x${target.height}`;
                                                                     })()}
                                                                 </span>
                                                             </div>
@@ -3310,7 +3594,7 @@ const Workspace: React.FC = () => {
                                             </button>
                                             <button
                                                 onClick={() => {
-                                                    const factor = selectedUpscaleRes === '2K' ? 2 : selectedUpscaleRes === '4K' ? 4 : 8;
+                                                    const factor = getUpscaleFactor(selectedUpscaleRes);
                                                     handleUpscaleSelect(factor);
                                                     setShowUpscalePanel(false);
                                                 }}
@@ -4203,6 +4487,11 @@ const Workspace: React.FC = () => {
                         setShowVideoSettingsDropdown={setShowVideoSettingsDropdown}
                         markers={markers}
                         onSaveMarkerLabel={handleSaveMarkerLabel}
+                        onClothingSubmitRequirements={handleClothingSubmitRequirements}
+                        onClothingGenerateModel={handleClothingGenerateModel}
+                        onClothingPickModelCandidate={handleClothingPickModel}
+                        onClothingInsertToCanvas={insertResultToCanvas}
+                        onClothingRetryFailed={handleClothingRetryFailed}
                     />
                 )}
             </AnimatePresence>

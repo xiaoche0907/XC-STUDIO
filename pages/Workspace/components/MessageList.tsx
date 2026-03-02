@@ -5,6 +5,7 @@ import { ChatMessage } from '../../../types';
 import { AgentMessage } from './AgentMessage';
 import { useAgentStore } from '../../../stores/agent.store';
 import { TaskProgress } from '../../../components/agents/TaskProgress';
+import type { Requirements, ModelGenOptions } from '../../../types/workflow.types';
 
 const SmartMessageRenderer = ({ text, onGenerate, onAction }: { text: string; onGenerate: (prompt: string) => void; onAction?: (action: string) => void }) => {
     const cleanText = text.replace(/---AGENT_IMAGES---[\s\S]*$/m, '').trim();
@@ -27,9 +28,23 @@ interface MessageListProps {
     onSend: (text: string) => void;
     onSmartGenerate: (prompt: string, proposalId?: string) => void;
     onPreview: (url: string) => void;
+    onClothingSubmitRequirements?: (data: Requirements) => void;
+    onClothingGenerateModel?: (data: ModelGenOptions) => void;
+    onClothingPickModelCandidate?: (url: string) => void;
+    onClothingInsertToCanvas?: (url: string, label?: string) => void;
+    onClothingRetryFailed?: () => void;
 }
 
-export const MessageList: React.FC<MessageListProps> = ({ onSend, onSmartGenerate, onPreview }) => {
+export const MessageList: React.FC<MessageListProps> = ({
+    onSend,
+    onSmartGenerate,
+    onPreview,
+    onClothingSubmitRequirements,
+    onClothingGenerateModel,
+    onClothingPickModelCandidate,
+    onClothingInsertToCanvas,
+    onClothingRetryFailed,
+}) => {
     const messages = useAgentStore(s => s.messages);
     const isTyping = useAgentStore(s => s.isTyping);
     const currentTask = useAgentStore(s => s.currentTask);
@@ -91,6 +106,11 @@ export const MessageList: React.FC<MessageListProps> = ({ onSend, onSmartGenerat
                             onPreview={onPreview}
                             onAction={onSend}
                             onSmartGenerate={onSmartGenerate}
+                            onClothingSubmitRequirements={onClothingSubmitRequirements}
+                            onClothingGenerateModel={onClothingGenerateModel}
+                            onClothingPickModelCandidate={onClothingPickModelCandidate}
+                            onClothingInsertToCanvas={onClothingInsertToCanvas}
+                            onClothingRetryFailed={onClothingRetryFailed}
                         />
                     )}
                 </motion.div>

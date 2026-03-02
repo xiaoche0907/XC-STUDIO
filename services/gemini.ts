@@ -1071,6 +1071,37 @@ export interface ImageGenerationConfig {
     referenceImages?: string[]; // Multiple base64 images
 }
 
+const blobToDataUrl = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            if (typeof reader.result === 'string') resolve(reader.result);
+            else reject(new Error('blob->dataUrl failed'));
+        };
+        reader.onerror = () => reject(new Error('blob->dataUrl failed'));
+        reader.readAsDataURL(blob);
+    });
+};
+
+const normalizeReferenceToDataUrl = async (input: string): Promise<string | null> => {
+    if (!input || typeof input !== 'string') return null;
+    if (/^data:image\/.+;base64,/.test(input)) return input;
+
+    if (/^https?:\/\//i.test(input)) {
+        try {
+            const res = await fetchWithResilience(input, {}, { operation: 'generateImage.resolveReferenceUrl', retries: 1, timeoutMs: 30000 });
+            if (!res.ok) return null;
+            const blob = await res.blob();
+            if (!blob.type.startsWith('image/')) return null;
+            return await blobToDataUrl(blob);
+        } catch {
+            return null;
+        }
+    }
+
+    return null;
+};
+
 // Seedream 使用 dall-e-3 格式 (OpenAI 兼容的 /v1/images/generations 端点)
 const generateImageDallE3 = async (
     model: string,
@@ -1197,8 +1228,10 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
     const parts: any[] = [];
 
     const imagesToProcess = config.referenceImages || (config.referenceImage ? [config.referenceImage] : []);
-    for (const imgBase64 of imagesToProcess) {
-        const matches = imgBase64.match(/^data:(.+);base64,(.+)$/);
+    for (const imageInput of imagesToProcess) {
+        const normalizedDataUrl = await normalizeReferenceToDataUrl(imageInput);
+        if (!normalizedDataUrl) continue;
+        const matches = normalizedDataUrl.match(/^data:(.+);base64,(.+)$/);
         if (matches) {
             parts.push({
                 inlineData: {

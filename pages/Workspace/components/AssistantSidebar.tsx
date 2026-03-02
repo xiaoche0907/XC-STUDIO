@@ -5,9 +5,11 @@ import {
     File as FileIcon, Image as ImageIcon, Video, Download, Store, Layout, Globe, FileText, PanelRightClose, Compass
 } from 'lucide-react';
 import { useAgentStore } from '../../../stores/agent.store';
+import { useClothingStudioChatStore } from '../../../stores/clothingStudioChat.store';
 import { MessageList } from './MessageList';
 import { InputArea } from './InputArea';
 import { ConversationSession, ImageModel, VideoModel, Marker } from '../../../types';
+import type { Requirements, ModelGenOptions } from '../../../types/workflow.types';
 
 interface AssistantSidebarProps {
     showAssistant: boolean;
@@ -57,6 +59,11 @@ interface AssistantSidebarProps {
     setShowVideoSettingsDropdown: (v: boolean) => void;
     markers: Marker[];
     onSaveMarkerLabel?: (markerId: string, label: string) => void;
+    onClothingSubmitRequirements?: (data: Requirements) => void;
+    onClothingGenerateModel?: (data: ModelGenOptions) => void;
+    onClothingPickModelCandidate?: (url: string) => void;
+    onClothingInsertToCanvas?: (url: string, label?: string) => void;
+    onClothingRetryFailed?: () => void;
 }
 
 export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
@@ -80,10 +87,16 @@ export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
     isVideoPanelHovered, setIsVideoPanelHovered,
     showVideoSettingsDropdown, setShowVideoSettingsDropdown,
     markers, onSaveMarkerLabel,
+    onClothingSubmitRequirements,
+    onClothingGenerateModel,
+    onClothingPickModelCandidate,
+    onClothingInsertToCanvas,
+    onClothingRetryFailed,
 }) => {
     const messages = useAgentStore(s => s.messages);
     const { setMessages, clearMessages, setIsAgentMode } = useAgentStore(s => s.actions);
     const webEnabled = useAgentStore(s => s.webEnabled);
+    const clothingActions = useClothingStudioChatStore(s => s.actions);
 
     const [showHistoryPopover, setShowHistoryPopover] = useState(false);
     const [historySearch, setHistorySearch] = useState('');
@@ -321,6 +334,33 @@ export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
                                 <span>分镜故事板</span>
                             </button>
                             <button
+                                onClick={() => {
+                                    clothingActions.reset();
+                                    clothingActions.setStep('WAIT_PRODUCT');
+                                    handleSend(
+                                        '启动服装棚拍组图工作流',
+                                        undefined,
+                                        webEnabled,
+                                        {
+                                            id: 'clothing-studio-workflow',
+                                            name: '服装棚拍组图',
+                                            iconName: 'Shirt',
+                                            config: {
+                                                defaults: {
+                                                    aspectRatio: '3:4',
+                                                    count: 1,
+                                                    model: 'gemini-3-pro-image-preview',
+                                                },
+                                            },
+                                        }
+                                    );
+                                }}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-full text-sm font-medium text-gray-700 hover:border-gray-400 hover:text-gray-900 hover:shadow-sm transition-all cursor-pointer"
+                            >
+                                <ImageIcon size={15} strokeWidth={1.8} />
+                                <span>服装棚拍组图</span>
+                            </button>
+                            <button
                                 onClick={() => handleSend(
                                     '执行一键全流程',
                                     undefined,
@@ -356,6 +396,11 @@ export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
                         onSend={handleSend}
                         onSmartGenerate={handleSmartGenerate}
                         onPreview={setPreviewUrl}
+                        onClothingSubmitRequirements={onClothingSubmitRequirements}
+                        onClothingGenerateModel={onClothingGenerateModel}
+                        onClothingPickModelCandidate={onClothingPickModelCandidate}
+                        onClothingInsertToCanvas={onClothingInsertToCanvas}
+                        onClothingRetryFailed={onClothingRetryFailed}
                     />
                 )}
             </div>

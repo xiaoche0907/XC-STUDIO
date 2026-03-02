@@ -100,6 +100,8 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'model';
   text: string;
+  kind?: 'text' | 'workflow_ui';
+  workflowUi?: WorkflowUiMessage;
   timestamp: number;
   attachments?: string[]; // Array of base64 images
   error?: boolean;
@@ -186,3 +188,4 @@ export interface ProjectContext {
   existingAssets: CanvasElement[];
   conversationHistory: ChatMessage[];
 }
+import type { WorkflowUiMessage } from './workflow.types';

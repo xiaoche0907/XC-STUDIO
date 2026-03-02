@@ -6,15 +6,32 @@ import {
 } from 'lucide-react';
 import { ChatMessage } from '../../../types';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { ClothingStudioCards } from './workflow/ClothingStudioCards';
+import type { Requirements, ModelGenOptions } from '../../../types/workflow.types';
 
 interface AgentMessageProps {
     message: ChatMessage;
     onPreview: (url: string) => void;
     onAction?: (action: string) => void;
     onSmartGenerate?: (prompt: string, proposalId?: string) => void;
+    onClothingSubmitRequirements?: (data: Requirements) => void;
+    onClothingGenerateModel?: (data: ModelGenOptions) => void;
+    onClothingPickModelCandidate?: (url: string) => void;
+    onClothingInsertToCanvas?: (url: string, label?: string) => void;
+    onClothingRetryFailed?: () => void;
 }
 
-export const AgentMessage: React.FC<AgentMessageProps> = ({ message, onPreview, onAction, onSmartGenerate }) => {
+export const AgentMessage: React.FC<AgentMessageProps> = ({
+    message,
+    onPreview,
+    onAction,
+    onSmartGenerate,
+    onClothingSubmitRequirements,
+    onClothingGenerateModel,
+    onClothingPickModelCandidate,
+    onClothingInsertToCanvas,
+    onClothingRetryFailed,
+}) => {
     const [isAnalysisExpanded, setIsAnalysisExpanded] = useState(false);
     const [copied, setCopied] = useState(false);
 
@@ -110,6 +127,8 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({ message, onPreview, 
         return { intro: intro.join('\n').trim(), sections };
     }, [cleanText, message.skillData?.id, message.text]);
 
+    const isWorkflowUi = message.kind === 'workflow_ui' && !!message.workflowUi;
+
     return (
         <div className="w-full group">
             {/* 时间头部 */}
@@ -136,6 +155,19 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({ message, onPreview, 
                 {cleanText && oneClickView.sections.length === 0 && (
                     <div className="agent-msg-text px-1 break-words">
                         <MarkdownRenderer text={cleanText} className="text-[13px]" />
+                    </div>
+                )}
+
+                {isWorkflowUi && message.workflowUi && (
+                    <div className="px-1 mt-1">
+                        <ClothingStudioCards
+                            message={message.workflowUi as any}
+                            onSubmitRequirements={(data) => onClothingSubmitRequirements?.(data)}
+                            onGenerateModel={(data) => onClothingGenerateModel?.(data)}
+                            onPickModelCandidate={(url) => onClothingPickModelCandidate?.(url)}
+                            onInsertToCanvas={(url, label) => onClothingInsertToCanvas?.(url, label)}
+                            onRetryFailed={() => onClothingRetryFailed?.()}
+                        />
                     </div>
                 )}
 
