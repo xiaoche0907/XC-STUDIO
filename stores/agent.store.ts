@@ -124,7 +124,7 @@ interface AgentState {
   // 图像生成器配置
   imageGenRatio: string;
   imageGenRes: string;
-  imageGenUpload: File | null;
+  imageGenUploads: File[];
   isPickingFromCanvas: boolean;
 
   // 视频生成器配置
@@ -183,7 +183,7 @@ interface AgentState {
 
     setImageGenRatio: (ratio: string) => void;
     setImageGenRes: (res: string) => void;
-    setImageGenUpload: (file: File | null) => void;
+    setImageGenUploads: (files: File[]) => void;
     setIsPickingFromCanvas: (picking: boolean) => void;
 
     setVideoGenRatio: (ratio: string) => void;
@@ -229,13 +229,13 @@ const initialState = {
 
   imageGenRatio: '1:1',
   imageGenRes: '1K',
-  imageGenUpload: null,
+  imageGenUploads: [] as File[],
   isPickingFromCanvas: false,
 
   videoGenRatio: '16:9',
   videoGenDuration: '5s',
   videoGenQuality: '1080p',
-  videoGenModel: 'Veo 3.1 Fast' as VideoModel,
+  videoGenModel: 'veo-3.1-fast-generate-preview' as VideoModel,
   videoGenMode: 'startEnd' as const,
   videoStartFrame: null,
   videoEndFrame: null,
@@ -387,7 +387,7 @@ export const useAgentStore = create<AgentState>()(
             (pending.file as any)._canvasAutoInsert = false;
             appendFileBlockToInput(state, pending.file);
           }
-          
+
           state.confirmedAttachments = collectConfirmedAttachmentsFromBlocks(state.inputBlocks);
           state.pendingAttachments = [];
         }),
@@ -402,7 +402,7 @@ export const useAgentStore = create<AgentState>()(
 
         setImageGenRatio: (ratio) => set({ imageGenRatio: ratio }),
         setImageGenRes: (res) => set({ imageGenRes: res }),
-        setImageGenUpload: (file) => set({ imageGenUpload: file }),
+        setImageGenUploads: (files) => set({ imageGenUploads: files }),
         setIsPickingFromCanvas: (picking) => set({ isPickingFromCanvas: picking }),
 
         setVideoGenRatio: (ratio) => set({ videoGenRatio: ratio }),

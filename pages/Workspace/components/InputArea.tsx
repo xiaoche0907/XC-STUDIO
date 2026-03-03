@@ -20,30 +20,19 @@ const MODEL_OPTIONS: Record<string, { id: string; name: string; desc: string; ti
     image: [
         { id: 'Nano Banana Pro', name: 'Nano Banana Pro', desc: "Professional's choice for advanced outputs.", time: '20s', icon: Banana },
         { id: 'NanoBanana2', name: 'Nano Banana 2', desc: 'Generalist fast image generation model.', time: '15s', icon: Zap },
-        { id: 'GPT Image 1.5', name: 'GPT Image 1.5', desc: "OpenAI's most advanced image model.", time: '120s', icon: Sparkles },
+        { id: 'dall-e-3', name: 'DALL·E 3', desc: "OpenAI's most advanced image model.", time: '120s', icon: Sparkles },
         { id: 'Seedream5.0', name: 'Seedream 5.0 Lite', desc: "Bytedance's latest image generation model.", time: '120s', icon: Activity },
-        { id: 'Flux.2 Max', name: 'Flux.2 Max', desc: "BFL's image generation model.", time: '10s', icon: Layers },
-        { id: 'Flux.2 Pro', name: 'Flux.2 Pro', desc: "BFL's image generation model.", time: '10s', icon: Layers },
-        { id: 'Seedream 4.5', name: 'Seedream 4.5', desc: "Bytedance's latest image generation model.", time: '10s', icon: Activity },
-        { id: 'Nano Banana', name: 'Nano Banana', desc: "Google's image generation model.", time: '20s', icon: Banana },
-        { id: 'Seedream 4', name: 'Seedream 4', desc: "Bytedance's latest image generation model.", time: '10s', icon: Activity },
-        { id: 'Gemini Imagen 4', name: 'Gemini Imagen 4', desc: "Google's most advanced image model.", time: '10s', icon: Sparkles },
-        { id: 'Midjourney', name: 'Midjourney', desc: 'A model that transforms text into artistic visuals.', time: '20s', icon: Globe },
+        { id: 'flux-schnell', name: 'Flux Schnell', desc: "BFL's fast image generation model.", time: '10s', icon: Layers },
+        { id: 'flux-pro', name: 'Flux.1 Pro', desc: "BFL's image generation model.", time: '10s', icon: Layers },
+        { id: 'gemini-1.5-pro', name: 'Gemini Imagen 4', desc: "Google's most advanced image model.", time: '10s', icon: Sparkles },
+        { id: 'midjourney', name: 'Midjourney', desc: 'A model that transforms text into artistic visuals.', time: '20s', icon: Globe },
     ],
     video: [
-        { id: 'Kling 3.0', name: 'Kling 3.0', desc: "Kling's latest video model.", time: '300s', icon: Video, badge: '蓝海5型' },
-        { id: 'Kling 3.0 Omni', name: 'Kling 3.0 Omni', desc: "Kling's latest video model.", time: '300s', icon: Video, badge: '蓝海5型' },
-        { id: 'Seedance 1.5 Pro', name: 'Seedance 1.5 Pro', desc: "Bytedance's latest video generation model.", time: '300s', icon: Activity },
-        { id: 'Kling 2.8', name: 'Kling 2.8', desc: "Kling's video model with integrated audio.", time: '300s', icon: Video, badge: '蓝海5型' },
-        { id: 'Wan 2.6', name: 'Wan 2.6', desc: 'Video generation model with built-in audio.', time: '600s', icon: Activity },
-        { id: 'Sora 2 Pro', name: 'Sora 2 Pro', desc: "OpenAI's flagship video generation model with synced audio.", time: '300s', icon: Sparkles, badge: '通联专网' },
-        { id: 'Sora 2', name: 'Sora 2', desc: "OpenAI's flagship video generation model with synced audio.", time: '300s', icon: Sparkles, badge: '通联专网' },
-        { id: 'Veo 3.1', name: 'Veo 3.1', desc: "Google's latest video model with integrated audio and visuals.", time: '180s', icon: Cloud, badge: '蓝海5型' },
-        { id: 'Veo 3.1 Fast', name: 'Veo 3.1 Fast', desc: "Google's latest video model with integrated audio and visuals.", time: '180s', icon: Cloud, badge: '蓝海5型' },
-        { id: 'Kling 01', name: 'Kling 01', desc: "Kling's video model.", time: '300s', icon: Video, badge: '会员专属' },
-        { id: 'Hailuo 2.3', name: 'Hailuo 2.3', desc: "Hailuo's latest video model.", time: '180s', icon: Activity },
-        { id: 'Veo 3', name: 'Veo 3', desc: "Google's video model with integrated audio and visuals.", time: '180s', icon: Cloud, badge: '通联专网' },
-        { id: 'Vidu Q2', name: 'Vidu Q2', desc: "Vidu's latest video model.", time: '300s', icon: Activity },
+        { id: 'veo-3.1-fast-generate-preview', name: 'Veo 3.1 Fast', desc: "Google's ultra-fast video generation model.", time: '10s', icon: Cloud, badge: '极速版' },
+        { id: 'veo-3.1-generate-preview', name: 'Veo 3.1 Pro', desc: "Google's high-quality video generation model.", time: '180s', icon: Cloud, badge: '专业版' },
+        { id: 'kling-3.0', name: 'Kling 3.0', desc: "Kling's latest video model.", time: '300s', icon: Video, badge: '蓝海5型' },
+        { id: 'sora-2', name: 'Sora 2', desc: "OpenAI's flagship video generation model.", time: '300s', icon: Sparkles, badge: '通联专网' },
+        { id: 'runway-gen3', name: 'Runway Gen-3', desc: 'Video generation model with built-in audio.', time: '600s', icon: Activity },
     ],
     '3d': [
         { id: 'Tripo', name: 'Tripo', desc: 'High-quality 3D model generator.', icon: Box },
@@ -146,7 +135,6 @@ export const InputArea: React.FC<InputAreaProps> = ({
     showVideoSettingsDropdown, setShowVideoSettingsDropdown,
     markers, onSaveMarkerLabel,
 }) => {
-    const [showImageUploadMenu, setShowImageUploadMenu] = useState(false);
     const [editingMarkerId, setEditingMarkerId] = useState<string | null>(null);
     const [editingMarkerLabel, setEditingMarkerLabel] = useState('');
     const inputBlocks = useAgentStore(s => s.inputBlocks);
@@ -161,7 +149,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
     const showVideoModelDropdown = useAgentStore(s => s.showVideoModelDropdown);
     const modelMode = useAgentStore(s => s.modelMode);
     const webEnabled = useAgentStore(s => s.webEnabled);
-    const imageGenUpload = useAgentStore(s => s.imageGenUpload);
+    const imageGenUploads = useAgentStore(s => s.imageGenUploads);
     const isPickingFromCanvas = useAgentStore(s => s.isPickingFromCanvas);
     const pendingAttachments = useAgentStore(s => s.pendingAttachments);
 
@@ -171,7 +159,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
         setVideoGenRatio, setVideoGenDuration, setVideoGenModel, setVideoGenMode,
         setVideoStartFrame, setVideoEndFrame, setVideoMultiRefs,
         setShowVideoModelDropdown, setWebEnabled, setIsAgentMode,
-        setImageGenUpload, setIsPickingFromCanvas, 
+        setImageGenUploads, setIsPickingFromCanvas,
         confirmPendingAttachments, removePendingAttachment,
     } = useAgentStore(s => s.actions);
 
@@ -198,8 +186,11 @@ export const InputArea: React.FC<InputAreaProps> = ({
         if (!files || files.length === 0) return;
 
         if (creationMode === 'image') {
-            const firstImage = files.find((f) => f.type.startsWith('image/')) || null;
-            setImageGenUpload(firstImage);
+            const images = files.filter(f => f.type.startsWith('image/')).slice(0, 10);
+            if (images.length > 0) {
+                const current = Array.isArray(imageGenUploads) ? imageGenUploads : [];
+                setImageGenUploads([...current, ...images].slice(0, 10));
+            }
             return;
         }
 
@@ -294,57 +285,39 @@ export const InputArea: React.FC<InputAreaProps> = ({
                         <div className="flex items-center gap-3">
                             <div className="relative shrink-0">
                                 <div
-                                    onClick={() => setShowImageUploadMenu(v => !v)}
+                                    onClick={() => {
+                                        const input = document.createElement('input');
+                                        input.type = 'file';
+                                        input.accept = 'image/*';
+                                        input.multiple = true;
+                                        input.onchange = (e) => {
+                                            const files = Array.from((e.target as HTMLInputElement).files || []);
+                                            if (files.length > 0) {
+                                                const current = Array.isArray(imageGenUploads) ? imageGenUploads : [];
+                                                setImageGenUploads([...current, ...files].slice(0, 10));
+                                            }
+                                        };
+                                        input.click();
+                                    }}
                                     className={`w-[72px] h-[72px] border border-dashed border-gray-200 rounded-[14px] flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition group/upload bg-gray-50/50 ${isPickingFromCanvas ? 'border-blue-400 bg-blue-50/40' : ''}`}
                                 >
                                     <Plus size={20} strokeWidth={1.5} className="text-gray-300 group-hover/upload:text-blue-500 transition mb-1" />
                                     <span className="text-[12px] font-bold text-gray-400 group-hover/upload:text-blue-500 transition">图片</span>
                                 </div>
 
-                                {showImageUploadMenu && (
-                                    <div className="absolute bottom-full right-0 mb-2 w-32 bg-white rounded-xl shadow-xl border border-gray-200 py-1.5 z-[80]">
-                                        <button
-                                            onClick={() => {
-                                                const input = document.createElement('input');
-                                                input.type = 'file';
-                                                input.accept = 'image/*';
-                                                input.onchange = (e) => {
-                                                    const file = (e.target as HTMLInputElement).files?.[0];
-                                                    if (file) {
-                                                        setImageGenUpload(file);
-                                                    }
-                                                };
-                                                input.click();
-                                                setShowImageUploadMenu(false);
-                                            }}
-                                            className="w-full px-3 py-2 text-left text-[12px] text-gray-700 hover:bg-gray-50 transition"
-                                        >
-                                            上传图片
-                                        </button>
-                                        <button
-                                            onClick={() => {
-                                                setIsPickingFromCanvas(true);
-                                                setShowImageUploadMenu(false);
-                                            }}
-                                            className="w-full px-3 py-2 text-left text-[12px] text-gray-700 hover:bg-gray-50 transition"
-                                        >
-                                            从画布选择
-                                        </button>
-                                    </div>
-                                )}
                             </div>
 
-                            {imageGenUpload && (
-                                <div className="relative w-[72px] h-[72px] border border-gray-200 rounded-[14px] overflow-visible shadow-sm shrink-0 bg-white">
-                                    <img src={URL.createObjectURL(imageGenUpload)} className="w-full h-full object-cover rounded-[14px]" />
+                            {Array.isArray(imageGenUploads) && imageGenUploads.map((file, idx) => (
+                                <div key={idx} className="relative w-[72px] h-[72px] border border-gray-200 rounded-[14px] overflow-visible shadow-sm shrink-0 bg-white">
+                                    <img src={URL.createObjectURL(file)} className="w-full h-full object-cover rounded-[14px]" />
                                     <button
-                                        onClick={(e) => { e.stopPropagation(); setImageGenUpload(null); setIsPickingFromCanvas(false); }}
+                                        onClick={(e) => { e.stopPropagation(); setImageGenUploads(imageGenUploads.filter((_, i) => i !== idx)); setIsPickingFromCanvas(false); }}
                                         className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-black/80 hover:bg-black text-white rounded-full flex items-center justify-center z-10 shadow-sm border border-white/20"
                                     >
                                         <X size={10} />
                                     </button>
                                 </div>
-                            )}
+                            ))}
 
                             {isPickingFromCanvas && (
                                 <div className="text-[11px] text-blue-600 font-medium bg-blue-50 border border-blue-200 rounded-lg px-2 py-1">
@@ -775,198 +748,145 @@ export const InputArea: React.FC<InputAreaProps> = ({
                         )}
 
                         <div className="relative">
-                            <button onClick={() => setShowModeSelector(!showModeSelector)} className="h-[30px] px-3.5 rounded-full flex items-center gap-1.5 text-[13px] font-medium transition-all bg-blue-50 text-[#3B82F6]">
-                                {creationMode === 'agent' && <><Sparkles size={14} /> Agent</>}
-                                {creationMode === 'image' && <><ImageIcon size={14} /> 图像</>}
-                                {creationMode === 'video' && <><Video size={14} /> 视频</>}
+                            <button
+                                onClick={() => setShowModeSelector(!showModeSelector)}
+                                className="h-9 px-4 rounded-full flex items-center gap-2 text-[14px] font-bold transition-all bg-white border border-blue-500 text-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.1)] hover:shadow-[0_0_20px_rgba(59,130,246,0.2)]"
+                            >
+                                {creationMode === 'agent' && <><Sparkles size={15} /> Agent</>}
+                                {creationMode === 'image' && <><ImageIcon size={15} /> 图像</>}
+                                {creationMode === 'video' && <><Video size={15} /> 视频</>}
                             </button>
                             {showModeSelector && (
-                                <div className="absolute bottom-full left-0 mb-2 w-36 bg-white rounded-xl shadow-xl border border-gray-200 py-2 z-50">
-                                    <button onClick={() => { setCreationMode('agent'); setShowModeSelector(false); setIsAgentMode(true); }} className="w-full px-3 py-2 flex items-center gap-2 text-sm hover:bg-gray-50 transition">Agent</button>
-                                    <button onClick={() => { setCreationMode('image'); setShowModeSelector(false); setIsAgentMode(false); }} className="w-full px-3 py-2 flex items-center gap-2 text-sm hover:bg-gray-50 transition">图片生成器</button>
-                                    <button onClick={() => { setCreationMode('video'); setShowModeSelector(false); setIsAgentMode(false); }} className="w-full px-3 py-2 flex items-center gap-2 text-sm hover:bg-gray-50 transition">视频生成器</button>
+                                <div className="absolute bottom-full left-0 mb-3 w-40 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 overflow-hidden">
+                                    <button onClick={() => { setCreationMode('agent'); setShowModeSelector(false); setIsAgentMode(true); }} className="w-full px-4 py-2.5 flex items-center gap-2.5 text-sm font-medium hover:bg-gray-50 transition text-gray-700"><Sparkles size={14} className="text-blue-500" /> Agent</button>
+                                    <button onClick={() => { setCreationMode('image'); setShowModeSelector(false); setIsAgentMode(false); }} className="w-full px-4 py-2.5 flex items-center gap-2.5 text-sm font-medium hover:bg-gray-50 transition text-gray-700"><ImageIcon size={14} className="text-blue-500" /> 图像生成器</button>
+                                    <button onClick={() => { setCreationMode('video'); setShowModeSelector(false); setIsAgentMode(false); }} className="w-full px-4 py-2.5 flex items-center gap-2.5 text-sm font-medium hover:bg-gray-50 transition text-gray-700"><Video size={14} className="text-blue-500" /> 视频生成器</button>
                                 </div>
                             )}
                         </div>
-                    </div>
 
-                    <div className="flex items-center gap-1.5 flex-1 justify-end">
+                        {/* Status Sections (Resolution / Video Specs) */}
                         {creationMode === 'image' && (
-                            <div className="flex items-center gap-2">
-                                <div className="relative">
-                                    <button
-                                        onClick={() => { setShowRatioPicker(!showRatioPicker); setShowModelPicker(false); }}
-                                        className="h-9 px-4 flex items-center gap-2 bg-gray-50 text-[13px] font-bold text-gray-700 hover:bg-gray-100 rounded-full transition whitespace-nowrap border border-gray-100"
-                                    >
-                                        <span>{imageGenRes} 路 {imageGenRatio}</span>
-                                        <ChevronDown size={14} className={`text-gray-400 transition-transform duration-300 ${showRatioPicker ? 'rotate-180' : ''}`} />
-                                    </button>
-                                    {showRatioPicker && (
-                                        <div className="absolute bottom-full right-0 mb-3 w-[260px] bg-white rounded-[24px] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.15)] border border-gray-100 p-5 z-[70] animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                            <div className="text-[12px] text-gray-400 font-bold uppercase tracking-widest mb-4">分辨率</div>
-                                            <div className="flex gap-2 mb-6">
-                                                {['1K', '2K', '4K'].map(res => (
-                                                    <button key={res} onClick={() => { setImageGenRes(res); }} className={`flex-1 py-2 text-[12px] font-bold rounded-xl transition-all ${imageGenRes === res ? 'bg-gray-200 text-black shadow-inner' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'}`}>
-                                                        {res}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                            <div className="text-[12px] text-gray-400 font-bold uppercase tracking-widest mb-4">Size</div>
-                                            <div className="grid grid-cols-4 gap-2.5">
-                                                {[
-                                                    { r: '21:9', i: 'w-5 h-2' }, { r: '16:9', i: 'w-5 h-3' }, { r: '4:3', i: 'w-5 h-3.5' }, { r: '3:2', i: 'w-5 h-3.5' },
-                                                    { r: '1:1', i: 'w-4 h-4' }, { r: '9:16', i: 'w-3 h-5' }, { r: '3:4', i: 'w-3.5 h-5' }, { r: '2:3', i: 'w-3.5 h-5' },
-                                                    { r: '5:4', i: 'w-4.5 h-4' }, { r: '4:5', i: 'w-4 h-4.5' }
-                                                ].map(item => (
-                                                    <button
-                                                        key={item.r}
-                                                        onClick={() => { setImageGenRatio(item.r); setShowRatioPicker(false); }}
-                                                        className={`flex flex-col items-center gap-1.5 py-2.5 rounded-xl border transition-all ${imageGenRatio === item.r ? 'bg-gray-100 border-gray-300 ring-1 ring-gray-300' : 'border-gray-100 hover:border-gray-300 bg-white'}`}
-                                                    >
-                                                        <div className={`border-[1.5px] border-gray-400 rounded-[2px] ${item.i} ${imageGenRatio === item.r ? 'bg-gray-400' : 'bg-transparent'}`} />
-                                                        <span className="text-[10px] font-bold text-gray-600">{item.r}</span>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="relative">
-                                    <button
-                                        onClick={() => { setShowModelPicker(!showModelPicker); setShowRatioPicker(false); }}
-                                        className="w-9 h-9 flex items-center justify-center bg-white border border-gray-100 text-gray-500 hover:text-black hover:border-gray-300 rounded-full transition shadow-sm"
-                                    >
-                                        <Banana size={18} strokeWidth={1.5} />
-                                    </button>
-                                    {showModelPicker && (
-                                        <div className="absolute bottom-full right-0 mb-3 w-[240px] bg-white rounded-[24px] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.15)] border border-gray-100 p-2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                            {MODEL_OPTIONS.image.map(m => (
-                                                <button
-                                                    key={m.id}
-                                                    onClick={() => { setPreferredImageModel(m.id as ImageModel); setShowModelPicker(false); setAutoModelSelect(false); }}
-                                                    className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-[13px] font-bold transition-all ${preferredImageModel === m.id && !autoModelSelect ? 'bg-gray-100 text-black' : 'text-gray-600 hover:bg-gray-50'}`}
-                                                >
-                                                    <div className="flex items-center gap-2.5">
-                                                        <m.icon size={16} strokeWidth={1.5} className="text-gray-500" />
-                                                        <span>{m.name}</span>
-                                                    </div>
-                                                    {preferredImageModel === m.id && !autoModelSelect && <Check size={14} strokeWidth={2.5} />}
+                            <div className="relative">
+                                <button
+                                    onClick={() => { setShowRatioPicker(!showRatioPicker); setShowModelPicker(false); setShowVideoSettingsDropdown(false); }}
+                                    className="flex items-center gap-1.5 px-2 py-1.5 hover:bg-gray-50 rounded-lg transition-colors group"
+                                >
+                                    <span className="text-[13px] font-bold text-gray-800">{imageGenRes} · {imageGenRatio}</span>
+                                    <ChevronDown size={14} className={`text-gray-400 group-hover:text-gray-600 transition-transform ${showRatioPicker ? 'rotate-180' : ''}`} />
+                                </button>
+                                {showRatioPicker && (
+                                    <div className="absolute bottom-full left-0 mb-3 w-[260px] bg-white rounded-[24px] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.15)] border border-gray-100 p-5 z-[70] animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                        <div className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mb-4">分辨率</div>
+                                        <div className="flex gap-2 mb-6">
+                                            {['1K', '2K', '4K'].map(res => (
+                                                <button key={res} onClick={() => setImageGenRes(res)} className={`flex-1 py-1.5 text-[12px] font-bold rounded-xl transition-all ${imageGenRes === res ? 'bg-gray-200 text-black shadow-inner' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'}`}>
+                                                    {res}
                                                 </button>
                                             ))}
                                         </div>
-                                    )}
-                                </div>
-
-                                <button
-                                    onClick={() => handleSend(undefined, imageGenUpload ? [imageGenUpload] : [])}
-                                    disabled={!imageGenUpload && inputBlocks.every(b => (b.type === 'text' && !b.text) || (b.type === 'file' && !b.file))}
-                                    className="h-9 px-4 rounded-full flex items-center justify-center text-[14px] font-bold shadow-sm transition bg-gradient-to-b from-gray-100 to-gray-200 text-gray-500 border border-gray-200 hover:from-gray-200 hover:to-gray-300 disabled:opacity-50"
-                                >
-                                    发送
-                                </button>
+                                        <div className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mb-4">Size</div>
+                                        <div className="grid grid-cols-4 gap-2.5">
+                                            {[
+                                                { r: '21:9', i: 'w-5 h-2' }, { r: '16:9', i: 'w-5 h-3' }, { r: '4:3', i: 'w-5 h-3.5' }, { r: '3:2', i: 'w-5 h-3.5' },
+                                                { r: '1:1', i: 'w-4 h-4' }, { r: '9:16', i: 'w-3 h-5' }, { r: '3:4', i: 'w-3.5 h-5' }, { r: '2:3', i: 'w-3.5 h-5' },
+                                                { r: '5:4', i: 'w-4.5 h-4' }, { r: '4:5', i: 'w-4 h-4.5' }
+                                            ].map(item => (
+                                                <button
+                                                    key={item.r}
+                                                    onClick={() => { setImageGenRatio(item.r); setShowRatioPicker(false); }}
+                                                    className={`flex flex-col items-center gap-1.5 py-2.5 rounded-xl border transition-all ${imageGenRatio === item.r ? 'bg-gray-100 border-gray-300 ring-1 ring-gray-300' : 'border-gray-100 hover:border-gray-300 bg-white'}`}
+                                                >
+                                                    <div className={`border-[1.5px] border-gray-400 rounded-[2px] ${item.i} ${imageGenRatio === item.r ? 'bg-gray-400' : 'bg-transparent'}`} />
+                                                    <span className="text-[10px] font-bold text-gray-600">{item.r}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
 
                         {creationMode === 'video' && (
-                            <div className="flex items-center gap-2">
-                                <div className="relative">
-                                    <button
-                                        onClick={() => { setShowVideoSettingsDropdown(!showVideoSettingsDropdown); }}
-                                        className="h-9 px-4 flex items-center gap-2 bg-gray-50 text-[13px] font-bold text-gray-700 hover:bg-gray-100 rounded-full transition whitespace-nowrap border border-gray-100"
-                                    >
-                                        <span>Frames 路 {videoGenRatio} 路 {videoGenDuration}</span>
-                                        <ChevronDown size={14} className={`text-gray-400 transition-transform duration-300 ${showVideoSettingsDropdown ? 'rotate-180' : ''}`} />
-                                    </button>
-                                    {showVideoSettingsDropdown && (
-                                        <div className="absolute bottom-full right-0 mb-3 w-[300px] bg-white rounded-[24px] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.15)] border border-gray-100 p-5 z-[70] animate-in fade-in slide-in-from-bottom-2 duration-300 flex flex-col gap-5">
-                                            {/* Generate Method */}
-                                            <div className="flex flex-col gap-2.5">
-                                                <div className="text-[13px] text-gray-500 font-bold">Generate method</div>
-                                                <div className="flex bg-gray-100 p-1 rounded-xl">
-                                                    {[
-                                                        { id: 'startEnd', label: '首尾帧' },
-                                                        { id: 'multiRef', label: '多图参考' }
-                                                    ].map(m => (
-                                                        <button
-                                                            key={m.id}
-                                                            onClick={() => useAgentStore.getState().actions.setVideoGenMode(m.id as any)}
-                                                            className={`flex-1 py-1.5 text-[12px] font-bold rounded-lg transition-all ${videoGenMode === m.id ? 'bg-white shadow-sm text-black' : 'text-gray-400'}`}
-                                                        >
-                                                            {m.label}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
-
-                                            {/* Size */}
-                                            <div className="flex flex-col gap-2.5">
-                                                <div className="text-[13px] text-gray-500 font-bold">Size</div>
-                                                <div className="grid grid-cols-3 gap-2">
-                                                    {[
-                                                        { r: '16:9', i: 'w-6 h-3.5' }, { r: '9:16', i: 'w-3.5 h-6' }, { r: '1:1', i: 'w-4 h-4' }
-                                                    ].map(item => (
-                                                        <button
-                                                            key={item.r}
-                                                            onClick={() => useAgentStore.getState().actions.setVideoGenRatio(item.r)}
-                                                            className={`flex flex-col items-center justify-center gap-2 py-3.5 rounded-xl border transition-all h-20 ${videoGenRatio === item.r ? 'bg-gray-100 border-gray-200' : 'border-gray-100 hover:border-gray-200 bg-white'}`}
-                                                        >
-                                                            <div className={`border-[1.5px] border-gray-400 rounded-[2px] ${item.i} ${videoGenRatio === item.r ? 'bg-gray-400' : 'bg-transparent'}`} />
-                                                            <span className="text-[11px] font-bold text-gray-600">{item.r}</span>
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
-
-                                            {/* Resolution */}
-                                            <div className="flex flex-col gap-2.5">
-                                                <div className="text-[13px] text-gray-500 font-bold">Resolution</div>
-                                                <div className="flex gap-2">
-                                                    {['720p', '1080p', '4k'].map(res => (
-                                                        <button key={res} onClick={() => useAgentStore.getState().actions.setVideoGenQuality(res)} className={`flex-1 py-2 text-[12px] font-bold rounded-xl border transition-all ${useAgentStore.getState().videoGenQuality === res ? 'bg-gray-100 border-gray-200 text-black' : 'bg-white border-gray-100 text-gray-400'}`}>
-                                                            {res}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
-
-                                            {/* Duration */}
-                                            <div className="flex flex-col gap-2.5">
-                                                <div className="text-[13px] text-gray-500 font-bold">Duration</div>
-                                                <div className="flex gap-2">
-                                                    {['4s', '6s', '8s'].map(sec => (
-                                                        <button key={sec} onClick={() => useAgentStore.getState().actions.setVideoGenDuration(sec)} className={`flex-1 py-2 text-[12px] font-bold rounded-xl border transition-all ${videoGenDuration === sec ? 'bg-gray-100 border-gray-200 text-black' : 'bg-white border-gray-100 text-gray-400'}`}>
-                                                            {sec}
-                                                        </button>
-                                                    ))}
-                                                </div>
+                            <div className="relative">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setShowVideoSettingsDropdown(!showVideoSettingsDropdown); setShowRatioPicker(false); setShowModelPicker(false); }}
+                                    className="flex items-center gap-1.5 px-2 py-1.5 hover:bg-gray-50 rounded-lg transition-colors group"
+                                >
+                                    <span className="text-[13px] font-bold text-gray-800">Frames · {videoGenRatio} · {videoGenDuration}</span>
+                                    <ChevronDown size={14} className={`text-gray-400 group-hover:text-gray-600 transition-transform ${showVideoSettingsDropdown ? 'rotate-180' : ''}`} />
+                                </button>
+                                {showVideoSettingsDropdown && (
+                                    <div onClick={(e) => e.stopPropagation()} className="absolute bottom-full left-0 mb-3 w-[300px] bg-white rounded-[24px] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.15)] border border-gray-100 p-5 z-[70] animate-in fade-in slide-in-from-bottom-2 duration-300 flex flex-col gap-5">
+                                        <div className="flex flex-col gap-2.5">
+                                            <div className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">Generate method</div>
+                                            <div className="flex bg-gray-100 p-1 rounded-xl">
+                                                {[{ id: 'startEnd', label: '首尾帧' }, { id: 'multiRef', label: '多图参考' }].map(m => (
+                                                    <button key={m.id} onClick={() => setVideoGenMode(m.id as any)} className={`flex-1 py-1.5 text-[12px] font-bold rounded-lg transition-all ${videoGenMode === m.id ? 'bg-white shadow-sm text-black' : 'text-gray-400'}`}>
+                                                        {m.label}
+                                                    </button>
+                                                ))}
                                             </div>
                                         </div>
-                                    )}
-                                </div>
+                                        <div className="flex flex-col gap-2.5">
+                                            <div className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">Size</div>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                {(videoGenModel === 'kling-3.0' ? [{ r: '16:9', i: 'w-6 h-3.5' }, { r: '9:16', i: 'w-3.5 h-6' }, { r: '1:1', i: 'w-4 h-4' }] : [{ r: '16:9', i: 'w-6 h-3.5' }, { r: '9:16', i: 'w-3.5 h-6' }, { r: '1:1', i: 'w-4 h-4' }, { r: '4:3', i: 'w-5 h-4' }, { r: '3:4', i: 'w-4 h-5' }, { r: '21:9', i: 'w-6 h-2.5' }]).map(item => (
+                                                    <button key={item.r} onClick={() => setVideoGenRatio(item.r)} className={`flex flex-col items-center justify-center gap-2 py-3.5 rounded-xl border transition-all h-20 ${videoGenRatio === item.r ? 'bg-gray-100 border-gray-200' : 'border-gray-100 hover:border-gray-200 bg-white'}`}>
+                                                        <div className={`border-[1.5px] border-gray-400 rounded-[2px] ${item.i} ${videoGenRatio === item.r ? 'bg-gray-400' : 'bg-transparent'}`} />
+                                                        <span className="text-[11px] font-bold text-gray-600">{item.r}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-col gap-2.5">
+                                            <div className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">Duration</div>
+                                            <div className="flex gap-2">
+                                                {(videoGenModel === 'kling-3.0' ? ['5s', '10s'] : videoGenModel === 'sora-2' ? ['4s', '8s', '12s'] : ['4s', '6s', '8s']).map(sec => (
+                                                    <button key={sec} onClick={() => setVideoGenDuration(sec)} className={`flex-1 py-2 text-[12px] font-bold rounded-xl border transition-all ${videoGenDuration === sec ? 'bg-gray-100 border-gray-200 text-black' : 'bg-white border-gray-100 text-gray-400'}`}>
+                                                        {sec}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
 
+                    <div className="flex items-center gap-3">
+
+                        {/* Model / Send Controls */}
+                        {(creationMode === 'image' || creationMode === 'video') && (
+                            <>
                                 <div className="relative">
                                     <button
-                                        onClick={() => setShowVideoModelDropdown(!showVideoModelDropdown)}
-                                        className={`w-9 h-9 flex items-center justify-center rounded-full transition shadow-sm border ${showVideoModelDropdown ? 'bg-gray-100 border-gray-300 text-black' : 'bg-white border-gray-100 text-gray-500 hover:text-black hover:border-gray-300'}`}
+                                        onClick={(e) => { e.stopPropagation(); setShowModelPicker(!showModelPicker); setShowRatioPicker(false); setShowVideoSettingsDropdown(false); }}
+                                        className={`w-9 h-9 flex items-center justify-center rounded-full transition-all border ${showModelPicker ? 'bg-black text-white border-black shadow-lg' : 'bg-white text-gray-400 border-gray-100 hover:border-gray-300 shadow-sm'}`}
                                     >
-                                        <Activity size={18} strokeWidth={1.5} />
+                                        {creationMode === 'video' ? <Activity size={18} strokeWidth={2} /> : <Banana size={18} strokeWidth={2} />}
                                     </button>
-                                    {showVideoModelDropdown && (
-                                        <div className="absolute bottom-full right-0 mb-3 w-[240px] bg-white rounded-[24px] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.15)] border border-gray-100 p-2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                            <div className="px-3 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest">选择视频模型</div>
+                                    {showModelPicker && (
+                                        <div className="absolute bottom-full right-0 mb-3 w-[240px] bg-white rounded-[24px] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.15)] border border-gray-100 p-2 z-[100] animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                            <div className="px-3 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest">选择模型</div>
                                             <div className="max-h-[300px] overflow-y-auto scroller-hidden">
-                                                {MODEL_OPTIONS.video.map(m => (
+                                                {(creationMode === 'video' ? MODEL_OPTIONS.video : MODEL_OPTIONS.image).map(m => (
                                                     <button
                                                         key={m.id}
-                                                        onClick={() => { setVideoGenModel(m.id as VideoModel); setShowVideoModelDropdown(false); setAutoModelSelect(false); }}
-                                                        className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-[13px] font-bold transition-all ${videoGenModel === m.id && !autoModelSelect ? 'bg-gray-100 text-black' : 'text-gray-600 hover:bg-gray-50'}`}
+                                                        onClick={() => {
+                                                            if (creationMode === 'video') setVideoGenModel(m.id as VideoModel);
+                                                            else setPreferredImageModel(m.id as ImageModel);
+                                                            setShowModelPicker(false);
+                                                            setAutoModelSelect(false);
+                                                        }}
+                                                        className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-[13px] font-bold transition-all ${(creationMode === 'video' ? videoGenModel === m.id : preferredImageModel === m.id) && !autoModelSelect ? 'bg-gray-100 text-black' : 'text-gray-600 hover:bg-gray-50'}`}
                                                     >
                                                         <div className="flex items-center gap-2.5">
-                                                            <m.icon size={16} strokeWidth={1.5} className="text-gray-500" />
+                                                            <m.icon size={16} strokeWidth={1.5} className="text-gray-400" />
                                                             <span>{m.name}</span>
                                                         </div>
-                                                        {videoGenModel === m.id && !autoModelSelect && <Check size={14} strokeWidth={2.5} />}
+                                                        {(creationMode === 'video' ? videoGenModel === m.id : preferredImageModel === m.id) && !autoModelSelect && <Check size={14} className="text-blue-500" strokeWidth={3} />}
                                                     </button>
                                                 ))}
                                             </div>
@@ -975,12 +895,14 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                 </div>
 
                                 <button
-                                    onClick={() => handleSend()}
-                                    className="h-9 px-4 rounded-full flex items-center justify-center text-[14px] font-bold shadow-sm transition bg-gradient-to-b from-gray-100 to-gray-200 text-gray-500 border border-gray-200 hover:from-gray-200 hover:to-gray-300"
+                                    onClick={() => handleSend(undefined, imageGenUploads.length > 0 ? imageGenUploads : [])}
+                                    disabled={imageGenUploads.length === 0 && inputBlocks.every(b => (b.type === 'text' && !b.text))}
+                                    className="h-9 pl-3 pr-4 rounded-full flex items-center gap-2 text-[13px] font-bold transition bg-[#f3f4f6] text-[#6b7280] hover:bg-gray-200 hover:text-gray-700 disabled:opacity-50"
                                 >
-                                    发送
+                                    <Zap size={14} fill="currentColor" strokeWidth={0} className="text-blue-400" />
+                                    <span>生成</span>
                                 </button>
-                            </div>
+                            </>
                         )}
 
                         {creationMode === 'agent' && (
@@ -1188,6 +1110,17 @@ export const InputArea: React.FC<InputAreaProps> = ({
                         document.body
                     );
                 })()}
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                        if (e.target.files) handlePickedFiles(Array.from(e.target.files));
+                        if (fileInputRef.current) fileInputRef.current.value = '';
+                    }}
+                />
             </div>
         </div>
     );

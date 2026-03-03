@@ -103,6 +103,25 @@ async function loadSnapshotByAnyKey(memoryKey: string): Promise<{ snapshot: Topi
   return { snapshot: null, resolvedKey: null };
 }
 
+function isCompositeMemoryKey(key: string): boolean {
+  return !!parseMemoryKey(key);
+}
+
+async function migrateSnapshotKeyIfNeeded(targetKey: string, loaded: { snapshot: TopicSnapshot | null; resolvedKey: string | null }): Promise<TopicSnapshot | null> {
+  if (!loaded.snapshot) return null;
+  if (!targetKey || !isCompositeMemoryKey(targetKey)) return loaded.snapshot;
+  if (!loaded.resolvedKey || loaded.resolvedKey === targetKey) return loaded.snapshot;
+
+  const migrated: TopicSnapshot = {
+    ...loaded.snapshot,
+    memoryKey: targetKey,
+    topicId: parseMemoryKey(targetKey)?.conversationId || loaded.snapshot.topicId,
+    updatedAt: Date.now(),
+  };
+  await putSnapshot(migrated);
+  return migrated;
+}
+
 async function putSnapshot(snapshot: TopicSnapshot): Promise<void> {
   const db = await openWorkspaceDB();
   return new Promise((resolve, reject) => {
@@ -116,13 +135,13 @@ async function putSnapshot(snapshot: TopicSnapshot): Promise<void> {
 export async function loadTopicSnapshot(topicId: string): Promise<TopicSnapshot | null> {
   if (!topicId) return null;
   const loaded = await loadSnapshotByAnyKey(topicId);
-  return loaded.snapshot;
+  return migrateSnapshotKeyIfNeeded(topicId, loaded);
 }
 
 export async function upsertTopicSnapshot(topicId: string, patch: Partial<TopicSnapshot>): Promise<void> {
   if (!topicId) return;
   const loaded = await loadSnapshotByAnyKey(topicId);
-  const current = loaded.snapshot;
+  const current = await migrateSnapshotKeyIfNeeded(topicId, loaded);
   const next: TopicSnapshot = {
     memoryKey: topicId,
     topicId: parseMemoryKey(topicId)?.conversationId || topicId,
@@ -287,23 +306,33 @@ export async function buildTopicPinnedContext(topicId: string): Promise<{ text: 
 export async function deleteTopicMemory(topicId: string): Promise<void> {
   if (!topicId) return;
   const db = await openWorkspaceDB();
-  const tx = db.transaction([TOPIC_SNAPSHOT_STORE, TOPIC_MEMORY_ITEM_STORE, TOPIC_ASSET_STORE], 'readwrite');
-
   const keys = getCandidateKeys(topicId);
+
   for (const key of keys) {
-    tx.objectStore(TOPIC_SNAPSHOT_STORE).delete(key);
+    await deleteSnapshotByKey(db, key);
   }
 
   for (const key of keys) {
-    await deleteByIndexValue(tx.objectStore(TOPIC_MEMORY_ITEM_STORE).index('memoryKey'), key);
-    await deleteByIndexValue(tx.objectStore(TOPIC_MEMORY_ITEM_STORE).index('topicId'), key);
-    await deleteByIndexValue(tx.objectStore(TOPIC_ASSET_STORE).index('memoryKey'), key);
-    await deleteByIndexValue(tx.objectStore(TOPIC_ASSET_STORE).index('topicId'), key);
+    await deleteByIndexValue(db, TOPIC_MEMORY_ITEM_STORE, 'memoryKey', key);
+    await deleteByIndexValue(db, TOPIC_MEMORY_ITEM_STORE, 'topicId', key);
+    await deleteByIndexValue(db, TOPIC_ASSET_STORE, 'memoryKey', key);
+    await deleteByIndexValue(db, TOPIC_ASSET_STORE, 'topicId', key);
   }
 }
 
-function deleteByIndexValue(index: IDBIndex, value: string): Promise<void> {
+function deleteSnapshotByKey(db: IDBDatabase, key: string): Promise<void> {
   return new Promise((resolve, reject) => {
+    const tx = db.transaction(TOPIC_SNAPSHOT_STORE, 'readwrite');
+    const req = tx.objectStore(TOPIC_SNAPSHOT_STORE).delete(key);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function deleteByIndexValue(db: IDBDatabase, storeName: string, indexName: string, value: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    const index = tx.objectStore(storeName).index(indexName);
     const req = index.openCursor(IDBKeyRange.only(value));
     req.onsuccess = () => {
       const cursor = req.result;

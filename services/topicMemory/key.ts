@@ -1,13 +1,15 @@
 export const getMemoryKey = (workspaceId: string, conversationId: string): string => {
-  if (!conversationId || conversationId.trim() === '') {
-    return workspaceId;
-  }
-  return `${workspaceId}:${conversationId}`;
+  const ws = String(workspaceId || '').trim();
+  const conv = String(conversationId || '').trim();
+  if (!ws || !conv) return '';
+  return `${ws}:${conv}`;
 };
 
 export const parseMemoryKey = (key: string): { workspaceId: string; conversationId: string } | null => {
-  const parts = key.split(':');
-  if (parts.length >= 2) {
+  const raw = String(key || '').trim();
+  if (!raw) return null;
+  const parts = raw.split(':');
+  if (parts.length >= 2 && parts[0].trim() && parts.slice(1).join(':').trim()) {
     return {
       workspaceId: parts[0],
       conversationId: parts.slice(1).join(':'),

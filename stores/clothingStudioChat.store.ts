@@ -115,10 +115,7 @@ export const useClothingStudioChatStore = create<ClothingStudioChatState>((set, 
   actions: {
     getSession: (sessionId: string) => {
       const state = get();
-      if (!state.sessions[sessionId]) {
-        state.sessions[sessionId] = createEmptySession();
-      }
-      return state.sessions[sessionId];
+      return state.sessions[sessionId] || createEmptySession();
     },
 
     setActiveSession: (sessionId: string) => {

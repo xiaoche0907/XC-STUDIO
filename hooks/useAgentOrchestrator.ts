@@ -41,7 +41,12 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
-  const messageQueue = useRef<Array<{ message: string; attachments?: File[] }>>([]);
+  const messageQueue = useRef<Array<{
+    message: string;
+    attachments?: File[];
+    metadata?: Record<string, any>;
+    userMessageId?: string;
+  }>>([]);
 
   const withTimeout = useCallback(async <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
     return Promise.race([
@@ -117,7 +122,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
     if (!message.trim()) return null;
 
     if (isProcessing) {
-      messageQueue.current.push({ message, attachments });
+      messageQueue.current.push({ message, attachments, metadata, userMessageId });
       console.log('[useAgentOrchestrator] Message queued, queue size:', messageQueue.current.length);
       return null;
     }
@@ -390,7 +395,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       if (messageQueue.current.length > 0) {
         const next = messageQueue.current.shift()!;
         setTimeout(() => {
-          processMessage(next.message, next.attachments);
+          processMessage(next.message, next.attachments, next.metadata, next.userMessageId);
         }, 300);
       }
     }

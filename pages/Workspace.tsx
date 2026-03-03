@@ -635,7 +635,7 @@ const Workspace: React.FC = () => {
     setImageModelEnabled,
     setImageGenRatio,
     setImageGenRes,
-    setImageGenUpload,
+    setImageGenUploads,
     setIsPickingFromCanvas,
     setVideoGenRatio,
     setVideoGenDuration,
@@ -678,7 +678,7 @@ const Workspace: React.FC = () => {
   // 图像生成器相关状态 (from store)
   const imageGenRatio = useAgentStore((s) => s.imageGenRatio);
   const imageGenRes = useAgentStore((s) => s.imageGenRes);
-  const imageGenUpload = useAgentStore((s) => s.imageGenUpload);
+  const imageGenUploads = useAgentStore((s) => s.imageGenUploads);
   const isPickingFromCanvas = useAgentStore((s) => s.isPickingFromCanvas);
 
   // 视频生成器相关状态 (from store)
@@ -740,6 +740,9 @@ const Workspace: React.FC = () => {
     string | null
   >(null);
 
+  const createConversationId = () =>
+    `conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
   const getCurrentConversationId = () => String(activeConversationId || "").trim();
   const buildMemoryKey = (conversationId: string) => {
     const workspaceId = String(id || "").trim();
@@ -751,11 +754,18 @@ const Workspace: React.FC = () => {
   const ensureConversationId = () => {
     const existing = getCurrentConversationId();
     if (existing) return existing;
-    const next = `conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const next = createConversationId();
     setActiveConversationId(next);
     return next;
   };
   const ensureTopicId = () => buildMemoryKey(ensureConversationId());
+  const ensureClothingSession = () => {
+    const topicId = ensureTopicId();
+    if (topicId) {
+      useClothingStudioChatStore.getState().actions.setActiveSession(topicId);
+    }
+    return topicId;
+  };
 
   useEffect(() => {
       const topicId = getCurrentTopicId();
@@ -830,29 +840,33 @@ const Workspace: React.FC = () => {
         }
       : undefined;
 
-    void syncClothingTopicMemory(topicId, {
-      productImageRefs: productRefs,
-      productAnchorRef,
-      modelAnchorSheetRef,
-      modelRef,
-      analysis: clothingState.analysis
-        ? {
-            anchorDescription: clothingState.analysis.anchorDescription,
-            forbiddenChanges: clothingState.analysis.forbiddenChanges,
-            recommendedPoses: clothingState.analysis.recommendedPoses,
-            recommendedStyling: clothingState.analysis.recommendedStyling,
-          }
-        : undefined,
-      requirements: {
-        platform: clothingState.requirements.platform,
-        aspectRatio: clothingState.requirements.aspectRatio,
-        targetLanguage: clothingState.requirements.targetLanguage,
-        clarity: "2K",
-        count: Math.max(1, Math.min(10, clothingState.requirements.count || 1)),
-        referenceUrl: clothingState.requirements.referenceUrl,
-        description: clothingState.requirements.description,
-      },
-    });
+    const timer = window.setTimeout(() => {
+      void syncClothingTopicMemory(topicId, {
+        productImageRefs: productRefs,
+        productAnchorRef,
+        modelAnchorSheetRef,
+        modelRef,
+        analysis: clothingState.analysis
+          ? {
+              anchorDescription: clothingState.analysis.anchorDescription,
+              forbiddenChanges: clothingState.analysis.forbiddenChanges,
+              recommendedPoses: clothingState.analysis.recommendedPoses,
+              recommendedStyling: clothingState.analysis.recommendedStyling,
+            }
+          : undefined,
+        requirements: {
+          platform: clothingState.requirements.platform,
+          aspectRatio: clothingState.requirements.aspectRatio,
+          targetLanguage: clothingState.requirements.targetLanguage,
+          clarity: "2K",
+          count: Math.max(1, Math.min(10, clothingState.requirements.count || 1)),
+          referenceUrl: clothingState.requirements.referenceUrl,
+          description: clothingState.requirements.description,
+        },
+      });
+    }, 400);
+
+    return () => window.clearTimeout(timer);
   }, [
     activeConversationId,
     id,
@@ -901,6 +915,7 @@ const Workspace: React.FC = () => {
   };
 
   const startClothingWorkflow = () => {
+    ensureClothingSession();
     clothingActions.reset();
     setClothingWorkflowError(null);
     clothingActions.setStep("WAIT_PRODUCT");
@@ -912,6 +927,7 @@ const Workspace: React.FC = () => {
   };
 
   const handleClothingGenerateModel = async (options: ModelGenOptions) => {
+    ensureClothingSession();
     clothingActions.setStep("MODEL_GENERATING");
     clothingActions.setModelOptions(options);
     setClothingWorkflowError(null);
@@ -1007,6 +1023,7 @@ const Workspace: React.FC = () => {
   };
 
   const handleClothingPickModel = (url: string) => {
+    ensureClothingSession();
     clothingActions.setModelImage({ id: `model-pick-${Date.now()}`, url });
     clothingActions.setStep("WAIT_REQUIREMENTS");
     addMessage({
@@ -1030,6 +1047,7 @@ const Workspace: React.FC = () => {
     requirements: Requirements,
     retryFailed = false,
   ) => {
+    ensureClothingSession();
     if (!clothingState.modelImage?.url) {
       clothingActions.setStep("NEED_MODEL");
       pushWorkflowUiMessage(
@@ -2917,12 +2935,18 @@ const Workspace: React.FC = () => {
             if (project.title) setProjectTitle(project.title);
             if (project.conversations) {
               setConversations(project.conversations);
-              const activeC = project.conversations.find((c) => c.id === id);
+              const activeC = [...project.conversations].sort(
+                (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0),
+              )[0];
               if (activeC) {
                 setActiveConversationId(activeC.id);
                 // 深度持久化消息到 store
                 useAgentStore.getState().actions.setMessages(activeC.messages);
+              } else {
+                setActiveConversationId(createConversationId());
               }
+            } else {
+              setActiveConversationId(createConversationId());
             }
             setHistory([{ elements: project.elements || [], markers: [] }]);
             setHistoryStep(0);
@@ -4247,7 +4271,7 @@ const Workspace: React.FC = () => {
             `canvas-ref-${pickedEl.id.slice(-6)}.png`,
             { type: blob.type || "image/png" },
           );
-          setImageGenUpload(file);
+          setImageGenUploads([file]);
         } catch (err) {
           console.warn("Pick image from canvas failed:", err);
         } finally {
@@ -4561,7 +4585,7 @@ const Workspace: React.FC = () => {
   };
 
   const startNewChat = () => {
-    setActiveConversationId(`conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    setActiveConversationId(createConversationId());
     clearMessages();
     setInputBlocks([{ id: "init", type: "text", text: "" }]);
     setMarkers([]);
