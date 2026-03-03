@@ -14,19 +14,24 @@ export const openWorkspaceDB = (): Promise<IDBDatabase> => {
     request.onsuccess = () => resolve(request.result);
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
-      const oldVersion = (event as any).oldVersion;
-      
+      const tx = (event.target as IDBOpenDBRequest).transaction!;
+      const oldVersion = event.oldVersion;
+
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: 'id' });
       }
-      
+
       if (!db.objectStoreNames.contains(TOPIC_SNAPSHOT_STORE)) {
         db.createObjectStore(TOPIC_SNAPSHOT_STORE, { keyPath: 'memoryKey' });
       } else if (oldVersion < 3) {
-        const store = db.transaction(TOPIC_SNAPSHOT_STORE, 'versionchange').objectStore(TOPIC_SNAPSHOT_STORE);
-        store.createIndex('memoryKey', 'memoryKey', { unique: true });
+        try {
+          const store = tx.objectStore(TOPIC_SNAPSHOT_STORE);
+          if (!store.indexNames.contains('memoryKey')) {
+            store.createIndex('memoryKey', 'memoryKey', { unique: true });
+          }
+        } catch (e) { console.warn('Upgrade TOPIC_SNAPSHOT_STORE skipped:', e); }
       }
-      
+
       if (!db.objectStoreNames.contains(TOPIC_MEMORY_ITEM_STORE)) {
         const store = db.createObjectStore(TOPIC_MEMORY_ITEM_STORE, { keyPath: 'id' });
         store.createIndex('memoryKey', 'memoryKey', { unique: false });
@@ -34,10 +39,14 @@ export const openWorkspaceDB = (): Promise<IDBDatabase> => {
         store.createIndex('type', 'type', { unique: false });
         store.createIndex('createdAt', 'createdAt', { unique: false });
       } else if (oldVersion < 3) {
-        const store = db.transaction(TOPIC_MEMORY_ITEM_STORE, 'versionchange').objectStore(TOPIC_MEMORY_ITEM_STORE);
-        store.createIndex('memoryKey', 'memoryKey', { unique: false });
+        try {
+          const store = tx.objectStore(TOPIC_MEMORY_ITEM_STORE);
+          if (!store.indexNames.contains('memoryKey')) {
+            store.createIndex('memoryKey', 'memoryKey', { unique: false });
+          }
+        } catch (e) { console.warn('Upgrade TOPIC_MEMORY_ITEM_STORE skipped:', e); }
       }
-      
+
       if (!db.objectStoreNames.contains(TOPIC_ASSET_STORE)) {
         const store = db.createObjectStore(TOPIC_ASSET_STORE, { keyPath: 'assetId' });
         store.createIndex('memoryKey', 'memoryKey', { unique: false });
@@ -45,8 +54,12 @@ export const openWorkspaceDB = (): Promise<IDBDatabase> => {
         store.createIndex('role', 'role', { unique: false });
         store.createIndex('createdAt', 'createdAt', { unique: false });
       } else if (oldVersion < 3) {
-        const store = db.transaction(TOPIC_ASSET_STORE, 'versionchange').objectStore(TOPIC_ASSET_STORE);
-        store.createIndex('memoryKey', 'memoryKey', { unique: false });
+        try {
+          const store = tx.objectStore(TOPIC_ASSET_STORE);
+          if (!store.indexNames.contains('memoryKey')) {
+            store.createIndex('memoryKey', 'memoryKey', { unique: false });
+          }
+        } catch (e) { console.warn('Upgrade TOPIC_ASSET_STORE skipped:', e); }
       }
     };
   });
@@ -62,10 +75,10 @@ export const getProjects = async (): Promise<Project[]> => {
       const store = transaction.objectStore(STORE_NAME);
       const request = store.getAll();
       request.onsuccess = () => {
-          const projects = request.result as Project[];
-          // Sort by updatedAt descending
-          projects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-          resolve(projects);
+        const projects = request.result as Project[];
+        // Sort by updatedAt descending
+        projects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+        resolve(projects);
       };
       request.onerror = () => reject(request.error);
     });

@@ -2933,7 +2933,7 @@ const Workspace: React.FC = () => {
             console.log("[Workspace] Project found, restoring state");
             if (project.elements) setElements(project.elements);
             if (project.title) setProjectTitle(project.title);
-            if (project.conversations) {
+            if (project.conversations && project.conversations.length > 0) {
               setConversations(project.conversations);
               const activeC = [...project.conversations].sort(
                 (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0),
@@ -2942,8 +2942,6 @@ const Workspace: React.FC = () => {
                 setActiveConversationId(activeC.id);
                 // 深度持久化消息到 store
                 useAgentStore.getState().actions.setMessages(activeC.messages);
-              } else {
-                setActiveConversationId(createConversationId());
               }
             } else {
               setActiveConversationId(createConversationId());
@@ -3046,7 +3044,7 @@ const Workspace: React.FC = () => {
       // Default to PRO_MODEL (thinking)
       chatSessionRef.current = createChatSession("gemini-3-pro-preview");
     }
-  }, [id, location.state]);
+  }, [id]);
 
   // Ctrl 键监听：用于切换自定义光标
   useEffect(() => {

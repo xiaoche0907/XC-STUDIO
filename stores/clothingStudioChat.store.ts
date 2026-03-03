@@ -106,6 +106,13 @@ const createEmptySession = (): ClothingSessionState => ({
   abortController: null,
 });
 
+const getOrCreateSession = (
+  sessions: Record<string, ClothingSessionState>,
+  sessionId: string,
+): ClothingSessionState => sessions[sessionId] || createEmptySession();
+
+const EMPTY_SESSION = createEmptySession();
+
 const toId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 export const useClothingStudioChatStore = create<ClothingStudioChatState>((set, get) => ({
@@ -165,12 +172,15 @@ export const useClothingStudioChatStore = create<ClothingStudioChatState>((set, 
     setStep: (step: ClothingStep, sessionId?: string) => {
       const targetId = sessionId || get().activeSessionId;
       if (!targetId) return;
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [targetId]: { ...state.sessions[targetId], step },
-        },
-      }));
+      set((state) => {
+        const session = getOrCreateSession(state.sessions, targetId);
+        return {
+          sessions: {
+            ...state.sessions,
+            [targetId]: { ...session, step },
+          },
+        };
+      });
     },
 
     addProductImages: (images: WorkflowImageItem[], sessionId?: string) => {
@@ -196,70 +206,88 @@ export const useClothingStudioChatStore = create<ClothingStudioChatState>((set, 
     setProductAnchorUrl: (url: string | null, sessionId?: string) => {
       const targetId = sessionId || get().activeSessionId;
       if (!targetId) return;
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [targetId]: { ...state.sessions[targetId], productAnchorUrl: url },
-        },
-      }));
+      set((state) => {
+        const session = getOrCreateSession(state.sessions, targetId);
+        return {
+          sessions: {
+            ...state.sessions,
+            [targetId]: { ...session, productAnchorUrl: url },
+          },
+        };
+      });
     },
 
     setAnalysis: (analysis: ClothingAnalysis | null, sessionId?: string) => {
       const targetId = sessionId || get().activeSessionId;
       if (!targetId) return;
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [targetId]: { ...state.sessions[targetId], analysis },
-        },
-      }));
+      set((state) => {
+        const session = getOrCreateSession(state.sessions, targetId);
+        return {
+          sessions: {
+            ...state.sessions,
+            [targetId]: { ...session, analysis },
+          },
+        };
+      });
     },
 
     setModelImage: (image: WorkflowImageItem | null, sessionId?: string) => {
       const targetId = sessionId || get().activeSessionId;
       if (!targetId) return;
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [targetId]: { 
-            ...state.sessions[targetId], 
-            modelImage: image ? { ...image, id: image.id || toId('model') } : null 
+      set((state) => {
+        const session = getOrCreateSession(state.sessions, targetId);
+        return {
+          sessions: {
+            ...state.sessions,
+            [targetId]: {
+              ...session,
+              modelImage: image ? { ...image, id: image.id || toId('model') } : null,
+            },
           },
-        },
-      }));
+        };
+      });
     },
 
     setModelViews: (images: WorkflowImageItem[], sessionId?: string) => {
       const targetId = sessionId || get().activeSessionId;
       if (!targetId) return;
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [targetId]: { ...state.sessions[targetId], modelViews: images },
-        },
-      }));
+      set((state) => {
+        const session = getOrCreateSession(state.sessions, targetId);
+        return {
+          sessions: {
+            ...state.sessions,
+            [targetId]: { ...session, modelViews: images },
+          },
+        };
+      });
     },
 
     setModelAnchorSheetUrl: (url: string | null, sessionId?: string) => {
       const targetId = sessionId || get().activeSessionId;
       if (!targetId) return;
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [targetId]: { ...state.sessions[targetId], modelAnchorSheetUrl: url },
-        },
-      }));
+      set((state) => {
+        const session = getOrCreateSession(state.sessions, targetId);
+        return {
+          sessions: {
+            ...state.sessions,
+            [targetId]: { ...session, modelAnchorSheetUrl: url },
+          },
+        };
+      });
     },
 
     setModelCandidates: (images: WorkflowImageItem[], sessionId?: string) => {
       const targetId = sessionId || get().activeSessionId;
       if (!targetId) return;
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [targetId]: { ...state.sessions[targetId], modelCandidates: images },
-        },
-      }));
+      set((state) => {
+        const session = getOrCreateSession(state.sessions, targetId);
+        return {
+          sessions: {
+            ...state.sessions,
+            [targetId]: { ...session, modelCandidates: images },
+          },
+        };
+      });
     },
 
     setRequirements: (next: Partial<Requirements>, sessionId?: string) => {
@@ -293,45 +321,57 @@ export const useClothingStudioChatStore = create<ClothingStudioChatState>((set, 
     setProgress: (next: ProgressState, sessionId?: string) => {
       const targetId = sessionId || get().activeSessionId;
       if (!targetId) return;
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [targetId]: { ...state.sessions[targetId], progress: next },
-        },
-      }));
+      set((state) => {
+        const session = getOrCreateSession(state.sessions, targetId);
+        return {
+          sessions: {
+            ...state.sessions,
+            [targetId]: { ...session, progress: next },
+          },
+        };
+      });
     },
 
     setGenerating: (v: boolean, sessionId?: string) => {
       const targetId = sessionId || get().activeSessionId;
       if (!targetId) return;
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [targetId]: { ...state.sessions[targetId], isGenerating: v },
-        },
-      }));
+      set((state) => {
+        const session = getOrCreateSession(state.sessions, targetId);
+        return {
+          sessions: {
+            ...state.sessions,
+            [targetId]: { ...session, isGenerating: v },
+          },
+        };
+      });
     },
 
     setResults: (images: Array<{ url: string; label?: string }>, sessionId?: string) => {
       const targetId = sessionId || get().activeSessionId;
       if (!targetId) return;
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [targetId]: { ...state.sessions[targetId], results: images },
-        },
-      }));
+      set((state) => {
+        const session = getOrCreateSession(state.sessions, targetId);
+        return {
+          sessions: {
+            ...state.sessions,
+            [targetId]: { ...session, results: images },
+          },
+        };
+      });
     },
 
     setFailedItems: (items: Array<{ index: number; prompt: string; label?: string }>, sessionId?: string) => {
       const targetId = sessionId || get().activeSessionId;
       if (!targetId) return;
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [targetId]: { ...state.sessions[targetId], failedItems: items },
-        },
-      }));
+      set((state) => {
+        const session = getOrCreateSession(state.sessions, targetId);
+        return {
+          sessions: {
+            ...state.sessions,
+            [targetId]: { ...session, failedItems: items },
+          },
+        };
+      });
     },
 
     startAbortSession: (sessionId?: string) => {
@@ -345,7 +385,7 @@ export const useClothingStudioChatStore = create<ClothingStudioChatState>((set, 
       set((state) => ({
         sessions: {
           ...state.sessions,
-          [targetId]: { ...state.sessions[targetId], abortController: ctrl },
+          [targetId]: { ...session, abortController: ctrl },
         },
       }));
       return ctrl;
@@ -354,12 +394,15 @@ export const useClothingStudioChatStore = create<ClothingStudioChatState>((set, 
     clearAbortSession: (sessionId?: string) => {
       const targetId = sessionId || get().activeSessionId;
       if (!targetId) return;
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [targetId]: { ...state.sessions[targetId], abortController: null },
-        },
-      }));
+      set((state) => {
+        const session = getOrCreateSession(state.sessions, targetId);
+        return {
+          sessions: {
+            ...state.sessions,
+            [targetId]: { ...session, abortController: null },
+          },
+        };
+      });
     },
 
     cancelGenerating: (sessionId?: string) => {
@@ -373,7 +416,7 @@ export const useClothingStudioChatStore = create<ClothingStudioChatState>((set, 
       set((state) => ({
         sessions: {
           ...state.sessions,
-          [targetId]: { ...state.sessions[targetId], isGenerating: false, abortController: null },
+          [targetId]: { ...session, isGenerating: false, abortController: null },
         },
       }));
     },
@@ -383,7 +426,7 @@ export const useClothingStudioChatStore = create<ClothingStudioChatState>((set, 
 export const useClothingState = (): ClothingSessionState => {
   const sessions = useClothingStudioChatStore((s) => s.sessions);
   const activeSessionId = useClothingStudioChatStore((s) => s.activeSessionId);
-  return sessions[activeSessionId] || createEmptySession();
+  return sessions[activeSessionId] || EMPTY_SESSION;
 };
 
 export const clothingActions = useClothingStudioChatStore.getState().actions;
