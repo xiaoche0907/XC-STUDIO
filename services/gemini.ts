@@ -1214,7 +1214,7 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
     // Concurrency check: If user has multi-key, the getApiKey() will handle its own poll.
     // Here we focus on model rotation.
 
-    const modelsToTry = Array.from(new Set([]));
+    const modelsToTry = Array.from(new Set([targetModelId]));
 
     const configProvider = getProviderConfig();
     const isProxy = configProvider.id !== 'gemini' || (configProvider.baseUrl && !configProvider.baseUrl.includes('googleapis.com'));
