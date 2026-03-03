@@ -6,19 +6,50 @@ import { SmartSequenceItem, VideoGenerationMode } from "../types";
 // --- Initialization ---
 
 const getClient = () => {
-    // Read API Key from environment or XC-STUDIO's localStorage
-    const apiKey = process.env.API_KEY || localStorage.getItem('yunwu_api_key') || localStorage.getItem('gemini_api_key') || "";
+    const activeProviderId = localStorage.getItem('api_provider') || 'yunwu';
+    const providersRaw = localStorage.getItem('api_providers');
+
+    let providerBaseUrl = activeProviderId === 'gemini'
+        ? 'https://generativelanguage.googleapis.com'
+        : 'https://yunwu.ai';
+    let providerApiKey = '';
+
+    if (providersRaw) {
+        try {
+            const providers = JSON.parse(providersRaw);
+            if (Array.isArray(providers)) {
+                const activeProvider = providers.find((p: any) => p?.id === activeProviderId);
+                if (activeProvider) {
+                    if (typeof activeProvider.baseUrl === 'string' && activeProvider.baseUrl.trim()) {
+                        providerBaseUrl = activeProvider.baseUrl.trim();
+                    }
+                    if (typeof activeProvider.apiKey === 'string') {
+                        providerApiKey = activeProvider.apiKey
+                            .split('\n')
+                            .map((k: string) => k.trim())
+                            .find((k: string) => !!k) || '';
+                    }
+                }
+            }
+        } catch {
+            // ignore invalid provider storage and use fallback logic
+        }
+    }
+
+    const legacyKey = activeProviderId === 'gemini'
+        ? localStorage.getItem('gemini_api_key') || ''
+        : localStorage.getItem('yunwu_api_key') || '';
+
+    const apiKey = process.env.API_KEY || providerApiKey || legacyKey;
     if (!apiKey) {
         throw new Error("API Key is missing. Please configure your API Key in XC-STUDIO Settings.");
     }
 
-    // Use Yunwu as primary, configurable via localStorage if needed
-    const providerId = localStorage.getItem('api_provider') || 'yunwu';
-    const baseUrl = providerId === 'gemini' ? 'https://generativelanguage.googleapis.com' : 'https://yunwu.ai';
+    const normalizedBaseUrl = providerBaseUrl.replace(/\/+$/, '').replace(/\/v\d+(beta)?$/i, '');
 
     return new GoogleGenAI({
-        apiKey: apiKey,
-        httpOptions: { baseUrl }
+        apiKey,
+        httpOptions: { baseUrl: normalizedBaseUrl }
     });
 };
 
