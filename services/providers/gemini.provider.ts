@@ -24,6 +24,9 @@ export const geminiImageProvider: ImageProvider = {
       imageSize: request.imageSize,
       referenceImage: request.referenceImage,
       referenceImages: request.referenceImages,
+      referenceStrength: request.referenceStrength,
+      referencePriority: request.referencePriority,
+      referenceMode: request.referenceMode,
     });
   }
 };

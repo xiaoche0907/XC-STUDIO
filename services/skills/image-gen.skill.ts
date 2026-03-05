@@ -25,6 +25,9 @@ export async function imageGenSkill(params: ImageGenSkillParams): Promise<string
       imageSize: params.imageSize || '2K',
       referenceImage: normalizedReferenceImage,
       referenceImages: params.referenceImages,
+      referenceStrength: params.referenceStrength,
+      referencePriority: params.referencePriority,
+      referenceMode: params.referenceMode,
     },
     params.model
   );

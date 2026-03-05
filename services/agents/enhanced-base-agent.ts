@@ -1549,6 +1549,18 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${mul
         call.skillName === "generateImage" ||
         call.skillName === "generateVideo"
       ) {
+        if (call.skillName === "generateImage") {
+          if (typeof call.params.referenceStrength !== "number") {
+            call.params.referenceStrength = 0.75;
+          }
+          if (!call.params.referencePriority) {
+            call.params.referencePriority = "first";
+          }
+          if (!call.params.referenceMode) {
+            call.params.referenceMode = "product";
+          }
+        }
+
         const resolvedRefs = await this.resolveReferenceImages(task, call.params);
         const expectedRefCount = Math.min(
           resolvedRefs.sourceCount,

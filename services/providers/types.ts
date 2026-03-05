@@ -4,6 +4,9 @@ export interface ImageGenerationRequest {
   imageSize?: '1K' | '2K' | '4K';
   referenceImage?: string; // base64
   referenceImages?: string[];
+  referenceStrength?: number;
+  referencePriority?: 'first' | 'all';
+  referenceMode?: 'style' | 'product';
 }
 
 export interface VideoGenerationRequest {

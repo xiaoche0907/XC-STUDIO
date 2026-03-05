@@ -11,6 +11,9 @@ export interface ImageGenSkillParams {
   initImage?: string;
   init_image?: string;
   referenceImages?: string[];
+  referenceStrength?: number;
+  referencePriority?: 'first' | 'all';
+  referenceMode?: 'style' | 'product';
   brandContext?: {
     colors?: string[];
     style?: string;

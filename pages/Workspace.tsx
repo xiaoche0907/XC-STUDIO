@@ -3235,12 +3235,9 @@ ${analysis}
     const el = elementsRef.current.find((e) => e.id === selectedElementId);
     if (!el || !el.url) return;
 
-    setShowTextEditModal(false);
-    setElementGeneratingState(selectedElementId, true);
-
-    // Construct prompt for text replacement
+    // 构建替换指令
     let editPrompt = "Edit the text in the image. ";
-    let changes = [];
+    const changes: string[] = [];
     for (let i = 0; i < detectedTexts.length; i++) {
       if (detectedTexts[i] !== editedTexts[i]) {
         changes.push(
@@ -3250,32 +3247,50 @@ ${analysis}
     }
 
     if (changes.length === 0) {
-      // No changes, just revert loading state
-      setElementGeneratingState(selectedElementId, false);
       return;
     }
 
     editPrompt +=
       changes.join(". ") +
-      ". Maintain the original font style and color as much as possible.";
+      ". Maintain the original font style, size, color and layout as much as possible. Keep the background and all other elements identical.";
+
+    setShowTextEditModal(false);
+
+    // 计算正确的宽高比
+    const sourceSize = await loadElementSourceSize(el);
+    const targetAspectRatio = getNearestAspectRatio(sourceSize.width, sourceSize.height);
+
+    // 在原图旁边创建同尺寸的新元素
+    const newId = `text-edit-${Date.now()}`;
+    const newEl: CanvasElement = {
+      ...el,
+      id: newId,
+      x: el.x + el.width + 20,
+      isGenerating: true,
+      generatingType: "text-edit",
+      url: undefined,
+      zIndex: elements.length + 10,
+    };
+    setElements((prev) => [...prev, newEl]);
+    setSelectedElementId(newId);
 
     try {
       const base64Ref = await urlToBase64(el.url);
-      const resultUrl = await imageGenSkill({
+      const resultUrl = await generateImage({
         prompt: editPrompt,
         model: (el.genModel as any) || "Nano Banana Pro",
-        aspectRatio: el.genAspectRatio || "1:1",
+        aspectRatio: targetAspectRatio,
         referenceImage: base64Ref,
       });
 
       if (resultUrl) {
-        await applyGeneratedImageToElement(selectedElementId, resultUrl, true);
+        await applyGeneratedImageToElement(newId, resultUrl, true);
       } else {
         throw new Error("No result");
       }
     } catch (e) {
-      console.error(e);
-      setElementGeneratingState(selectedElementId, false);
+      console.error("Text Edit Failed:", e);
+      setElements((prev) => prev.filter((e) => e.id !== newId));
     }
   };
 
@@ -5869,7 +5884,7 @@ ${analysis}
       const modalTop = elY;
       return (
         <div
-          className="absolute bg-white rounded-xl shadow-xl border border-gray-200 p-4 z-[60] w-64 animate-in fade-in slide-in-from-left-2 duration-200 flex flex-col gap-2"
+          className="absolute bg-white rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] border border-gray-100 p-4 z-[60] w-72 animate-in fade-in slide-in-from-left-2 duration-200 flex flex-col gap-3"
           style={{
             left: modalLeft,
             top: modalTop,
@@ -5878,49 +5893,59 @@ ${analysis}
             pointerEvents: "auto",
           }}
           onMouseDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
         >
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-sm font-semibold text-gray-800">
-              编辑图片文字
-            </span>
-            <button
-              onClick={() => setShowTextEditModal(false)}
-              className="text-gray-400 hover:text-black transition"
-            >
-              <X size={14} />
-            </button>
-          </div>
-          {el.detectedTexts && el.detectedTexts.length > 0 ? (
+          <span className="text-sm font-bold text-gray-900">
+            编辑文字
+          </span>
+          {detectedTexts.length > 0 ? (
             <>
-              <div className="max-h-48 overflow-y-auto pr-1 flex flex-col gap-2">
-                {el.detectedTexts.map((dt, idx) => (
+              <div className="max-h-56 overflow-y-auto pr-1 flex flex-col gap-2.5 custom-scrollbar">
+                {detectedTexts.map((original, idx) => (
                   <div key={idx} className="flex flex-col gap-1">
-                    <span className="text-[10px] text-gray-500 font-medium tracking-wide truncate">
-                      {dt.original}
+                    <span className="text-[11px] text-gray-400 font-medium truncate px-0.5">
+                      {original}
                     </span>
-                    <input
-                      value={dt.edited || dt.original}
-                      onChange={(e) => {
-                        const newTexts = [...(el.detectedTexts || [])];
-                        newTexts[idx] = {
-                          ...newTexts[idx],
-                          edited: e.target.value,
-                        };
-                        updateSelectedElement({ detectedTexts: newTexts });
-                      }}
-                      className="w-full text-sm bg-gray-50 border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder={dt.original}
-                    />
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        value={editedTexts[idx] ?? original}
+                        onChange={(e) => {
+                          const newTexts = [...editedTexts];
+                          newTexts[idx] = e.target.value;
+                          setEditedTexts(newTexts);
+                        }}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        className="flex-1 text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition"
+                        placeholder={original}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
-              <button className="w-full mt-2 py-1.5 bg-black text-white text-sm rounded-lg hover:bg-gray-900 transition font-medium">
-                应用修改
-              </button>
+              <div className="flex items-center gap-2 pt-1 border-t border-gray-100">
+                <button
+                  onClick={() => setShowTextEditModal(false)}
+                  className="flex-1 py-2 text-xs font-bold text-gray-500 hover:bg-gray-50 rounded-xl transition border border-gray-100"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleApplyTextEdits}
+                  className="flex-1 py-2 bg-gray-900 text-white text-xs font-bold rounded-xl hover:bg-black transition shadow-sm flex items-center justify-center gap-1.5"
+                >
+                  立即使用
+                  <Zap size={11} fill="currentColor" />
+                </button>
+              </div>
             </>
+          ) : isExtractingText ? (
+            <div className="py-6 flex flex-col items-center justify-center text-gray-400 gap-2">
+              <Loader2 size={24} className="animate-spin text-blue-500" />
+              <span className="text-xs text-gray-500">正在识别图片文字...</span>
+            </div>
           ) : (
-            <div className="py-4 flex flex-col items-center justify-center text-gray-400">
-              <Type size={24} className="mb-2 opacity-50" />
+            <div className="py-6 flex flex-col items-center justify-center text-gray-400 gap-2">
+              <Type size={24} className="opacity-30" />
               <span className="text-xs">未检测到可编辑文字</span>
             </div>
           )}
@@ -8327,6 +8352,39 @@ ${analysis}
                               loading="lazy"
                               style={{ willChange: "transform", contain: "paint" }}
                             />
+                            {/* 文字提取中的扫描动画覆盖层 */}
+                            {isSelected && isExtractingText && (
+                              <div className="absolute inset-0 z-30 pointer-events-none overflow-hidden">
+                                {/* 半透明蓝色底层 */}
+                                <div className="absolute inset-0 bg-blue-600/20 backdrop-blur-[2px]" />
+                                {/* 扫描线动画 */}
+                                <div
+                                  className="absolute left-0 right-0 h-1"
+                                  style={{
+                                    background: "linear-gradient(180deg, transparent, rgba(59,130,246,0.6), transparent)",
+                                    animation: "textExtractScan 1.8s ease-in-out infinite",
+                                    boxShadow: "0 0 20px 8px rgba(59,130,246,0.25)",
+                                  }}
+                                />
+                                {/* 提取文字标签 */}
+                                <div
+                                  className="absolute inset-0 flex items-center justify-center"
+                                  style={{ transform: `scale(${100 / zoom})` }}
+                                >
+                                  <div className="bg-blue-600/80 backdrop-blur-sm text-white text-xs font-bold px-4 py-2 rounded-full flex items-center gap-2 shadow-lg">
+                                    <Loader2 size={14} className="animate-spin" />
+                                    提取文字
+                                  </div>
+                                </div>
+                                <style>{`
+                                  @keyframes textExtractScan {
+                                    0% { top: 0; }
+                                    50% { top: 100%; }
+                                    100% { top: 0; }
+                                  }
+                                `}</style>
+                              </div>
+                            )}
                             {/* Resize Handles - Only for Image & Selected */}
                             {isSelected && (
                               <>
@@ -8451,7 +8509,9 @@ ${analysis}
                                             ? "背景移除中"
                                             : el.generatingType === "product-swap"
                                               ? "产品替换中"
-                                              : "正在处理中"}
+                                              : el.generatingType === "text-edit"
+                                                ? "文字编辑中"
+                                                : "正在处理中"}
                                     </span>
                                     <span className="text-[10px] text-blue-400 opacity-70 animate-pulse">
                                       Creating magic...

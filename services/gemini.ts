@@ -1118,7 +1118,51 @@ export interface ImageGenerationConfig {
     imageSize?: '1K' | '2K' | '4K';
     referenceImage?: string; // base64 (legacy)
     referenceImages?: string[]; // Multiple base64 images
+    referenceStrength?: number;
+    referencePriority?: 'first' | 'all';
+    referenceMode?: 'style' | 'product';
 }
+
+const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
+
+const strengthToRepeats = (strength: number): number => {
+    if (strength >= 0.85) return 3;
+    if (strength >= 0.65) return 2;
+    return 1;
+};
+
+const buildConstrainedPrompt = (
+    userPrompt: string,
+    opts: { strength: number; mode: 'style' | 'product' },
+): string => {
+    const hard = opts.strength >= 0.7;
+    const constraints = opts.mode === 'product'
+        ? `
+[Consistency Requirements]
+- Keep product silhouette, cut, structure, color family, material texture, and major details consistent with references.
+- Do not add/remove logos, stitching lines, trims, or hardware when they are visible.
+- Preserve relative logo placement and key detailing when visible in references.
+- Allowed changes: background, ambience, props, and composition only.
+`
+        : `
+[Style Requirements]
+- Keep visual style, color language, and composition tendency aligned with references.
+- Preserve the overall mood and design direction across outputs.
+`;
+
+    const negatives = hard
+        ? `
+[Do Not]
+- Do not change product type or core shape.
+- Do not drift to a different SKU-like design.
+- Do not over-stylize and lose material realism.
+`
+        : '';
+
+    return `${constraints}${negatives}
+[User Request]
+${userPrompt}`.trim();
+};
 
 const blobToDataUrl = (blob: Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -1218,8 +1262,11 @@ const generateImageDallE3 = async (
 };
 
 export const generateImage = async (config: ImageGenerationConfig): Promise<string | null> => {
+    const references = config.referenceImages || (config.referenceImage ? [config.referenceImage] : []);
+    const hasReferences = references.length > 0;
+
     // Seedream 使用 dall-e-3 格式，走单独的路径
-    if (config.model === 'Seedream5.0') {
+    if (config.model === 'Seedream5.0' && !hasReferences) {
         try {
             const result = await generateImageDallE3(IMAGE_SEEDREAM_MODEL, config.prompt, config.aspectRatio);
             if (result) return result;
@@ -1276,8 +1323,26 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
     // Prepare parts: Image(s) should generally come before or alongside text for multimodal models
     const parts: any[] = [];
 
-    const imagesToProcess = config.referenceImages || (config.referenceImage ? [config.referenceImage] : []);
-    for (const imageInput of imagesToProcess) {
+    const strength = clamp01(Number.isFinite(config.referenceStrength as number) ? Number(config.referenceStrength) : 0.75);
+    const priority = config.referencePriority || 'first';
+    const mode = config.referenceMode || 'product';
+    const repeats = hasReferences && priority === 'first' ? strengthToRepeats(strength) : 1;
+
+    const orderedReferences = priority === 'first'
+        ? references
+        : references;
+
+    const referencesToInject: string[] = [];
+    if (orderedReferences[0] && priority === 'first') {
+        for (let i = 0; i < repeats; i += 1) {
+            referencesToInject.push(orderedReferences[0]);
+        }
+        referencesToInject.push(...orderedReferences.slice(1));
+    } else {
+        referencesToInject.push(...orderedReferences);
+    }
+
+    for (const imageInput of referencesToInject) {
         const normalizedDataUrl = await normalizeReferenceToDataUrl(imageInput);
         if (!normalizedDataUrl) continue;
         const matches = normalizedDataUrl.match(/^data:(.+);base64,(.+)$/);
@@ -1291,7 +1356,21 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
         }
     }
 
-    parts.push({ text: config.prompt });
+    const finalPrompt = hasReferences
+        ? buildConstrainedPrompt(config.prompt, { strength, mode })
+        : config.prompt;
+    parts.push({ text: finalPrompt });
+
+    if (hasReferences) {
+        console.info('[imggen] reference control', {
+            model: targetModelId,
+            refs: references.length,
+            priority,
+            strength,
+            repeats,
+            promptChars: finalPrompt.length,
+        });
+    }
 
     const imageConfig: any = {
         aspectRatio: validAspectRatio,

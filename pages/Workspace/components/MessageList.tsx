@@ -5,24 +5,8 @@ import { ChatMessage } from '../../../types';
 import { AgentMessage } from './AgentMessage';
 import { useAgentStore } from '../../../stores/agent.store';
 import { TaskProgress } from '../../../components/agents/TaskProgress';
+import { MessageAttachments } from './MessageAttachments';
 import type { Requirements, ModelGenOptions } from '../../../types/workflow.types';
-
-const SmartMessageRenderer = ({ text, onGenerate, onAction }: { text: string; onGenerate: (prompt: string) => void; onAction?: (action: string) => void }) => {
-    const cleanText = text.replace(/---AGENT_IMAGES---[\s\S]*$/m, '').trim();
-    if (!cleanText) return <div className="whitespace-pre-wrap">{text}</div>;
-    return <div className="whitespace-pre-wrap">{cleanText}</div>;
-};
-
-const AttachmentPill = ({ url, index }: { url: string; index: number }) => (
-    <div className="inline-flex items-center gap-1.5 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg pl-1 pr-2 py-0.5 select-none hover:bg-white/20 transition cursor-pointer self-start">
-        <div className="w-5 h-5 rounded-sm overflow-hidden border border-white/20 flex-shrink-0">
-            <img src={url} className="w-full h-full object-cover" />
-        </div>
-        <div className="flex items-center gap-1">
-            <span className="text-[10px] text-white/90 font-medium">资源 {index + 1}</span>
-        </div>
-    </div>
-);
 
 interface MessageListProps {
     onSend: (text: string) => void;
@@ -69,33 +53,14 @@ export const MessageList: React.FC<MessageListProps> = ({
                                 <div className="flex items-center gap-2">
                                     <span className="font-semibold text-gray-900">{msg.skillData.name}</span>
                                 </div>
-                                {msg.attachments && msg.attachments.length > 0 && (
-                                    <div className={`grid gap-2 ${msg.attachments.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-                                        {msg.attachments.map((att, i) => (
-                                            <div key={i} className="w-full rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
-                                                <img src={att} className="w-full h-auto object-cover rounded-lg" />
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
+                                <MessageAttachments attachments={msg.attachments} onPreview={onPreview} />
                                 <div className="text-[13px] text-gray-700 leading-relaxed whitespace-pre-wrap break-words" title={msg.text}>
                                     {msg.text}
                                 </div>
                             </div>
                         ) : (
                             <div className="w-full max-w-[95%] xl:max-w-[90%] rounded-2xl bg-gray-100 px-4 py-3 flex flex-col gap-2 overflow-hidden">
-                                {msg.attachments && msg.attachments.length > 0 && (
-                                    <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                                        {msg.attachments.map((att, i) => (
-                                            <div key={i} className="inline-flex items-center gap-1.5 bg-white border border-gray-100 rounded-lg pl-1 pr-2 py-0.5 select-none hover:bg-gray-50 transition duration-200 cursor-pointer shadow-sm">
-                                                <div className="w-5 h-5 rounded-sm overflow-hidden flex-shrink-0 bg-white">
-                                                    <img src={att} className="w-full h-full object-cover" />
-                                                </div>
-                                                <span className="text-[11px] text-gray-600 font-medium">参考内容 {i + 1}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
+                                <MessageAttachments attachments={msg.attachments} onPreview={onPreview} />
                                 <div className="text-[14px] text-gray-800 leading-relaxed whitespace-pre-wrap break-words">{msg.text}</div>
                             </div>
                         )
