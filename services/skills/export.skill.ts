@@ -66,12 +66,17 @@ async function renderToCanvas(elements: any[], scale: number): Promise<HTMLCanva
     const x = (el.x || 0) - minX + padding;
     const y = (el.y || 0) - minY + padding;
 
-    if (el.type === 'image' && el.src) {
-      await drawImage(ctx, el.src, x, y, el.width, el.height);
+    if (el.type === 'image' && (el.url || el.src)) {
+      await drawImage(ctx, el.url || el.src, x, y, el.width, el.height);
     } else if (el.type === 'text') {
-      ctx.fillStyle = el.color || '#000000';
+      ctx.fillStyle = el.fillColor || el.color || '#000000';
       ctx.font = `${el.fontSize || 16}px ${el.fontFamily || 'sans-serif'}`;
-      ctx.fillText(el.content || '', x, y + (el.fontSize || 16));
+      const text = el.text || el.content || '';
+      const lines = String(text).split('\n');
+      const lineHeight = (el.lineHeight || 1.2) * (el.fontSize || 16);
+      lines.forEach((line: string, idx: number) => {
+        ctx.fillText(line, x, y + (el.fontSize || 16) + idx * lineHeight);
+      });
     } else if (el.type === 'shape') {
       ctx.fillStyle = el.fill || '#cccccc';
       ctx.strokeStyle = el.stroke || '#000000';
@@ -122,11 +127,25 @@ function exportAsSvg(elements: any[], width: number, height: number): string {
     const y = el.y || 0;
 
     if (el.type === 'text') {
-      svgContent += `<text x="${x}" y="${y + (el.fontSize || 16)}" font-size="${el.fontSize || 16}" fill="${el.color || '#000'}" font-family="${el.fontFamily || 'sans-serif'}">${escapeXml(el.content || '')}</text>`;
+      const text = String(el.text || el.content || '');
+      const fill = el.fillColor || el.color || '#000';
+      const lines = text.split('\n');
+      const fontSize = el.fontSize || 16;
+      const lineHeight = (el.lineHeight || 1.2) * fontSize;
+      const align = el.textAlign || 'left';
+      const anchor = align === 'center' ? 'middle' : align === 'right' ? 'end' : 'start';
+      const textX = align === 'center' ? x + (el.width || 0) / 2 : align === 'right' ? x + (el.width || 0) : x;
+      const y0 = y + fontSize;
+      svgContent += `<text x="${textX}" y="${y0}" font-size="${fontSize}" fill="${fill}" font-family="${el.fontFamily || 'sans-serif'}" text-anchor="${anchor}">`;
+      lines.forEach((line: string, idx: number) => {
+        svgContent += `<tspan x="${textX}" dy="${idx === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`;
+      });
+      svgContent += `</text>`;
     } else if (el.type === 'shape') {
       svgContent += `<rect x="${x}" y="${y}" width="${el.width || 100}" height="${el.height || 100}" fill="${el.fill || '#ccc'}" stroke="${el.stroke || '#000'}" stroke-width="${el.strokeWidth || 1}"/>`;
-    } else if (el.type === 'image' && el.src) {
-      svgContent += `<image x="${x}" y="${y}" width="${el.width || 200}" height="${el.height || 200}" href="${el.src}"/>`;
+    } else if (el.type === 'image' && (el.url || el.src)) {
+      const src = el.url || el.src;
+      svgContent += `<image x="${x}" y="${y}" width="${el.width || 200}" height="${el.height || 200}" href="${src}"/>`;
     }
   }
 

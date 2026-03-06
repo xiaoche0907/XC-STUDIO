@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import ReactDOM from "react-dom";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -240,11 +240,11 @@ const VIDEO_RATIOS = [
 const DEFAULT_AUTO_IMAGE_MODEL: ImageModel = "Nano Banana Pro";
 
 const PREFERRED_IMAGE_MODEL_TO_STORAGE_ID: Partial<Record<ImageModel, string>> =
-  {
-    "Nano Banana Pro": "gemini-3-pro-image-preview",
-    NanoBanana2: "gemini-3.1-flash-image-preview",
-    "Seedream5.0": "doubao-seedream-5-0-260128",
-  };
+{
+  "Nano Banana Pro": "gemini-3-pro-image-preview",
+  NanoBanana2: "gemini-3.1-flash-image-preview",
+  "Seedream5.0": "doubao-seedream-5-0-260128",
+};
 
 const STORAGE_ID_TO_PREFERRED_IMAGE_MODEL: Record<string, ImageModel> = {
   "gemini-3-pro-image-preview": "Nano Banana Pro",
@@ -761,6 +761,7 @@ const Workspace: React.FC = () => {
     null,
   );
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const textEditDraftRef = useRef<Record<string, string>>({});
   const [projectTitle, setProjectTitle] = useState("未命名");
   const [activeTool, setActiveTool] = useState<ToolType>("select");
   const [isPanning, setIsPanning] = useState(false);
@@ -782,13 +783,22 @@ const Workspace: React.FC = () => {
   >([]);
   const [isResizing, setIsResizing] = useState(false);
   const [resizeHandle, setResizeHandle] = useState<string | null>(null);
-  const [resizeStart, setResizeStart] = useState({
+  const [resizeStart, setResizeStart] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    left: number;
+    top: number;
+    fontSize: number;
+  }>({
     x: 0,
     y: 0,
     width: 0,
     height: 0,
     left: 0,
     top: 0,
+    fontSize: 16,
   });
   const [showToolMenu, setShowToolMenu] = useState(false);
   const [showInsertMenu, setShowInsertMenu] = useState(false);
@@ -810,6 +820,7 @@ const Workspace: React.FC = () => {
   } | null>(null);
   const [showHistoryPopover, setShowHistoryPopover] = useState(false);
   const [showFontPicker, setShowFontPicker] = useState(false);
+  const [showWeightPicker, setShowWeightPicker] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showRatioPicker, setShowRatioPicker] = useState(false);
   const [showResPicker, setShowResPicker] = useState(false);
@@ -833,9 +844,27 @@ const Workspace: React.FC = () => {
 
   const [historySearch, setHistorySearch] = useState("");
   const [showAssistant, setShowAssistant] = useState(true);
+  const showAssistantRef = useRef(true);
+  const [featureNotice, setFeatureNotice] = useState<string | null>(null);
+  const featureNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const [isHistoryExpanded, setIsHistoryExpanded] = useState(true);
   const [isHoveringVideoFrames, setIsHoveringVideoFrames] = useState<{
     [id: string]: boolean;
   }>({});
+
+  useEffect(() => {
+    showAssistantRef.current = showAssistant;
+  }, [showAssistant]);
+
+  useEffect(() => {
+    return () => {
+      if (featureNoticeTimerRef.current) {
+        clearTimeout(featureNoticeTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     elementsRef.current = elements;
@@ -963,6 +992,7 @@ const Workspace: React.FC = () => {
   const eraserInitKeyRef = useRef<string>("");
   const eraserCursorRef = useRef<HTMLDivElement>(null);
   const eraserLastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const eraserCanvasRectRef = useRef<DOMRect | null>(null);
 
   // Touch Edit States
   const [touchEditMode, setTouchEditMode] = useState(false);
@@ -1027,11 +1057,11 @@ const Workspace: React.FC = () => {
   };
 
   useEffect(() => {
-      const topicId = getCurrentTopicId();
-      if (!topicId) return;
+    const topicId = getCurrentTopicId();
+    if (!topicId) return;
     const store = useClothingStudioChatStore.getState();
     store.actions.setActiveSession(topicId);
-    
+
     (async () => {
       const snapshot = await loadTopicSnapshot(topicId);
       if (snapshot?.clothingStudio) {
@@ -1074,29 +1104,29 @@ const Workspace: React.FC = () => {
 
     const productAnchorRef = clothingState.productAnchorUrl
       ? {
-          assetId: `product-anchor-${topicId}`,
-          role: "product_anchor" as const,
-          url: clothingState.productAnchorUrl,
-          createdAt: Date.now(),
-        }
+        assetId: `product-anchor-${topicId}`,
+        role: "product_anchor" as const,
+        url: clothingState.productAnchorUrl,
+        createdAt: Date.now(),
+      }
       : undefined;
 
     const modelAnchorSheetRef = clothingState.modelAnchorSheetUrl
       ? {
-          assetId: `model-anchor-sheet-${topicId}`,
-          role: "model_anchor_sheet" as const,
-          url: clothingState.modelAnchorSheetUrl,
-          createdAt: Date.now(),
-        }
+        assetId: `model-anchor-sheet-${topicId}`,
+        role: "model_anchor_sheet" as const,
+        url: clothingState.modelAnchorSheetUrl,
+        createdAt: Date.now(),
+      }
       : undefined;
 
     const modelRef = clothingState.modelImage?.url
       ? {
-          assetId: clothingState.modelImage.id,
-          role: "model" as const,
-          url: clothingState.modelImage.url,
-          createdAt: Date.now(),
-        }
+        assetId: clothingState.modelImage.id,
+        role: "model" as const,
+        url: clothingState.modelImage.url,
+        createdAt: Date.now(),
+      }
       : undefined;
 
     const timer = window.setTimeout(() => {
@@ -1107,11 +1137,11 @@ const Workspace: React.FC = () => {
         modelRef,
         analysis: clothingState.analysis
           ? {
-              anchorDescription: clothingState.analysis.anchorDescription,
-              forbiddenChanges: clothingState.analysis.forbiddenChanges,
-              recommendedPoses: clothingState.analysis.recommendedPoses,
-              recommendedStyling: clothingState.analysis.recommendedStyling,
-            }
+            anchorDescription: clothingState.analysis.anchorDescription,
+            forbiddenChanges: clothingState.analysis.forbiddenChanges,
+            recommendedPoses: clothingState.analysis.recommendedPoses,
+            recommendedStyling: clothingState.analysis.recommendedStyling,
+          }
           : undefined,
         requirements: {
           platform: clothingState.requirements.platform,
@@ -1530,9 +1560,9 @@ const Workspace: React.FC = () => {
     const selectedImageModels = autoModelSelect
       ? ["Auto"]
       : [
-          PREFERRED_IMAGE_MODEL_TO_STORAGE_ID[preferredImageModel] ||
-            preferredImageModel,
-        ];
+        PREFERRED_IMAGE_MODEL_TO_STORAGE_ID[preferredImageModel] ||
+        preferredImageModel,
+      ];
     localStorage.setItem(
       "setting_image_models",
       JSON.stringify(selectedImageModels),
@@ -1855,7 +1885,21 @@ const Workspace: React.FC = () => {
       return;
     }
 
-    setElementGeneratingState(selectedElementId, true);
+    // Create a new element for the generation result next to original
+    const newId = `eraser-${Date.now()}`;
+    const newEl: CanvasElement = {
+      ...el,
+      id: newId,
+      x: el.x + el.width + 20,
+      isGenerating: true,
+      generatingType: "eraser",
+      url: undefined,
+      zIndex: elements.length + 100,
+    };
+
+    setElementsSynced([...elementsRef.current, newEl]);
+    setSelectedElementId(newId);
+
     try {
       const sourceImage = await urlToBase64(getElementSourceUrl(el) || el.url);
       const result = await smartEditSkill({
@@ -1866,18 +1910,54 @@ const Workspace: React.FC = () => {
           prompt:
             "Remove objects in white mask area only. Keep black mask area unchanged. Blend naturally.",
           editModel: "gemini-3-pro-image-preview",
-          aspectRatio: el.genAspectRatio || "1:1",
+          aspectRatio: (() => {
+            const ratio = el.width / el.height;
+            const supported = [
+              { r: 1 / 1, s: "1:1" },
+              { r: 1 / 4, s: "1:4" },
+              { r: 1 / 8, s: "1:8" },
+              { r: 2 / 3, s: "2:3" },
+              { r: 3 / 2, s: "3:2" },
+              { r: 3 / 4, s: "3:4" },
+              { r: 4 / 1, s: "4:1" },
+              { r: 4 / 3, s: "4:3" },
+              { r: 4 / 5, s: "4:5" },
+              { r: 5 / 4, s: "5:4" },
+              { r: 8 / 1, s: "8:1" },
+              { r: 9 / 16, s: "9:16" },
+              { r: 16 / 9, s: "16:9" },
+              { r: 21 / 9, s: "21:9" },
+            ];
+            let best = supported[0];
+            let minDiff = Math.abs(ratio - best.r);
+            for (const s of supported) {
+              const diff = Math.abs(ratio - s.r);
+              if (diff < minDiff) {
+                minDiff = diff;
+                best = s;
+              }
+            }
+            return best.s;
+          })(),
         },
       });
 
       if (result) {
-        await applyGeneratedImageToElement(selectedElementId, result, true);
+        await applyGeneratedImageToElement(newId, result, true);
       } else {
         throw new Error("No result from eraser edit");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Execute eraser failed", error);
-      setElementGeneratingState(selectedElementId, false);
+      // Remove placeholder element on fail
+      const next = elementsRef.current.filter((e) => e.id !== newId);
+      setElementsSynced(next);
+      addMessage({
+        id: Date.now().toString(),
+        role: "model",
+        text: `橡皮擦生成失败：${error?.message || "未知错误"}`,
+        timestamp: Date.now(),
+      });
     } finally {
       setEraserMode(false);
       setIsDrawingEraser(false);
@@ -2041,18 +2121,18 @@ const Workspace: React.FC = () => {
         if (latestTask && latestTask.output) {
           const derivedImageUrls =
             latestTask.output.imageUrls &&
-            latestTask.output.imageUrls.length > 0
+              latestTask.output.imageUrls.length > 0
               ? latestTask.output.imageUrls
               : [
-                  ...(latestTask.output.assets || [])
-                    .filter((a: any) => a?.type === "image" && a?.url)
-                    .map((a: any) => a.url),
-                  ...(latestTask.output.skillCalls || [])
-                    .filter(
-                      (s: any) => s?.success && typeof s?.result === "string",
-                    )
-                    .map((s: any) => s.result),
-                ];
+                ...(latestTask.output.assets || [])
+                  .filter((a: any) => a?.type === "image" && a?.url)
+                  .map((a: any) => a.url),
+                ...(latestTask.output.skillCalls || [])
+                  .filter(
+                    (s: any) => s?.success && typeof s?.result === "string",
+                  )
+                  .map((s: any) => s.result),
+              ];
 
           addMessage({
             id: `proposal-${latestTask.id}-${Date.now()}`,
@@ -2121,7 +2201,7 @@ const Workspace: React.FC = () => {
             reader.readAsDataURL(f);
           });
           referenceImages.push(base64);
-        } catch (_) {}
+        } catch (_) { }
       }
 
       // 2. From Canvas if no blocks
@@ -2609,26 +2689,26 @@ const Workspace: React.FC = () => {
           referenceWebPages: researchWebPages,
           research: researchPayload
             ? {
-                requestId: researchPayload.requestId,
-                query: researchPayload.query,
-                mode: researchPayload.mode,
-                provider: researchPayload.provider,
-                suggestedQueries: researchPayload.hints?.suggestedQueries || [],
-                reportBrief:
-                  researchWebPages.length > 0
-                    ? `已检索 ${researchWebPages.length} 条网页资料与 ${researchReferenceImageUrls.length} 张参考图。`
-                    : `已检索 ${researchReferenceImageUrls.length} 张参考图。`,
-                reportFull: (researchWebPages || [])
-                  .map(
-                    (w, idx) =>
-                      `${idx + 1}. ${w.title}\n${w.url}\n${w.snippet || ""}`,
-                  )
-                  .join("\n\n"),
-                citations: researchWebPages.map((w) => ({
-                  title: w.title,
-                  url: w.url,
-                })),
-              }
+              requestId: researchPayload.requestId,
+              query: researchPayload.query,
+              mode: researchPayload.mode,
+              provider: researchPayload.provider,
+              suggestedQueries: researchPayload.hints?.suggestedQueries || [],
+              reportBrief:
+                researchWebPages.length > 0
+                  ? `已检索 ${researchWebPages.length} 条网页资料与 ${researchReferenceImageUrls.length} 张参考图。`
+                  : `已检索 ${researchReferenceImageUrls.length} 张参考图。`,
+              reportFull: (researchWebPages || [])
+                .map(
+                  (w, idx) =>
+                    `${idx + 1}. ${w.title}\n${w.url}\n${w.snippet || ""}`,
+                )
+                .join("\n\n"),
+              citations: researchWebPages.map((w) => ({
+                title: w.title,
+                url: w.url,
+              })),
+            }
             : undefined,
         },
       };
@@ -2655,15 +2735,15 @@ const Workspace: React.FC = () => {
           result.output.imageUrls && result.output.imageUrls.length > 0
             ? result.output.imageUrls
             : [
-                ...(result.output.assets || [])
-                  .filter((a: any) => a?.type === "image" && a?.url)
-                  .map((a: any) => a.url),
-                ...(result.output.skillCalls || [])
-                  .filter(
-                    (s: any) => s?.success && typeof s?.result === "string",
-                  )
-                  .map((s: any) => s.result),
-              ];
+              ...(result.output.assets || [])
+                .filter((a: any) => a?.type === "image" && a?.url)
+                .map((a: any) => a.url),
+              ...(result.output.skillCalls || [])
+                .filter(
+                  (s: any) => s?.success && typeof s?.result === "string",
+                )
+                .map((s: any) => s.result),
+            ];
 
         // 5. 构造并添加 Agent 消息
         const agentMsg: ChatMessage = {
@@ -2917,12 +2997,18 @@ const Workspace: React.FC = () => {
   const panStartRef = useRef({ x: 0, y: 0 });
   const panChangedRef = useRef(false);
   const resizeRafIdRef = useRef<number>(0);
+  const dragOthersCacheRef = useRef<{
+    key: string;
+    source: CanvasElement[];
+    others: CanvasElement[];
+  } | null>(null);
   const resizePreviewRef = useRef<{
     id: string;
     x: number;
     y: number;
     width: number;
     height: number;
+    fontSize?: number;
   } | null>(null);
 
   const saveToHistory = (
@@ -3016,6 +3102,58 @@ const Workspace: React.FC = () => {
     }
 
     setInputBlocks(normalized);
+  };
+
+  const showFeatureComingSoon = (name: string) => {
+    if (featureNoticeTimerRef.current) {
+      clearTimeout(featureNoticeTimerRef.current);
+    }
+    setFeatureNotice(`${name} 功能开发中，敬请期待`);
+    featureNoticeTimerRef.current = setTimeout(() => {
+      setFeatureNotice(null);
+      featureNoticeTimerRef.current = null;
+    }, 1800);
+  };
+
+  const setSelectedElementIdsIfChanged = (nextIds: string[]) => {
+    setSelectedElementIds((prev) => {
+      if (
+        prev.length === nextIds.length &&
+        prev.every((id, index) => id === nextIds[index])
+      ) {
+        return prev;
+      }
+      return nextIds;
+    });
+  };
+
+  const setAlignGuidesIfChanged = (
+    nextGuides: { type: "h" | "v"; pos: number }[],
+  ) => {
+    setAlignGuides((prev) => {
+      if (
+        prev.length === nextGuides.length &&
+        prev.every(
+          (guide, index) =>
+            guide.type === nextGuides[index]?.type &&
+            guide.pos === nextGuides[index]?.pos,
+        )
+      ) {
+        return prev;
+      }
+      return nextGuides;
+    });
+  };
+
+  const getCachedDragOthers = (draggingIds: Set<string>) => {
+    const key = Array.from(draggingIds).sort().join("|");
+    const cached = dragOthersCacheRef.current;
+    if (cached && cached.key === key && cached.source === elements) {
+      return cached.others;
+    }
+    const others = elements.filter((el) => !draggingIds.has(el.id));
+    dragOthersCacheRef.current = { key, source: elements, others };
+    return others;
   };
 
   // contentEditable 光标辅助函数
@@ -3130,6 +3268,21 @@ const Workspace: React.FC = () => {
     setSelectedElementId(null);
     setSelectedElementIds([]);
     saveToHistory(newElements, newMarkers);
+  };
+
+  const commitTextEdit = (elementId: string, rawText: string) => {
+    const nextText = rawText ?? "";
+    delete textEditDraftRef.current[elementId];
+
+    const prevEl = elementsRef.current.find((el) => el.id === elementId);
+    if (!prevEl || prevEl.type !== "text") return;
+    if ((prevEl.text ?? "") === nextText) return;
+
+    const newElements = elementsRef.current.map((el) =>
+      el.id === elementId ? { ...el, text: nextText } : el,
+    );
+    setElementsSynced(newElements);
+    saveToHistory(newElements, markersRef.current);
   };
 
   useEffect(() => {
@@ -3740,6 +3893,8 @@ ${analysis}
         setShowHistoryPopover(false);
       }
       if (!target.closest(".relative")) {
+        setShowFontPicker(false);
+        setShowWeightPicker(false);
         setShowResPicker(false);
         setShowRatioPicker(false);
         setShowModelPicker(false);
@@ -3762,10 +3917,24 @@ ${analysis}
             const result = event.target?.result as string;
             const img = new Image();
             img.onload = () => {
-              addElement("image", result, {
+              const containerW =
+                window.innerWidth - (showAssistantRef.current ? 480 : 0);
+              const containerH = window.innerHeight;
+              const centerX = (containerW / 2 - panRef.current.x) / (zoomRef.current / 100);
+              const centerY = (containerH / 2 - panRef.current.y) / (zoomRef.current / 100);
+              const newElement: CanvasElement = {
+                id: Date.now().toString(),
+                type: "image",
+                url: result,
+                x: centerX - img.width / 2,
+                y: centerY - img.height / 2,
                 width: img.width,
                 height: img.height,
-              });
+                zIndex: elementsRef.current.length + 1,
+              };
+              const newElements = [...elementsRef.current, newElement];
+              setElementsSynced(newElements);
+              saveToHistory(newElements, markersRef.current);
             };
             img.src = result;
           };
@@ -3843,10 +4012,36 @@ ${analysis}
       window.removeEventListener("paste", handleWindowPaste);
       window.removeEventListener("wheel", onWheel);
     };
-  }, [elements, zoom, pan]);
+  }, []);
+
+  useEffect(() => {
+    if (!showWeightPicker) return;
+    const el = selectedElementId
+      ? elements.find((item) => item.id === selectedElementId)
+      : null;
+    if (!el || el.type !== "text") {
+      setShowWeightPicker(false);
+    }
+  }, [showWeightPicker, selectedElementId, elements]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const ae = document.activeElement as HTMLElement | null;
+      const isInTextInput =
+        ae?.tagName === "TEXTAREA" ||
+        ae?.tagName === "INPUT" ||
+        ae?.getAttribute("contenteditable") === "true";
+
+      if (editingTextId && e.key === "Escape") {
+        e.preventDefault();
+        setEditingTextId(null);
+        return;
+      }
+
+      if (isInTextInput) {
+        return;
+      }
+
       if ((e.metaKey || e.ctrlKey) && e.key === "z") {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -3879,7 +4074,6 @@ ${analysis}
         return;
       }
       if (e.code === "Space" && !e.repeat) {
-        const ae = document.activeElement as HTMLElement | null;
         const isTyping =
           ae?.tagName === "TEXTAREA" ||
           ae?.tagName === "INPUT" ||
@@ -3916,11 +4110,6 @@ ${analysis}
         return;
       }
 
-      const ae = document.activeElement as HTMLElement | null;
-      const isInTextInput =
-        ae?.tagName === "TEXTAREA" ||
-        ae?.tagName === "INPUT" ||
-        ae?.getAttribute("contenteditable") === "true";
       // Allow Delete/Backspace when focused textarea is empty (e.g. gen-node prompt)
       if (
         isInTextInput &&
@@ -4041,6 +4230,7 @@ ${analysis}
     elements,
     markers,
     selectedChipId,
+    editingTextId,
   ]);
 
   const addElement = (
@@ -4106,10 +4296,10 @@ ${analysis}
       id: Date.now().toString(),
       type: "text",
       text: "Type something...",
-      x: centerX - 100,
-      y: centerY - 25,
-      width: 200,
-      height: 50,
+      x: centerX - 200,
+      y: centerY - 60,
+      width: 400,
+      height: 120,
       fontSize: 90,
       fontFamily: "Inter",
       fontWeight: 400,
@@ -4735,7 +4925,7 @@ ${analysis}
         newHeight = resizeStart.height - heightDiff;
         newY = resizeStart.top + heightDiff;
       }
-      const el = elements.find((e) => e.id === selectedElementId);
+      const el = elementById.get(selectedElementId);
       if (el?.aspectRatioLocked) {
         const ratio = resizeStart.width / resizeStart.height;
         if (resizeHandle?.includes("e") || resizeHandle?.includes("w")) {
@@ -4752,6 +4942,7 @@ ${analysis}
         y: newY,
         width: newWidth,
         height: newHeight,
+        fontSize: el.type === "text" ? resizeStart.fontSize * (newWidth / resizeStart.width) : undefined,
       };
       cancelAnimationFrame(resizeRafIdRef.current);
       resizeRafIdRef.current = requestAnimationFrame(() => {
@@ -4761,6 +4952,13 @@ ${analysis}
           dom.style.top = `${newY}px`;
           dom.style.width = `${newWidth}px`;
           dom.style.height = `${newHeight}px`;
+          if (el.type === "text") {
+            const newFontSize = resizeStart.fontSize * (newWidth / resizeStart.width);
+            const textInner = dom.querySelector(".text-inner-target") || dom;
+            if (textInner instanceof HTMLElement) {
+              textInner.style.fontSize = `${newFontSize}px`;
+            }
+          }
         }
       });
       return;
@@ -4798,24 +4996,28 @@ ${analysis}
           (zoom / 100);
         const sw = Math.abs(clampedX - marqueeStart.x) / (zoom / 100);
         const sh = Math.abs(clampedY - marqueeStart.y) / (zoom / 100);
+        const hitSet = new Set<string>();
+        for (const el of elements) {
+          if (
+            el.x < sx + sw &&
+            el.x + el.width > sx &&
+            el.y < sy + sh &&
+            el.y + el.height > sy
+          ) {
+            hitSet.add(el.id);
+          }
+        }
         const hits = elements
-          .filter((el) => {
-            return (
-              el.x < sx + sw &&
-              el.x + el.width > sx &&
-              el.y < sy + sh &&
-              el.y + el.height > sy
-            );
-          })
+          .filter((el) => hitSet.has(el.id))
           .map((el) => el.id);
-        setSelectedElementIds(hits);
+        setSelectedElementIdsIfChanged(hits);
         if (hits.length === 1) setSelectedElementId(hits[0]);
         else if (hits.length === 0) setSelectedElementId(null);
       }
     } else if (isDraggingElement && selectedElementId) {
       const dx = (e.clientX - dragStart.x) / (zoom / 100);
       const dy = (e.clientY - dragStart.y) / (zoom / 100);
-      const dragEl = elements.find((el) => el.id === selectedElementId);
+      const dragEl = elementById.get(selectedElementId);
       if (!dragEl) return;
 
       let newX = elementStartPos.x + dx;
@@ -4828,16 +5030,20 @@ ${analysis}
         selectedElementIds.length > 1
           ? [...selectedElementIds]
           : [selectedElementId];
+      const draggingIdSet = new Set(draggingIds);
       // Expand group children into draggingIds
       for (const did of [...draggingIds]) {
-        const dEl = elements.find((e) => e.id === did);
+        const dEl = elementById.get(did);
         if (dEl?.type === "group" && dEl.children) {
           for (const cid of dEl.children) {
-            if (!draggingIds.includes(cid)) draggingIds.push(cid);
+            if (!draggingIdSet.has(cid)) {
+              draggingIds.push(cid);
+              draggingIdSet.add(cid);
+            }
           }
         }
       }
-      const others = elements.filter((el) => !draggingIds.includes(el.id));
+      const others = getCachedDragOthers(draggingIdSet);
       const dragCX = newX + dragEl.width / 2;
       const dragCY = newY + dragEl.height / 2;
       const dragR = newX + dragEl.width;
@@ -4885,7 +5091,7 @@ ${analysis}
           guides.push({ type: "h", pos: other.y });
         }
       }
-      setAlignGuides(guides);
+      setAlignGuidesIfChanged(guides);
 
       // 基于初始位置计算总偏移（避免累加漂移）
       const primaryStart = groupDragStartRef.current[selectedElementId];
@@ -4935,6 +5141,7 @@ ${analysis}
               y: preview.y,
               width: preview.width,
               height: preview.height,
+              fontSize: el.type === "text" && preview.fontSize ? preview.fontSize : el.fontSize,
               genAspectRatio: el.type === "gen-image" ? ar : el.genAspectRatio,
             };
           }
@@ -4958,18 +5165,18 @@ ${analysis}
       if (Object.keys(offsets).length > 0) {
         let committedElements: CanvasElement[] = [];
         setElements((prev) =>
-          (committedElements = prev.map((el) => {
-            const pos = offsets[el.id];
-            if (pos) return { ...el, x: pos.x, y: pos.y };
-            return el;
-          })),
+        (committedElements = prev.map((el) => {
+          const pos = offsets[el.id];
+          if (pos) return { ...el, x: pos.x, y: pos.y };
+          return el;
+        })),
         );
         if (committedElements.length > 0) {
           elementsRef.current = committedElements;
         }
         dragOffsetsRef.current = {};
         // Save to history if position actually changed
-        const el = elements.find((e) => e.id === selectedElementId);
+        const el = elementById.get(selectedElementId);
         if (
           el &&
           (offsets[selectedElementId]?.x !== elementStartPos.x ||
@@ -4990,7 +5197,7 @@ ${analysis}
     if (isMarqueeSelecting) {
       setIsMarqueeSelecting(false);
     }
-    setAlignGuides([]);
+    setAlignGuidesIfChanged([]);
     setIsPanning(false);
     setIsDraggingElement(false);
   };
@@ -5167,7 +5374,7 @@ ${analysis}
                   );
                 }
               })
-              .catch(() => {});
+              .catch(() => { });
           }
         }
       } catch (err) {
@@ -5220,9 +5427,9 @@ ${analysis}
     if (id !== selectedElementId) setEditingTextId(null);
     // If clicking a child of a non-collapsed group, select the group instead
     let effectiveId = id;
-    const clickedEl = elements.find((el) => el.id === id);
+    const clickedEl = elementById.get(id);
     if (clickedEl?.groupId) {
-      const parentGroup = elements.find((e) => e.id === clickedEl.groupId);
+      const parentGroup = elementById.get(clickedEl.groupId);
       if (parentGroup && !parentGroup.isCollapsed) {
         effectiveId = parentGroup.id;
       }
@@ -5240,24 +5447,28 @@ ${analysis}
     }
     setIsDraggingElement(true);
     setDragStart({ x: e.clientX, y: e.clientY });
-    const el = elements.find((e) => e.id === effectiveId);
+    const el = elementById.get(effectiveId);
     if (el) setElementStartPos({ x: el.x, y: el.y });
     // 记录所有选中元素的初始位置（群拖用），展开 group children
     let draggingIds =
       selectedElementIds.length > 1 && selectedElementIds.includes(effectiveId)
         ? [...selectedElementIds]
         : [effectiveId];
+    const draggingIdSet = new Set(draggingIds);
     for (const did of [...draggingIds]) {
-      const dEl = elements.find((e) => e.id === did);
+      const dEl = elementById.get(did);
       if (dEl?.type === "group" && dEl.children) {
         for (const cid of dEl.children) {
-          if (!draggingIds.includes(cid)) draggingIds.push(cid);
+          if (!draggingIdSet.has(cid)) {
+            draggingIds.push(cid);
+            draggingIdSet.add(cid);
+          }
         }
       }
     }
     const startMap: Record<string, { x: number; y: number }> = {};
     for (const did of draggingIds) {
-      const d = elements.find((e) => e.id === did);
+      const d = elementById.get(did);
       if (d) startMap[did] = { x: d.x, y: d.y };
     }
     groupDragStartRef.current = startMap;
@@ -5270,14 +5481,14 @@ ${analysis}
   ) => {
     e.stopPropagation();
     e.preventDefault();
-    const el = elements.find((e) => e.id === elementId);
+    const el = elementById.get(elementId);
     if (!el) return;
 
     // Locked element protection (including inheritance)
     const isLocked =
       el.isLocked ||
       (el.groupId
-        ? elements.find((g) => g.id === el.groupId)?.isLocked
+        ? elementById.get(el.groupId)?.isLocked
         : false);
     if (isLocked) return;
 
@@ -5290,6 +5501,7 @@ ${analysis}
       height: el.height,
       left: el.x,
       top: el.y,
+      fontSize: el.fontSize || 16,
     });
   };
   const handleSaveMarkerLabel = (markerId: string, label: string) => {
@@ -5469,7 +5681,11 @@ ${analysis}
         </div>
 
         {/* 4. Artboard (#) */}
-        <TooltipButton icon={Hash} label="Artboard (#)" onClick={() => {}} />
+        <TooltipButton
+          icon={Hash}
+          label="Artboard (#)"
+          onClick={() => showFeatureComingSoon("画板")}
+        />
 
         {/* 5. Shape */}
         <div className="relative group/shp">
@@ -5518,7 +5734,11 @@ ${analysis}
         </div>
 
         {/* 6. Pencil */}
-        <TooltipButton icon={PenTool} label="Draw (P)" onClick={() => {}} />
+        <TooltipButton
+          icon={PenTool}
+          label="Draw (P)"
+          onClick={() => showFeatureComingSoon("画笔")}
+        />
 
         {/* 7. Text */}
         <TooltipButton icon={Type} label="Text (T)" onClick={addText} />
@@ -5634,22 +5854,51 @@ ${analysis}
   };
 
   const renderTextToolbar = () => {
-    if (!selectedElementId || selectedElementIds.length > 1) return null;
-    const el = elements.find((e) => e.id === selectedElementId);
+    if (!selectedElementId || selectedElementIds.length > 1 || isDraggingElement) return null;
+    const el = selectedElement;
     if (!el || el.type !== "text") return null;
+
+    const adaptiveScale = Math.max(0.4, Math.min(2.0, zoom / 100));
+    const flexibleScale = 1 + (1 / adaptiveScale - 1) * 0.85;
+    const finalScale = Math.max(0.6, flexibleScale);
+    const canvasCenterX = el.x + el.width / 2;
+    const topToolbarTop = el.y - 60 / adaptiveScale;
+
     return (
-      <div className="absolute top-24 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-lg border border-gray-200 p-1.5 flex items-center gap-1 z-40 animate-in fade-in slide-in-from-top-2">
-        {" "}
+      <div
+        id="active-floating-toolbar"
+        className={`absolute z-50 ${isDraggingElement ? "" : "animate-in fade-in zoom-in-95 duration-200"} pointer-events-auto origin-bottom-left flex items-center bg-white rounded-full px-4 py-2 shadow-[0_8px_30px_rgba(0,0,0,0.12)] border border-gray-100 gap-3`}
+        style={{
+          left: canvasCenterX,
+          top: topToolbarTop,
+          transform: `translateX(-50%) scale(${finalScale})`,
+          whiteSpace: "nowrap",
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        {/* Color Picker */}
+        <div className="relative w-6 h-6 rounded-full overflow-hidden border border-gray-200 cursor-pointer shadow-sm shrink-0">
+          <input
+            type="color"
+            value={el.fillColor || "#000000"}
+            onChange={(e) => updateSelectedElement({ fillColor: e.target.value })}
+            className="absolute -top-2 -left-2 w-10 h-10 cursor-pointer p-0 border-0"
+          />
+        </div>
+
+        <div className="w-px h-4 bg-gray-200 mx-1 shrink-0"></div>
+
+        {/* Font Family */}
         <div className="relative">
           <button
             onClick={() => setShowFontPicker(!showFontPicker)}
-            className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-100 rounded-lg text-sm font-medium w-32 justify-between"
+            className="flex items-center gap-2 px-3 py-1 hover:bg-gray-50 rounded-lg text-sm font-medium min-w-[100px] justify-between transition-colors"
           >
-            <span className="truncate">{el.fontFamily}</span>
-            <ChevronDown size={12} />
+            <span className="truncate max-w-[80px]">{el.fontFamily || "Inter"}</span>
+            <ChevronDown size={14} className="text-gray-400" />
           </button>
           {showFontPicker && (
-            <div className="absolute top-full left-0 mt-1 w-48 max-h-60 overflow-y-auto bg-white rounded-xl shadow-xl border border-gray-100 p-1 z-50">
+            <div className="absolute bottom-full left-0 mb-2 w-48 max-h-60 overflow-y-auto bg-white rounded-xl shadow-xl border border-gray-100 p-1 z-[100] animate-in slide-in-from-bottom-2">
               {FONTS.map((font) => (
                 <button
                   key={font}
@@ -5657,7 +5906,7 @@ ${analysis}
                     updateSelectedElement({ fontFamily: font });
                     setShowFontPicker(false);
                   }}
-                  className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg text-sm"
+                  className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${el.fontFamily === font ? "bg-blue-50 text-blue-600 font-bold" : "hover:bg-gray-50 text-gray-700"}`}
                   style={{ fontFamily: font }}
                 >
                   {font}
@@ -5666,40 +5915,108 @@ ${analysis}
             </div>
           )}
         </div>
-        <div className="w-px h-4 bg-gray-200 mx-1"></div>
-        <button
-          onClick={() =>
-            updateSelectedElement({
-              fontWeight: el.fontWeight === 700 ? 400 : 700,
-            })
-          }
-          className={`p-1.5 rounded-lg ${el.fontWeight === 700 ? "bg-gray-200 text-black" : "hover:bg-gray-100 text-gray-600"}`}
-        >
-          <BoldIcon size={16} />
-        </button>
-        <button
-          onClick={() =>
-            updateSelectedElement({
-              textDecoration:
-                el.textDecoration === "underline" ? "none" : "underline",
-            })
-          }
-          className={`p-1.5 rounded-lg ${el.textDecoration === "underline" ? "bg-gray-200 text-black" : "hover:bg-gray-100 text-gray-600"}`}
-        >
-          <Underline size={16} />
-        </button>
-        <div className="w-px h-4 bg-gray-200 mx-1"></div>
-        <div className="flex items-center gap-2 px-2">
-          <div className="relative w-5 h-5 rounded-full overflow-hidden border border-gray-200 cursor-pointer shadow-sm">
-            <input
-              type="color"
-              value={el.fillColor}
-              onChange={(e) =>
-                updateSelectedElement({ fillColor: e.target.value })
-              }
-              className="absolute -top-2 -left-2 w-10 h-10 cursor-pointer p-0 border-0"
-            />
-          </div>
+
+        <div className="w-px h-4 bg-gray-200 mx-1 shrink-0"></div>
+
+        {/* Font Weight Dropdown */}
+        <div className="relative">
+          <button
+            onClick={() => setShowWeightPicker(!showWeightPicker)}
+            className="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 rounded-lg text-sm font-medium transition-colors"
+          >
+            <span className="w-16 text-center">
+              {el.fontWeight === 700 ? "Bold" : el.fontWeight === 600 ? "Semibold" : el.fontWeight === 500 ? "Medium" : "Regular"}
+            </span>
+            <ChevronDown size={14} className="text-gray-400" />
+          </button>
+          {showWeightPicker && (
+            <div className="absolute bottom-full left-0 mb-2 w-32 bg-white rounded-xl shadow-xl border border-gray-100 p-1 z-[100] animate-in slide-in-from-bottom-2">
+              {[400, 500, 600, 700].map((w) => (
+                <button
+                  key={w}
+                  onClick={() => {
+                    updateSelectedElement({ fontWeight: w });
+                    setShowWeightPicker(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${el.fontWeight === w ? "bg-blue-50 text-blue-600 font-bold" : "hover:bg-gray-50 text-gray-700"}`}
+                >
+                  {w === 700 ? "Bold" : w === 600 ? "Semibold" : w === 500 ? "Medium" : "Regular"}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="w-px h-4 bg-gray-200 mx-1 shrink-0"></div>
+
+        {/* Font Size */}
+        <div className="flex items-center gap-1.5 px-2">
+          <button
+            onClick={() => updateSelectedElement({ fontSize: Math.max(8, (el.fontSize || 16) - 2) })}
+            className="p-1 hover:bg-gray-100 rounded transition-colors text-gray-400 hover:text-black"
+          >
+            <Minus size={14} />
+          </button>
+          <input
+            type="number"
+            value={el.fontSize || 16}
+            onChange={(e) => updateSelectedElement({ fontSize: Number(e.target.value) })}
+            className="w-10 bg-transparent border-none text-center text-sm font-bold focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          />
+          <button
+            onClick={() => updateSelectedElement({ fontSize: (el.fontSize || 16) + 2 })}
+            className="p-1 hover:bg-gray-100 rounded transition-colors text-gray-400 hover:text-black"
+          >
+            <Plus size={14} />
+          </button>
+        </div>
+
+        <div className="w-px h-4 bg-gray-200 mx-1 shrink-0"></div>
+
+        {/* Text Align */}
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => updateSelectedElement({ textAlign: "left" })}
+            className={`p-1.5 rounded-lg transition-colors ${el.textAlign === "left" || !el.textAlign ? "bg-gray-100 text-black shadow-inner" : "text-gray-400 hover:bg-gray-50 hover:text-gray-800"}`}
+          >
+            <AlignLeft size={16} />
+          </button>
+          <button
+            onClick={() => updateSelectedElement({ textAlign: "center" })}
+            className={`p-1.5 rounded-lg transition-colors ${el.textAlign === "center" ? "bg-gray-100 text-black shadow-inner" : "text-gray-400 hover:bg-gray-50 hover:text-gray-800"}`}
+          >
+            <AlignCenter size={16} />
+          </button>
+          <button
+            onClick={() => updateSelectedElement({ textAlign: "right" })}
+            className={`p-1.5 rounded-lg transition-colors ${el.textAlign === "right" ? "bg-gray-100 text-black shadow-inner" : "text-gray-400 hover:bg-gray-50 hover:text-gray-800"}`}
+          >
+            <AlignRight size={16} />
+          </button>
+          <button
+            onClick={() => updateSelectedElement({ textAlign: "justify" })}
+            className={`p-1.5 rounded-lg transition-colors ${el.textAlign === "justify" ? "bg-gray-100 text-black shadow-inner" : "text-gray-400 hover:bg-gray-50 hover:text-gray-800"}`}
+          >
+            <AlignJustify size={16} />
+          </button>
+        </div>
+
+        <div className="w-px h-4 bg-gray-200 mx-1 shrink-0"></div>
+
+        {/* Style Buttons (Underline/Strikethrough) */}
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => updateSelectedElement({ textDecoration: el.textDecoration === "underline" ? "none" : "underline" })}
+            className={`p-1.5 rounded-lg transition-colors ${el.textDecoration === "underline" ? "bg-gray-100 text-black" : "text-gray-400 hover:bg-gray-50"}`}
+          >
+            <Underline size={16} />
+          </button>
+          <button
+            onClick={() => updateSelectedElement({ textDecoration: el.textDecoration === "line-through" ? "none" : "line-through" })}
+            className={`p-1.5 rounded-lg transition-colors ${el.textDecoration === "line-through" ? "bg-gray-100 text-black" : "text-gray-400 hover:bg-gray-50"}`}
+          >
+            <Strikethrough size={16} />
+          </button>
         </div>
       </div>
     );
@@ -5707,7 +6024,7 @@ ${analysis}
 
   const renderShapeToolbar = () => {
     if (!selectedElementId || selectedElementIds.length > 1) return null;
-    const el = elements.find((e) => e.id === selectedElementId);
+    const el = selectedElement;
     if (!el || el.type !== "shape") return null;
     return (
       <div className="absolute top-24 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-lg border border-gray-200 p-1.5 flex items-center gap-3 z-40 animate-in fade-in slide-in-from-top-2 px-3 whitespace-nowrap">
@@ -5806,7 +6123,7 @@ ${analysis}
       isDraggingElement
     )
       return null;
-    const el = elements.find((e) => e.id === selectedElementId);
+    const el = selectedElement;
     if (!el || (el.type !== "gen-image" && el.type !== "image")) return null;
 
     // Canvas-space coordinates (toolbar lives inside the CSS transform layer)
@@ -6151,7 +6468,7 @@ ${analysis}
     }
 
     // ERASER MODE UI
-  if (eraserMode) {
+    if (eraserMode) {
       const selectedImageEl = selectedElementId
         ? elements.find((e) => e.id === selectedElementId)
         : null;
@@ -6170,7 +6487,7 @@ ${analysis}
       const getPointerPos = (event: React.PointerEvent<HTMLCanvasElement>) => {
         const canvas = eraserCanvasRef.current;
         if (!canvas) return null;
-        const rect = canvas.getBoundingClientRect();
+        const rect = eraserCanvasRectRef.current || canvas.getBoundingClientRect();
         const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
         const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
         return { x, y };
@@ -6187,7 +6504,7 @@ ${analysis}
         const canvas = eraserCanvasRef.current;
         const cursor = eraserCursorRef.current;
         if (!canvas || !cursor) return;
-        const rect = canvas.getBoundingClientRect();
+        const rect = eraserCanvasRectRef.current || canvas.getBoundingClientRect();
         const viewScale = Math.max(0.001, zoom / 100);
         const x = (event.clientX - rect.left) / viewScale;
         const y = (event.clientY - rect.top) / viewScale;
@@ -6228,6 +6545,7 @@ ${analysis}
 
         setIsDrawingEraser(true);
         canvas.setPointerCapture(event.pointerId);
+        eraserCanvasRectRef.current = canvas.getBoundingClientRect();
         const canvasBrushSize = getCanvasBrushSize();
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
@@ -6685,7 +7003,7 @@ ${analysis}
                       {productSwapImages.map((imgUrl, i) => (
                         <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border border-gray-200 group">
                           <img src={imgUrl} className="w-full h-full object-cover" />
-                          <button 
+                          <button
                             onClick={() => setProductSwapImages(prev => prev.filter((_, idx) => idx !== i))}
                             className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
                           >
@@ -6697,11 +7015,11 @@ ${analysis}
                         <label className="w-16 h-16 rounded-lg border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400 hover:border-blue-400 hover:text-blue-500 cursor-pointer transition">
                           <Plus size={16} />
                           <span className="text-[9px] mt-1">上传</span>
-                          <input 
-                            type="file" 
-                            accept="image/*" 
+                          <input
+                            type="file"
+                            accept="image/*"
                             multiple
-                            className="hidden" 
+                            className="hidden"
                             onChange={async (e) => {
                               const files = Array.from(e.target.files || []);
                               if (files.length === 0) return;
@@ -6713,7 +7031,7 @@ ${analysis}
                               }
                               setProductSwapImages(prev => [...prev, ...newImgs]);
                               e.target.value = '';
-                            }} 
+                            }}
                           />
                         </label>
                       )}
@@ -6953,7 +7271,7 @@ ${analysis}
       isDraggingElement
     )
       return null;
-    const el = elements.find((e) => e.id === selectedElementId);
+    const el = selectedElement;
     if (!el || (el.type !== "gen-video" && el.type !== "video")) return null;
 
     // Canvas-space coordinates (toolbar lives inside the CSS transform layer)
@@ -7130,72 +7448,72 @@ ${analysis}
           {/* Multi-Ref Upload Panel */}
           <div className={`px-4 pb-2 relative ${videoToolbarTab === "multi" ? "block" : "hidden"}`}>
             <div className="flex items-center gap-2.5 w-max">
-                {(el.genVideoRefs || []).map((refImage, index) => (
-                  <div key={index} className="relative group/multiref shrink-0 overflow-visible">
-                    <div
-                      className="w-10 h-10 rounded-[10px] border border-gray-200 relative cursor-pointer shadow-sm overflow-visible"
-                      onClick={() =>
-                        document
-                          .getElementById(`multi-frame-${el.id}-${index}`)
-                          ?.click()
-                      }
-                    >
-                      <div className="w-full h-full rounded-[10px] overflow-hidden">
-                        <img
-                          src={refImage}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                      <div
-                        className="absolute -top-1.5 -right-1.5 bg-gray-600 text-white rounded-full p-0.5 cursor-pointer hover:bg-red-500 opacity-0 group-hover/multiref:opacity-100 transition z-30"
-                        onClick={(ev) => {
-                          ev.stopPropagation();
-                          const newRefs = [...(el.genVideoRefs || [])];
-                          newRefs.splice(index, 1);
-                          updateSelectedElement({ genVideoRefs: newRefs });
-                        }}
-                      >
-                        <X size={8} />
-                      </div>
-                    </div>
-                    <input
-                      type="file"
-                      id={`multi-frame-${el.id}-${index}`}
-                      className="hidden"
-                      accept="image/*"
-                      onChange={(e) => handleVideoRefUpload(e, "ref", index)}
-                    />
-                  </div>
-                ))}
-                {(el.genVideoRefs || []).length < 5 && (
-                  <div className="relative group/upload shrink-0 w-10 h-10">
-                    <div
-                      onClick={() =>
-                        document
-                          .getElementById(`multi-frame-new-${el.id}`)
-                          ?.click()
-                      }
-                      className="relative w-full h-full bg-white border border-dashed border-gray-300 rounded-[10px] flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition z-10"
-                    >
-                      <Plus
-                        size={14}
-                        className="text-gray-400 group-hover/upload:text-blue-500"
+              {(el.genVideoRefs || []).map((refImage, index) => (
+                <div key={index} className="relative group/multiref shrink-0 overflow-visible">
+                  <div
+                    className="w-10 h-10 rounded-[10px] border border-gray-200 relative cursor-pointer shadow-sm overflow-visible"
+                    onClick={() =>
+                      document
+                        .getElementById(`multi-frame-${el.id}-${index}`)
+                        ?.click()
+                    }
+                  >
+                    <div className="w-full h-full rounded-[10px] overflow-hidden">
+                      <img
+                        src={refImage}
+                        className="w-full h-full object-cover"
                       />
-                      <span className="text-[8px] text-gray-400 group-hover/upload:text-blue-500">
-                        参考图
-                      </span>
                     </div>
-                    <input
-                      type="file"
-                      id={`multi-frame-new-${el.id}`}
-                      className="hidden"
-                      accept="image/*"
-                      onChange={(e) => handleVideoRefUpload(e, "ref")}
-                    />
+                    <div
+                      className="absolute -top-1.5 -right-1.5 bg-gray-600 text-white rounded-full p-0.5 cursor-pointer hover:bg-red-500 opacity-0 group-hover/multiref:opacity-100 transition z-30"
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        const newRefs = [...(el.genVideoRefs || [])];
+                        newRefs.splice(index, 1);
+                        updateSelectedElement({ genVideoRefs: newRefs });
+                      }}
+                    >
+                      <X size={8} />
+                    </div>
                   </div>
-                )}
-              </div>
+                  <input
+                    type="file"
+                    id={`multi-frame-${el.id}-${index}`}
+                    className="hidden"
+                    accept="image/*"
+                    onChange={(e) => handleVideoRefUpload(e, "ref", index)}
+                  />
+                </div>
+              ))}
+              {(el.genVideoRefs || []).length < 5 && (
+                <div className="relative group/upload shrink-0 w-10 h-10">
+                  <div
+                    onClick={() =>
+                      document
+                        .getElementById(`multi-frame-new-${el.id}`)
+                        ?.click()
+                    }
+                    className="relative w-full h-full bg-white border border-dashed border-gray-300 rounded-[10px] flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition z-10"
+                  >
+                    <Plus
+                      size={14}
+                      className="text-gray-400 group-hover/upload:text-blue-500"
+                    />
+                    <span className="text-[8px] text-gray-400 group-hover/upload:text-blue-500">
+                      参考图
+                    </span>
+                  </div>
+                  <input
+                    type="file"
+                    id={`multi-frame-new-${el.id}`}
+                    className="hidden"
+                    accept="image/*"
+                    onChange={(e) => handleVideoRefUpload(e, "ref")}
+                  />
+                </div>
+              )}
             </div>
+          </div>
 
           {/* Bottom Controls Bar */}
           <div className="flex items-center justify-between px-3 py-1.5 bg-transparent relative z-30">
@@ -7655,14 +7973,14 @@ ${analysis}
         const orig = originalData[e.id];
         return orig
           ? {
-              ...e,
-              groupId: undefined,
-              x: orig.x,
-              y: orig.y,
-              width: orig.width,
-              height: orig.height,
-              zIndex: orig.zIndex,
-            }
+            ...e,
+            groupId: undefined,
+            x: orig.x,
+            y: orig.y,
+            width: orig.width,
+            height: orig.height,
+            zIndex: orig.zIndex,
+          }
           : { ...e, groupId: undefined };
       });
     setElementsSynced(newElements);
@@ -7889,6 +8207,22 @@ ${analysis}
     );
   };
 
+  const elementById = useMemo(() => {
+    const map = new Map<string, CanvasElement>();
+    for (const el of elements) map.set(el.id, el);
+    return map;
+  }, [elements]);
+
+  const selectedElement = useMemo(
+    () => (selectedElementId ? elementById.get(selectedElementId) ?? null : null),
+    [selectedElementId, elementById],
+  );
+
+  const rootElements = useMemo(
+    () => elements.filter((el) => !el.groupId),
+    [elements],
+  );
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#E8E8E8] font-sans">
       {renderContextMenu()}
@@ -7988,18 +8322,23 @@ ${analysis}
                   <div className="border-b border-gray-100">
                     <div
                       className="px-4 py-2.5 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition"
-                      onClick={() => {}}
+                      onClick={() => setIsHistoryExpanded((prev) => !prev)}
                     >
                       <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
                         历史记录
                       </span>
-                      <ChevronUp size={14} className="text-gray-400" />
+                      <ChevronUp
+                        size={14}
+                        className={`text-gray-400 transition-transform ${isHistoryExpanded ? "" : "rotate-180"}`}
+                      />
                     </div>
-                    <div className="px-4 pb-4">
+                    <div className={`px-4 ${isHistoryExpanded ? "pb-4" : "pb-0"}`}>
+                      {isHistoryExpanded && (
                       <div className="h-24 bg-gray-50/80 rounded-lg flex flex-col items-center justify-center text-gray-400 text-xs border border-dashed border-gray-200">
                         <ImageIcon size={24} className="opacity-15 mb-1.5" />
                         暂无历史记录
                       </div>
+                      )}
                     </div>
                   </div>
                   {/* 图层列表 */}
@@ -8009,93 +8348,84 @@ ${analysis}
                         暂无图层
                       </div>
                     ) : (
-                      (() => {
-                        const rootElements = elements.filter(
-                          (el) => !el.groupId,
-                        );
-                        return [...rootElements].reverse().map((el) => (
-                          <React.Fragment key={el.id}>
-                            <LayerItem
-                              el={el}
-                              isSelected={
-                                selectedElementId === el.id ||
-                                selectedElementIds.includes(el.id)
-                              }
-                              onSelect={handleElementMouseDown}
-                              onToggleLock={(id) =>
-                                setElements((prev) =>
-                                  prev.map((e) =>
-                                    e.id === id
-                                      ? { ...e, isLocked: !e.isLocked }
-                                      : e,
-                                  ),
-                                )
-                              }
-                              onToggleHide={(id) => {
-                                const el = elements.find((e) => e.id === id);
-                                const newHidden = !el?.isHidden;
-                                setElements((prev) =>
-                                  prev.map((e) => {
-                                    if (e.id === id)
-                                      return { ...e, isHidden: newHidden };
-                                    if (e.groupId === id)
-                                      return { ...e, isHidden: newHidden };
-                                    return e;
-                                  }),
-                                );
-                              }}
-                              onToggleCollapse={(id) =>
-                                setElements((prev) =>
-                                  prev.map((e) =>
-                                    e.id === id
-                                      ? { ...e, isCollapsed: !e.isCollapsed }
-                                      : e,
-                                  ),
-                                )
-                              }
-                              onEnterGroup={(id) => setFocusedGroupId(id)}
-                            />
-                            {el.type === "group" &&
-                              !el.isCollapsed &&
-                              el.children?.map((childId) => {
-                                const child = elements.find(
-                                  (c) => c.id === childId,
-                                );
-                                if (!child) return null;
-                                return (
-                                  <LayerItem
-                                    key={child.id}
-                                    el={child}
-                                    depth={1}
-                                    isSelected={
-                                      selectedElementId === child.id ||
-                                      selectedElementIds.includes(child.id)
-                                    }
-                                    onSelect={handleElementMouseDown}
-                                    onToggleLock={(id) =>
-                                      setElements((prev) =>
-                                        prev.map((e) =>
-                                          e.id === id
-                                            ? { ...e, isLocked: !e.isLocked }
-                                            : e,
-                                        ),
-                                      )
-                                    }
-                                    onToggleHide={(id) =>
-                                      setElements((prev) =>
-                                        prev.map((e) =>
-                                          e.id === id
-                                            ? { ...e, isHidden: !e.isHidden }
-                                            : e,
-                                        ),
-                                      )
-                                    }
-                                  />
-                                );
-                              })}
-                          </React.Fragment>
-                        ));
-                      })()
+                      [...rootElements].reverse().map((el) => (
+                        <React.Fragment key={el.id}>
+                          <LayerItem
+                            el={el}
+                            isSelected={
+                              selectedElementId === el.id ||
+                              selectedElementIds.includes(el.id)
+                            }
+                            onSelect={handleElementMouseDown}
+                            onToggleLock={(id) =>
+                              setElements((prev) =>
+                                prev.map((e) =>
+                                  e.id === id
+                                    ? { ...e, isLocked: !e.isLocked }
+                                    : e,
+                                ),
+                              )
+                            }
+                            onToggleHide={(id) => {
+                              const hit = elementById.get(id);
+                              const newHidden = !hit?.isHidden;
+                              setElements((prev) =>
+                                prev.map((e) => {
+                                  if (e.id === id) return { ...e, isHidden: newHidden };
+                                  if (e.groupId === id) return { ...e, isHidden: newHidden };
+                                  return e;
+                                }),
+                              );
+                            }}
+                            onToggleCollapse={(id) =>
+                              setElements((prev) =>
+                                prev.map((e) =>
+                                  e.id === id
+                                    ? { ...e, isCollapsed: !e.isCollapsed }
+                                    : e,
+                                ),
+                              )
+                            }
+                            onEnterGroup={(id) => setFocusedGroupId(id)}
+                          />
+                          {el.type === "group" &&
+                            !el.isCollapsed &&
+                            el.children?.map((childId) => {
+                              const child = elementById.get(childId);
+                              if (!child) return null;
+                              return (
+                                <LayerItem
+                                  key={child.id}
+                                  el={child}
+                                  depth={1}
+                                  isSelected={
+                                    selectedElementId === child.id ||
+                                    selectedElementIds.includes(child.id)
+                                  }
+                                  onSelect={handleElementMouseDown}
+                                  onToggleLock={(id) =>
+                                    setElements((prev) =>
+                                      prev.map((e) =>
+                                        e.id === id
+                                          ? { ...e, isLocked: !e.isLocked }
+                                          : e,
+                                      ),
+                                    )
+                                  }
+                                  onToggleHide={(id) =>
+                                    setElements((prev) =>
+                                      prev.map((e) =>
+                                        e.id === id
+                                          ? { ...e, isHidden: !e.isHidden }
+                                          : e,
+                                      ),
+                                    )
+                                  }
+                                />
+                              );
+                            })}
+                        </React.Fragment>
+                      ))
                     )}
                   </div>
                 </div>
@@ -8386,8 +8716,6 @@ ${analysis}
               }}
             />
           )}
-          {renderTextToolbar()}
-          {renderShapeToolbar()}
           <div
             ref={canvasLayerRef}
             className="absolute top-0 left-0 w-0 h-0 overflow-visible"
@@ -8403,11 +8731,11 @@ ${analysis}
               // Filter elements based on focused group and visibility
               const visibleElements = focusedGroupId
                 ? elements.filter(
-                    (el) =>
-                      (el.groupId === focusedGroupId ||
-                        el.id === focusedGroupId) &&
-                      !el.isHidden,
-                  )
+                  (el) =>
+                    (el.groupId === focusedGroupId ||
+                      el.id === focusedGroupId) &&
+                    !el.isHidden,
+                )
                 : elements.filter((el) => !el.isHidden);
 
               return visibleElements.map((el) => {
@@ -8501,8 +8829,8 @@ ${analysis}
                     style={{
                       left: el.x,
                       top: el.y,
-                      width: el.type === "text" ? "auto" : el.width,
-                      height: el.type === "text" ? "auto" : el.height,
+                      width: el.width,
+                      height: el.height,
                       zIndex: el.zIndex,
                       cursor:
                         isCtrlPressed || activeTool === "mark"
@@ -8512,13 +8840,16 @@ ${analysis}
                               ? "default"
                               : "move"
                             : "default",
-                      whiteSpace: el.type === "text" ? "nowrap" : "normal",
+                      whiteSpace: el.type === "text" ? "pre-wrap" : "normal",
+                      wordBreak: "break-word",
+                      overflow: el.type === "text" ? "visible" : "hidden",
                     }}
                     onMouseDown={(e) =>
                       !isLocked && handleElementMouseDown(e, el.id)
                     }
                     onDoubleClick={() => {
                       if (el.type === "text") {
+                        textEditDraftRef.current[el.id] = el.text || "";
                         setEditingTextId(el.id);
                       } else if (el.url) {
                         setPreviewUrl(getElementSourceUrl(el) || el.url);
@@ -8538,39 +8869,58 @@ ${analysis}
                         </div>
                       )}
                     {el.type === "text" && (
-                      <div className="w-full h-full flex items-center justify-center p-2">
+                      <div className="w-full h-full flex items-start justify-center">
                         {editingTextId === el.id ? (
                           <textarea
                             autoFocus
-                            className="w-full h-full bg-transparent border-none outline-none resize-none text-center overflow-hidden"
+                            className={`w-full h-full bg-transparent border-none outline-none resize-none overflow-visible text-inner-target ${el.textAlign === "left" ? "text-left" : el.textAlign === "right" ? "text-right" : "text-center"}`}
                             style={{
                               color: el.fillColor,
                               fontSize: `${el.fontSize}px`,
                               fontWeight: el.fontWeight,
                               fontFamily: el.fontFamily,
                               lineHeight: 1.2,
+                              textAlign: (el.textAlign as any) || "center",
+                              textDecoration: el.textDecoration || "none",
+                              padding: 0,
+                              margin: 0,
+                              minHeight: "1em",
+                              minWidth: "120px",
                             }}
-                            value={el.text}
+                            defaultValue={textEditDraftRef.current[el.id] ?? el.text ?? ""}
                             onChange={(e) => {
-                              setElements((prev) =>
-                                prev.map((item) =>
-                                  item.id === el.id
-                                    ? { ...item, text: e.target.value }
-                                    : item,
-                                ),
-                              );
+                              textEditDraftRef.current[el.id] = e.target.value;
                             }}
-                            onBlur={() => setEditingTextId(null)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const prevText = el.text || "";
+                                textEditDraftRef.current[el.id] = prevText;
+                                (e.currentTarget as HTMLTextAreaElement).value = prevText;
+                                e.currentTarget.blur();
+                              }
+                            }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                            onBlur={(e) => {
+                              commitTextEdit(el.id, e.currentTarget.value);
+                              setEditingTextId(null);
+                            }}
                           />
                         ) : (
                           <div
-                            className="w-full h-full text-center"
+                            className={`w-full h-full flex flex-col justify-start overflow-visible text-inner-target ${el.textAlign === "left" ? "items-start text-left" : el.textAlign === "right" ? "items-end text-right" : "items-center text-center"}`}
                             style={{
                               color: el.fillColor,
                               fontSize: `${el.fontSize}px`,
                               fontWeight: el.fontWeight,
                               fontFamily: el.fontFamily,
                               lineHeight: 1.2,
+                              textAlign: (el.textAlign as any) || "center",
+                              textDecoration: el.textDecoration || "none",
+                              margin: 0,
+                              padding: 0,
                             }}
                           >
                             {el.text || "Text"}
@@ -8595,8 +8945,8 @@ ${analysis}
                             rx={
                               el.cornerRadius
                                 ? (el.cornerRadius /
-                                    Math.min(el.width, el.height)) *
-                                  100
+                                  Math.min(el.width, el.height)) *
+                                100
                                 : 0
                             }
                             fill={el.fillColor}
@@ -8848,7 +9198,7 @@ ${analysis}
                                       size={48}
                                       className="animate-spin text-blue-500"
                                     />
-                                    {el.generatingType === "upscale" && (
+                                    {(el.generatingType === ("upscale" as any) || el.generatingType === ("eraser" as any)) && (
                                       <div className="absolute inset-0 flex items-center justify-center">
                                         <ImageIcon
                                           size={20}
@@ -8859,7 +9209,7 @@ ${analysis}
                                   </div>
                                   <div className="flex flex-col items-center gap-1">
                                     <span className="text-sm text-blue-500 font-bold whitespace-nowrap">
-                                      {el.generatingType === "upscale"
+                                      {el.generatingType === ("upscale" as any)
                                         ? "高清放大中"
                                         : el.generatingType === "vector"
                                           ? "矢量线稿中"
@@ -8869,7 +9219,9 @@ ${analysis}
                                               ? "产品替换中"
                                               : el.generatingType === "text-edit"
                                                 ? "文字编辑中"
-                                                : "正在处理中"}
+                                                : el.generatingType === ("eraser" as any)
+                                                  ? "橡皮擦处理中"
+                                                  : "正在处理中"}
                                     </span>
                                     <span className="text-[10px] text-blue-400 opacity-70 animate-pulse">
                                       Creating magic...
@@ -9244,9 +9596,26 @@ ${analysis}
             {renderImageToolbar()}
             {renderGenVideoToolbar()}
             {renderMultiSelectToolbar()}
+            {renderTextToolbar()}
+            {renderShapeToolbar()}
           </div>
         </div>
       </div>
+
+      {/* Touch Edit Mode Indicator */}
+      <AnimatePresence>
+        {featureNotice && (
+          <motion.div
+            initial={{ opacity: 0, y: -10, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.96 }}
+            transition={{ duration: 0.18 }}
+            className="fixed top-6 left-1/2 -translate-x-1/2 z-[120] bg-black/85 text-white px-4 py-2 rounded-full text-xs font-medium shadow-xl"
+          >
+            {featureNotice}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Touch Edit Mode Indicator */}
       {touchEditMode && (
