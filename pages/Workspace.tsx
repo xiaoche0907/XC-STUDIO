@@ -3127,6 +3127,12 @@ const Workspace: React.FC = () => {
     });
   };
 
+  const setMarqueeEndIfChanged = (next: { x: number; y: number }) => {
+    setMarqueeEnd((prev) =>
+      prev.x === next.x && prev.y === next.y ? prev : next,
+    );
+  };
+
   const setAlignGuidesIfChanged = (
     nextGuides: { type: "h" | "v"; pos: number }[],
   ) => {
@@ -4893,7 +4899,7 @@ ${analysis}
       if (activeTool === "select") {
         setIsMarqueeSelecting(true);
         setMarqueeStart({ x: e.clientX, y: e.clientY });
-        setMarqueeEnd({ x: e.clientX, y: e.clientY });
+        setMarqueeEndIfChanged({ x: e.clientX, y: e.clientY });
       } else {
         setIsPanning(true);
         setDragStart({ x: e.clientX, y: e.clientY });
@@ -4986,7 +4992,7 @@ ${analysis}
       if (rect) {
         const clampedX = Math.max(rect.left, Math.min(e.clientX, rect.right));
         const clampedY = Math.max(rect.top, Math.min(e.clientY, rect.bottom));
-        setMarqueeEnd({ x: clampedX, y: clampedY });
+        setMarqueeEndIfChanged({ x: clampedX, y: clampedY });
         // 实时计算框选范围内的元素
         const sx =
           (Math.min(marqueeStart.x, clampedX) - rect.left - pan.x) /
@@ -5162,7 +5168,12 @@ ${analysis}
     if (isDraggingElement && selectedElementId) {
       // Commit drag positions from ref to React state
       const offsets = dragOffsetsRef.current;
-      if (Object.keys(offsets).length > 0) {
+      const moved = Object.entries(offsets).some(([id, pos]) => {
+        const current = elementsRef.current.find((el) => el.id === id);
+        return !!current && (current.x !== pos.x || current.y !== pos.y);
+      });
+
+      if (Object.keys(offsets).length > 0 && moved) {
         let committedElements: CanvasElement[] = [];
         setElements((prev) =>
         (committedElements = prev.map((el) => {
@@ -5255,7 +5266,7 @@ ${analysis}
 
     // 图像模式：从画布选择参考图（不影响 Agent 模式输入链路）
     if (creationMode === "image" && isPickingFromCanvas) {
-      const pickedEl = elements.find((el) => el.id === id);
+      const pickedEl = elementById.get(id);
       if (
         pickedEl &&
         (pickedEl.type === "image" || pickedEl.type === "gen-image") &&
@@ -5284,7 +5295,7 @@ ${analysis}
     }
 
     // Locked element protection
-    const elObj = elements.find((el) => el.id === id);
+    const elObj = elementById.get(id);
     if (elObj?.isLocked) return;
     e.stopPropagation();
     e.preventDefault();
@@ -5308,7 +5319,7 @@ ${analysis}
       const newMarkerId = (Date.now() + Math.random()).toString();
 
       // Crop and Add to Input Box logic
-      const el = elements.find((e) => e.id === id);
+      const el = elementById.get(id);
       let cropUrl: string | undefined = undefined;
 
       try {
@@ -5765,9 +5776,7 @@ ${analysis}
 
   const renderContextMenu = () => {
     if (!contextMenu) return null;
-    const el = selectedElementId
-      ? elements.find((e) => e.id === selectedElementId)
-      : null;
+    const el = selectedElement;
     const isImage =
       el && (el.type === "image" || (el.type === "gen-image" && el.url));
     return (
@@ -6469,9 +6478,7 @@ ${analysis}
 
     // ERASER MODE UI
     if (eraserMode) {
-      const selectedImageEl = selectedElementId
-        ? elements.find((e) => e.id === selectedElementId)
-        : null;
+      const selectedImageEl = selectedElement;
       const canDrawMask =
         !!selectedImageEl &&
         (selectedImageEl.type === "image" || selectedImageEl.type === "gen-image") &&
