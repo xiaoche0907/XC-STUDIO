@@ -60,7 +60,8 @@
     "Pollo",
     "pollo",
     "Kore",
-    "Puck"
+    "Puck",
+    "aplus"
   ],
   "ignorePaths": ["node_modules", "dist", "public"]
 }

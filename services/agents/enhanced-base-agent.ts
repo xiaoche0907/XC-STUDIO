@@ -28,6 +28,10 @@ const retryAsync = async <T>(
   } catch (error: any) {
     const code = error.status || error.code || 0;
     const msg = error.message || "";
+    if (code === 413 || msg.includes("413") || msg.includes("input tokens") || msg.includes("context length")) {
+      console.warn(`[analyzeAndPlan] request too large, skip retry. code=${code}`);
+      throw error;
+    }
     const isRetryable =
       [500, 502, 503, 429].includes(code) ||
       msg.includes("overloaded") ||
@@ -144,6 +148,25 @@ const MULTI_IMAGE_REQUEST_RE = /(\d+)\s*张|(\d+)\s*images?|一套|一组|系列
 const ECOM_SET_RE = /亚马逊|amazon|listing|副图|电商|主图|详情图|套图/i;
 const BANNED_MULTI_FRAME_TERMS_RE =
   /\b(collage|set of images|multiple views|listing template|contact sheet|mosaic|grid panel)\b/gi;
+const MAX_ANALYZE_HISTORY_MESSAGES = 6;
+const MAX_MESSAGE_TEXT_CHARS = 1200;
+const MAX_TOPIC_CONTEXT_CHARS = 1200;
+const MAX_REFERENCE_SUMMARY_CHARS = 400;
+const MAX_BRAND_INFO_CHARS = 400;
+
+const truncateText = (value: unknown, maxChars: number): string => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.length > maxChars ? `${text.slice(0, maxChars)}...` : text;
+};
+
+const compactJson = (value: unknown, maxChars: number): string => {
+  try {
+    return truncateText(JSON.stringify(value || {}), maxChars);
+  } catch {
+    return "{}";
+  }
+};
 
 export abstract class EnhancedBaseAgent {
   protected chat: Chat | null = null;
@@ -1141,7 +1164,7 @@ export abstract class EnhancedBaseAgent {
         metadata?.multimodalContext?.referenceImageUrls || [];
       const multimodalReferenceSummary =
         typeof metadata?.multimodalContext?.referenceSummary === 'string'
-          ? metadata.multimodalContext.referenceSummary.trim()
+          ? truncateText(metadata.multimodalContext.referenceSummary.trim(), MAX_REFERENCE_SUMMARY_CHARS)
           : '';
       const multimodalSection =
         multimodalRefUrls.length > 0
@@ -1160,18 +1183,29 @@ ${multimodalRefUrls
         typeof metadata?.topicPinnedContext === "string" && metadata.topicPinnedContext.trim().length > 0
           ? `
 【话题长期记忆（必须优先遵守）】
-${metadata.topicPinnedContext}
+${truncateText(metadata.topicPinnedContext, MAX_TOPIC_CONTEXT_CHARS)}
 `
           : "";
 
       const designSession = context.designSession;
+      const compactConversationHistory = (context.conversationHistory || [])
+        .slice(-MAX_ANALYZE_HISTORY_MESSAGES)
+        .map((msg) => {
+          const roleName = msg.role === "user" ? "用户" : "智能助手";
+          const attachmentsText =
+            msg.attachments && msg.attachments.length > 0
+              ? ` [附图/素材: ${msg.attachments.slice(0, 3).join(", ")}${msg.attachments.length > 3 ? ", ..." : ""}]`
+              : "";
+          return `${roleName}: ${truncateText(msg.text, MAX_MESSAGE_TEXT_CHARS)}${attachmentsText}`;
+        })
+        .join("\n");
       const designSessionSection = designSession
         ? `
 【统一设计会话（必须继承）】
 - 当前任务模式: ${designSession.taskMode}
 - 已批准资产: ${(designSession.approvedAssetIds || []).slice(-4).join(', ') || '无'}
 - 主体锚点: ${(designSession.subjectAnchors || []).slice(-4).join(', ') || '无'}
-- 参考摘要: ${designSession.referenceSummary || '无'}
+- 参考摘要: ${truncateText(designSession.referenceSummary || '无', MAX_REFERENCE_SUMMARY_CHARS)}
 - 禁止变更: ${(designSession.forbiddenChanges || []).join('；') || '无'}
 `
         : "";
@@ -1182,7 +1216,7 @@ ${metadata.topicPinnedContext}
 
 项目信息:
 - 项目名称: ${context.projectTitle}
-- 品牌信息: ${JSON.stringify(context.brandInfo || {})}
+- 品牌信息: ${compactJson(context.brandInfo || {}, MAX_BRAND_INFO_CHARS)}
 - 已有素材数量: ${context.existingAssets.length}
 
 附件列表:
@@ -1204,16 +1238,7 @@ ${(attachments || [])
           .join("\n")}
 
 对话历史 (Context):
-${(context.conversationHistory || [])
-          .map((msg) => {
-            const roleName = msg.role === "user" ? "用户" : "智能助手";
-            const attachmentsText =
-              msg.attachments && msg.attachments.length > 0
-                ? ` [附图/素材: ${msg.attachments.join(", ")}]`
-                : "";
-            return `${roleName}: ${msg.text}${attachmentsText}`;
-          })
-          .join("\n")}
+${compactConversationHistory || '无'}
 
 可用技能: ${this.preferredSkills.join(", ")}
 ${smartEditSection}
@@ -1235,37 +1260,18 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${mul
 
       const selectedMode = useAgentStore.getState().modelMode || 'fast';
       const bestModel = getBestModelId(selectedMode === 'thinking' ? "thinking" : "text");
-      const supportsInlineImageInput = /gemini|gpt-4o|vision|vl|claude-3/i.test(bestModel);
 
-      // Add image attachments so model can see the product (only for multimodal-capable models)
-      if (attachments && attachments.length > 0) {
-        for (const file of attachments) {
-          try {
-            if (supportsInlineImageInput && file.type && file.type.startsWith("image/")) {
-              // 使用 FileReader + readAsDataURL 替代慢的 btoa(String.fromCharCode(...))
-              const base64 = await new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => {
-                  const dataUrl = reader.result as string;
-                  // 提取纯 base64 部分（去掉 data:image/xxx;base64, 前缀）
-                  const base64Data = dataUrl.split(",")[1];
-                  resolve(base64Data);
-                };
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-              });
-              parts.push({
-                inlineData: {
-                  mimeType: file.type || "image/png",
-                  data: base64,
-                },
-              });
-            }
-          } catch (e) {
-            console.warn(`[${this.agentInfo.id}] Failed to attach file:`, e);
-          }
-        }
-      }
+      const payloadDiagnostics = {
+        promptChars: fullPrompt.length,
+        historyCount: (context.conversationHistory || []).length,
+        historyUsed: Math.min((context.conversationHistory || []).length, MAX_ANALYZE_HISTORY_MESSAGES),
+        attachmentCount: attachments?.length || 0,
+        uploadedAttachmentCount: uploadedAttachments?.length || 0,
+        includesInlineImages: false,
+        estimatedPayloadChars: JSON.stringify({ prompt: fullPrompt }).length,
+        model: bestModel,
+      };
+      console.log(`[${this.agentInfo.id}] [analyzeAndPlan] payload diagnostics`, payloadDiagnostics);
 
       const toolConfig: any = {};
       if (metadata?.enableWebSearch) {
@@ -1681,28 +1687,36 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${mul
         call.params[paramKey].startsWith("ATTACHMENT_")
       ) {
         const index = parseInt(call.params[paramKey].split("_")[1]);
-        const availableAttachments = task.input.attachments || [];
-        if (availableAttachments[index]) {
-          const file = availableAttachments[index];
-          const reader = new FileReader();
-          const base64 = await new Promise<string>((resolve) => {
-            reader.onload = () => {
-              const res = reader.result as string;
-              resolve(res);
-            };
-            reader.readAsDataURL(file);
-          });
-          call.params[paramKey] = base64;
+        const selectedProvider = String(task.input.metadata?.imageHostProvider || 'none');
+        const preferHostedUrls = selectedProvider !== 'none';
+        const hostedUrl = task.input.uploadedAttachments?.[index];
 
-          if (call.skillName === "smartEdit" && (file as any).markerInfo) {
-            const info = (file as any).markerInfo;
-            const ratio = info.width / info.height;
-            let aspect = "1:1";
-            if (ratio > 1.5) aspect = "16:9";
-            else if (ratio < 0.7) aspect = "9:16";
-            else if (ratio > 1.2) aspect = "4:3";
-            else if (ratio < 0.8) aspect = "3:4";
-            call.params.aspectRatio = aspect;
+        if (preferHostedUrls && hostedUrl && /^https?:\/\//i.test(hostedUrl)) {
+          call.params[paramKey] = hostedUrl;
+        } else {
+          const availableAttachments = task.input.attachments || [];
+          if (availableAttachments[index]) {
+            const file = availableAttachments[index];
+            const reader = new FileReader();
+            const base64 = await new Promise<string>((resolve) => {
+              reader.onload = () => {
+                const res = reader.result as string;
+                resolve(res);
+              };
+              reader.readAsDataURL(file);
+            });
+            call.params[paramKey] = base64;
+
+            if (call.skillName === "smartEdit" && (file as any).markerInfo) {
+              const info = (file as any).markerInfo;
+              const ratio = info.width / info.height;
+              let aspect = "1:1";
+              if (ratio > 1.5) aspect = "16:9";
+              else if (ratio < 0.7) aspect = "9:16";
+              else if (ratio > 1.2) aspect = "4:3";
+              else if (ratio < 0.8) aspect = "3:4";
+              call.params.aspectRatio = aspect;
+            }
           }
         }
       }
@@ -1753,9 +1767,19 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${mul
     task: AgentTask,
     value: string,
   ): Promise<string | null> {
+    const selectedProvider = String(task.input.metadata?.imageHostProvider || 'none');
+    const preferHostedUrls = selectedProvider !== 'none';
+
     if (!value.startsWith("ATTACHMENT_")) return value;
 
     const idx = Number.parseInt(value.split("_")[1] || "", 10);
+    if (preferHostedUrls) {
+      const hostedUrl = task.input.uploadedAttachments?.[idx];
+      if (hostedUrl && /^https?:\/\//i.test(hostedUrl)) {
+        return hostedUrl;
+      }
+    }
+
     const file = task.input.attachments?.[idx];
     if (!file) return null;
 

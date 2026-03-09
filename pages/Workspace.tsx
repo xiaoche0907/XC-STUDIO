@@ -1969,6 +1969,12 @@ const Workspace: React.FC = () => {
         desc: "运动流畅的视频生成",
         time: "~45s",
       },
+      {
+        id: "Sora 2",
+        name: "Sora 2",
+        desc: "高质量叙事视频生成，仅支持单张参考图",
+        time: "~120s",
+      },
     ],
     "3d": [
       { id: "Auto", name: "Auto", desc: "自动选择最佳3D模型", time: "~30s" },
@@ -5209,6 +5215,9 @@ ${analysis}
     };
 
     try {
+      const currentVideoModel = (el.genModel as VideoModel) || "Veo 3.1 Fast";
+      const isSora2Model = /sora\s*2/i.test(currentVideoModel);
+
       // Convert blob URLs to base64 before passing to provider
       let startFrame = el.genStartFrame;
       if (
@@ -5221,17 +5230,27 @@ ${analysis}
       if (startFrame) startFrame = await blobToBase64(startFrame);
 
       let endFrame = el.genEndFrame;
+      if (isSora2Model) {
+        endFrame = undefined;
+      }
       if (endFrame) endFrame = await blobToBase64(endFrame);
 
       let refImages: string[] | undefined;
       if (el.genVideoRefs && el.genVideoRefs.length > 0) {
         refImages = await Promise.all(el.genVideoRefs.map(blobToBase64));
+        if (isSora2Model && refImages.length > 1) {
+          refImages = refImages.slice(0, 1);
+        }
+      }
+
+      if (isSora2Model && !startFrame && refImages && refImages.length > 0) {
+        startFrame = refImages[0];
       }
 
       const resultUrl = await videoGenSkill({
         prompt: el.genPrompt,
         aspectRatio: (el.genAspectRatio as any) || "16:9",
-        model: (el.genModel as VideoModel) || "Veo 3.1 Fast",
+        model: currentVideoModel,
         startFrame: startFrame,
         endFrame: endFrame,
         referenceImages: refImages,
@@ -8503,16 +8522,16 @@ ${analysis}
           {/* Bottom Controls Bar */}
           <div className="flex items-center justify-between px-3 py-1.5 bg-transparent relative z-30">
             {/* Left: Tabs (Pill style) */}
-            <div className="flex items-center gap-0 bg-[#F0F2F5] rounded-full p-[3px] relative shrink-0">
-              <button
-                onClick={() => {
-                  updateSelectedElement({ genFirstLastMode: "startEnd" });
-                  setVideoToolbarTab("frames");
+          <div className="flex items-center gap-0 bg-[#F0F2F5] rounded-full p-[3px] relative shrink-0">
+            <button
+              onClick={() => {
+                updateSelectedElement({ genFirstLastMode: "startEnd" });
+                setVideoToolbarTab("frames");
                 }}
                 className={`px-4 py-1.5 text-[12px] font-medium rounded-full transition-all duration-300 whitespace-nowrap shrink-0 ${videoToolbarTab === "frames" ? "bg-white text-gray-800 shadow-[0_2px_8px_rgba(0,0,0,0.06)]" : "text-gray-500 hover:text-gray-700 bg-transparent"}`}
                 tabIndex={-1}
               >
-                首尾帧
+                {el.genModel === "Sora 2" ? "单图参考" : "首尾帧"}
               </button>
               {el.genModel === "Veo 3.1" ? (
                 <button
@@ -8606,6 +8625,36 @@ ${analysis}
                     <button
                       onClick={() => {
                         updateSelectedElement({
+                          genModel: "Sora 2",
+                          genFirstLastMode: "startEnd",
+                          genAspectRatio: "16:9",
+                          genDuration: "10s",
+                          genEndFrame: undefined,
+                          genVideoRefs: el.genStartFrame ? [el.genStartFrame] : [],
+                        });
+                        setShowVideoModelPicker(false);
+                        setVideoToolbarTab("frames");
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm transition-colors ${el.genModel === "Sora 2" ? "bg-blue-50 text-blue-700 font-bold" : "text-gray-700 hover:bg-gray-50 font-medium"}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-5 h-5 flex items-center justify-center rounded-md ${el.genModel === "Sora 2" ? "bg-blue-100 text-blue-600" : "bg-gray-100 text-gray-500"}`}
+                        >
+                          <Sparkles size={12} />
+                        </div>
+                        <div className="flex flex-col leading-tight">
+                          <span>Sora 2</span>
+                          <span className="text-[10px] font-medium opacity-70">
+                            仅支持单张参考图
+                          </span>
+                        </div>
+                      </div>
+                      {el.genModel === "Sora 2" && <Check size={14} />}
+                    </button>
+                    <button
+                      onClick={() => {
+                        updateSelectedElement({
                           genModel: "Veo 3.1 Fast",
                           genFirstLastMode: "startEnd",
                         });
@@ -8683,21 +8732,23 @@ ${analysis}
                             9:16
                           </span>
                         </button>
-                        <button
-                          onClick={() =>
-                            updateSelectedElement({ genAspectRatio: "1:1" })
-                          }
-                          className={`flex-1 flex flex-col items-center justify-center py-3 rounded-[12px] border transition-all ${(el.genAspectRatio || "16:9") === "1:1" ? "border-blue-500 bg-blue-50/50" : "border-gray-100 hover:border-gray-300 bg-white"} gap-2`}
-                        >
-                          <div
-                            className={`w-5 h-5 border-[1.5px] rounded-[3px] ${(el.genAspectRatio || "16:9") === "1:1" ? "border-blue-500" : "border-gray-400"}`}
-                          ></div>
-                          <span
-                            className={`text-xs font-bold ${(el.genAspectRatio || "16:9") === "1:1" ? "text-blue-600" : "text-gray-600"}`}
+                        {el.genModel !== "Sora 2" && (
+                          <button
+                            onClick={() =>
+                              updateSelectedElement({ genAspectRatio: "1:1" })
+                            }
+                            className={`flex-1 flex flex-col items-center justify-center py-3 rounded-[12px] border transition-all ${(el.genAspectRatio || "16:9") === "1:1" ? "border-blue-500 bg-blue-50/50" : "border-gray-100 hover:border-gray-300 bg-white"} gap-2`}
                           >
-                            1:1
-                          </span>
-                        </button>
+                            <div
+                              className={`w-5 h-5 border-[1.5px] rounded-[3px] ${(el.genAspectRatio || "16:9") === "1:1" ? "border-blue-500" : "border-gray-400"}`}
+                            ></div>
+                            <span
+                              className={`text-xs font-bold ${(el.genAspectRatio || "16:9") === "1:1" ? "text-blue-600" : "text-gray-600"}`}
+                            >
+                              1:1
+                            </span>
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -8707,7 +8758,9 @@ ${analysis}
                         时长
                       </div>
                       <div className="flex bg-[#F5F5F7] rounded-[10px] p-1">
-                        {["4s", "6s", "8s"].map((dur) => (
+                        {(
+                          el.genModel === "Sora 2" ? ["10s", "15s"] : ["4s", "6s", "8s"]
+                        ).map((dur) => (
                           <button
                             key={dur}
                             onClick={() =>

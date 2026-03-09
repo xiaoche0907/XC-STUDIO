@@ -4,6 +4,12 @@ import { ProviderError } from '../utils/provider-error';
 import { fetchWithResilience } from './http/api-client';
 import { safeLocalStorageSetItem } from '../utils/safe-storage';
 import { getApiKey, getProviderConfig } from './provider-config';
+import { normalizeReferenceToDataUrl } from './image-reference-resolver';
+
+const isNetworkFetchError = (error: unknown): boolean => {
+    const msg = ((error as any)?.message || '').toLowerCase();
+    return msg.includes('failed to fetch') || msg.includes('network') || msg.includes('cors') || msg.includes('load failed');
+};
 
 export { getApiKey, getProviderConfig };
 
@@ -35,11 +41,6 @@ const normalizeUrl = (baseUrl: string): string => {
 
 const shouldTryAlternateAuth = (status: number): boolean => {
     return status === 401 || status === 403 || status === 404;
-};
-
-const isNetworkFetchError = (error: unknown): boolean => {
-    const msg = ((error as any)?.message || '').toLowerCase();
-    return msg.includes('failed to fetch') || msg.includes('network') || msg.includes('cors') || msg.includes('load failed');
 };
 
 type OpenAIAuthMode = 'bearer' | 'query';
@@ -480,6 +481,11 @@ const normalizeVideoModelId = (modelId: string): string => {
     if (lower === 'kling-3.0' || lower === 'kling pro') return 'kling-v1-5';
 
     return normalized;
+};
+
+const isSora2VideoModel = (modelId: string): boolean => {
+    const normalized = normalizeVideoModelId(modelId || '');
+    return normalized === 'sora-2';
 };
 
 const getNormalizedSelectedVideoModels = (): string[] => {
@@ -1174,37 +1180,6 @@ ${opts.forbiddenChanges.map((item) => `- ${item}`).join('\n')}
 ${userPrompt}`.trim();
 };
 
-const blobToDataUrl = (blob: Blob): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            if (typeof reader.result === 'string') resolve(reader.result);
-            else reject(new Error('blob->dataUrl failed'));
-        };
-        reader.onerror = () => reject(new Error('blob->dataUrl failed'));
-        reader.readAsDataURL(blob);
-    });
-};
-
-const normalizeReferenceToDataUrl = async (input: string): Promise<string | null> => {
-    if (!input || typeof input !== 'string') return null;
-    if (/^data:image\/.+;base64,/.test(input)) return input;
-
-    if (/^https?:\/\//i.test(input)) {
-        try {
-            const res = await fetchWithResilience(input, {}, { operation: 'generateImage.resolveReferenceUrl', retries: 1, timeoutMs: 30000 });
-            if (!res.ok) return null;
-            const blob = await res.blob();
-            if (!blob.type.startsWith('image/')) return null;
-            return await blobToDataUrl(blob);
-        } catch {
-            return null;
-        }
-    }
-
-    return null;
-};
-
 const buildEditPrompt = (prompt: string, hasMask: boolean): string => {
     const maskRule = hasMask
         ? `
@@ -1592,6 +1567,7 @@ export const generateVideo = async (config: VideoGenerationConfig): Promise<stri
         const baseUrl = getVideoBaseUrl();
         const apiKey = requireApiKey('generateVideo');
         console.log(`[generateVideo] model=${modelId}, baseUrl=${baseUrl}, prompt=${config.prompt.slice(0, 50)}...`);
+        const isSora2 = isSora2VideoModel(modelId);
 
         // 2. Build request body
         const genConfig: any = { numberOfVideos: 1, aspectRatio: validAspectRatio };
@@ -1610,9 +1586,13 @@ export const generateVideo = async (config: VideoGenerationConfig): Promise<stri
                 genConfig.lastFrame = { mimeType: matches[1], imageBytes: matches[2] };
             }
         }
-        if (config.referenceImages && config.referenceImages.length > 0 && !isFastModel) {
+        const normalizedReferenceImages = isSora2
+            ? (config.referenceImages || []).slice(0, 1)
+            : (config.referenceImages || []);
+
+        if (normalizedReferenceImages.length > 0 && !isFastModel) {
             const refPayload: any[] = [];
-            for (const imgStr of config.referenceImages) {
+            for (const imgStr of normalizedReferenceImages) {
                 const matches = imgStr.match(/^data:(.+);base64,(.+)$/);
                 if (matches) {
                     refPayload.push({
@@ -1622,6 +1602,13 @@ export const generateVideo = async (config: VideoGenerationConfig): Promise<stri
                 }
             }
             if (refPayload.length > 0) genConfig.referenceImages = refPayload;
+        }
+
+        if (isSora2 && !body.image && normalizedReferenceImages[0]) {
+            const matches = normalizedReferenceImages[0].match(/^data:(.+);base64,(.+)$/);
+            if (matches) {
+                body.image = { mimeType: matches[1], imageBytes: matches[2] };
+            }
         }
 
         // 3. POST via fetch — uses generateVideos endpoint (not SDK's predictLongRunning)

@@ -62,6 +62,7 @@ const VIDEO_MODEL_ALIASES: Record<string, string> = {
   'Veo 3.1 Pro': 'veo-3.1-generate-preview',
   'veo3.1-4k': 'veo-3.1-generate-preview',
   'veo3.1-c': 'veo-3.1-generate-preview',
+  'Sora 2': 'sora-2',
 };
 
 export const getDefaultProviders = (): ApiProviderConfig[] => {

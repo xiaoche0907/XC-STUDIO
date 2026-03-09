@@ -18,6 +18,8 @@ type SearchProviderMeta = {
   fallback?: boolean;
 };
 
+const REQUEST_TIMEOUT_MS = 12000;
+
 const DEFAULT_WEB_COUNT = 8;
 const DEFAULT_IMAGE_COUNT = 16;
 
@@ -85,11 +87,26 @@ function hostFromUrl(rawUrl: string): string {
 }
 
 async function fetchJson(url: string, init?: RequestInit): Promise<any> {
-  const res = await fetch(url, init);
-  if (!res.ok) {
-    throw new Error(`http_${res.status}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`http_${res.status}`);
+    }
+    return res.json();
+  } catch (error: any) {
+    if (error?.name === "AbortError") {
+      throw new Error("search_timeout");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-  return res.json();
 }
 
 async function searchBing(
@@ -366,6 +383,11 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({
       error: error?.message || "search_failed",
       requestId,
+      provider: {
+        web: "none",
+        images: "none",
+        fallback: Boolean(key),
+      },
     });
   }
 }

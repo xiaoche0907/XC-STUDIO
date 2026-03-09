@@ -29,6 +29,8 @@ const inferTaskModeFromRequest = (message: string, metadata?: Record<string, any
   return 'generate' as const;
 };
 
+const MAX_ORCHESTRATOR_HISTORY_MESSAGES = 6;
+
 interface CanvasState {
   elements: CanvasElement[];
   pan: { x: number; y: number };
@@ -207,9 +209,10 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       }
 
       // Read conversation history from store (single source of truth)
+      const hostProvider = useImageHostStore.getState().selectedProvider;
       const updatedContext = {
         ...projectContext,
-        conversationHistory: useAgentStore.getState().messages
+        conversationHistory: useAgentStore.getState().messages.slice(-MAX_ORCHESTRATOR_HISTORY_MESSAGES)
       };
 
       const activeConversationId = String(projectContext.conversationId || '').trim();
@@ -418,6 +421,7 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
 
       const taskMetadata = {
         ...(metadata || {}),
+        imageHostProvider: hostProvider,
         topicId,
         topicPinnedContext,
         taskMode: inferredTaskMode,

@@ -13,6 +13,8 @@ export function collectReferenceCandidates(
 } {
   const candidates: string[] = [];
   const seen = new Set<string>();
+  const selectedProvider = String(input.metadata?.imageHostProvider || 'none');
+  const preferHostedUrls = selectedProvider !== 'none';
 
   const pushCandidate = (value: unknown) => {
     if (typeof value !== 'string') return;
@@ -39,7 +41,7 @@ export function collectReferenceCandidates(
 
   (input.metadata?.multimodalContext?.referenceImageUrls || []).forEach(pushCandidate);
 
-  if (uploaded.length === 0) {
+  if (!preferHostedUrls || uploaded.length === 0) {
     (input.attachments || []).forEach((file, index) => {
       if (file?.type && file.type.startsWith('image/')) {
         pushCandidate(`ATTACHMENT_${index}`);

@@ -16,6 +16,8 @@ const VIDEO_RATIOS = [
     { label: '1:1', value: '1:1', icon: 'square' },
 ];
 
+const isSora2Model = (model?: string | null) => /sora\s*2/i.test(String(model || ''));
+
 const MODEL_OPTIONS: Record<string, { id: string; name: string; desc: string; time?: string; icon: React.ElementType; badge?: string }[]> = {
     image: [
         { id: 'Nano Banana Pro', name: 'Nano Banana Pro', desc: "Professional's choice for advanced outputs.", time: '20s', icon: Banana },
@@ -31,7 +33,7 @@ const MODEL_OPTIONS: Record<string, { id: string; name: string; desc: string; ti
         { id: 'veo-3.1-fast-generate-preview', name: 'Veo 3.1 Fast', desc: "Google's ultra-fast video generation model.", time: '10s', icon: Cloud, badge: '极速版' },
         { id: 'veo-3.1-generate-preview', name: 'Veo 3.1 Pro', desc: "Google's high-quality video generation model.", time: '180s', icon: Cloud, badge: '专业版' },
         { id: 'kling-3.0', name: 'Kling 3.0', desc: "Kling's latest video model.", time: '300s', icon: Video, badge: '蓝海5型' },
-        { id: 'sora-2', name: 'Sora 2', desc: "OpenAI's flagship video generation model.", time: '300s', icon: Sparkles, badge: '通联专网' },
+        { id: 'sora-2', name: 'Sora 2', desc: "OpenAI's flagship video generation model. Single image only.", time: '300s', icon: Sparkles, badge: '单图参考' },
         { id: 'runway-gen3', name: 'Runway Gen-3', desc: 'Video generation model with built-in audio.', time: '600s', icon: Activity },
     ],
     '3d': [
@@ -172,6 +174,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
     const { setImageGenRatio, setImageGenRes } = useAgentStore(s => s.actions);
     const sendSkill = creationMode === 'agent' ? (activeQuickSkill || undefined) : undefined;
     const objectUrlMapRef = useRef<Map<File, string>>(new Map());
+    const isSoraVideoModel = isSora2Model(videoGenModel);
 
     const getObjectUrl = (file?: File | null) => {
         if (!file) return '';
@@ -407,7 +410,37 @@ export const InputArea: React.FC<InputAreaProps> = ({
                             paddingBottom: (isVideoPanelHovered || videoStartFrame || videoEndFrame || videoMultiRefs.length > 0) ? '10px' : '0px',
                         }}
                     >
-                        {videoGenMode === 'startEnd' ? (
+                        {isSoraVideoModel ? (
+                            <div className="flex items-center gap-4">
+                                <div className="relative">
+                                    <label className={`w-[72px] h-[72px] border rounded-[14px] flex flex-col items-center justify-center cursor-pointer transition overflow-hidden group/upload ${videoStartFrame ? 'border-gray-200 border-solid shadow-sm' : 'border border-dashed border-gray-200 bg-gray-50/50 hover:border-blue-400 hover:bg-blue-50/30'}`}>
+                                        <input type="file" accept="image/*" className="hidden" onChange={e => {
+                                            if (e.target.files?.[0]) {
+                                                setVideoStartFrame(e.target.files[0]);
+                                                setVideoEndFrame(null);
+                                                setVideoMultiRefs([]);
+                                            }
+                                        }} />
+                                        {videoStartFrame ? (
+                                            <img src={getObjectUrl(videoStartFrame)} className="w-full h-full object-cover" />
+                                        ) : (
+                                            <>
+                                                <Plus size={20} strokeWidth={1.5} className="text-gray-300 group-hover/upload:text-blue-500 transition mb-1" />
+                                                <span className="text-[12px] font-bold text-gray-400 group-hover/upload:text-blue-500 transition">参考图</span>
+                                            </>
+                                        )}
+                                    </label>
+                                    {videoStartFrame && (
+                                        <button onClick={(e) => { e.preventDefault(); setVideoStartFrame(null); }} className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-black/80 hover:bg-black text-white rounded-full flex items-center justify-center z-10 shadow-sm border border-white/20">
+                                            <X size={10} />
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="text-[11px] leading-relaxed text-gray-500 font-medium max-w-[180px]">
+                                    Sora 2 仅支持单张参考图，并限制为横版/竖版与 10s/15s。
+                                </div>
+                            </div>
+                        ) : videoGenMode === 'startEnd' ? (
                             <div className="flex items-center gap-4">
                                 <div className="relative">
                                     <label className={`w-[72px] h-[72px] border rounded-[14px] flex flex-col items-center justify-center cursor-pointer transition overflow-hidden group/upload ${videoStartFrame ? 'border-gray-200 border-solid shadow-sm' : 'border border-dashed border-gray-200 bg-gray-50/50 hover:border-blue-400 hover:bg-blue-50/30'}`}>
@@ -959,7 +992,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                         <div className="flex flex-col gap-2.5">
                                             <div className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">Generate method</div>
                                             <div className="flex bg-gray-100 p-1 rounded-xl">
-                                                {[{ id: 'startEnd', label: '首尾帧' }, { id: 'multiRef', label: '多图参考' }].map(m => (
+                                                {(isSoraVideoModel ? [{ id: 'startEnd', label: '单图参考' }] : [{ id: 'startEnd', label: '首尾帧' }, { id: 'multiRef', label: '多图参考' }]).map(m => (
                                                     <button key={m.id} onClick={() => setVideoGenMode(m.id as any)} className={`flex-1 py-1.5 text-[12px] font-bold rounded-lg transition-all ${videoGenMode === m.id ? 'bg-white shadow-sm text-black' : 'text-gray-400'}`}>
                                                         {m.label}
                                                     </button>
@@ -969,7 +1002,11 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                         <div className="flex flex-col gap-2.5">
                                             <div className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">Size</div>
                                             <div className="grid grid-cols-3 gap-2">
-                                                {(videoGenModel === 'kling-3.0' ? [{ r: '16:9', i: 'w-6 h-3.5' }, { r: '9:16', i: 'w-3.5 h-6' }, { r: '1:1', i: 'w-4 h-4' }] : [{ r: '16:9', i: 'w-6 h-3.5' }, { r: '9:16', i: 'w-3.5 h-6' }, { r: '1:1', i: 'w-4 h-4' }, { r: '4:3', i: 'w-5 h-4' }, { r: '3:4', i: 'w-4 h-5' }, { r: '21:9', i: 'w-6 h-2.5' }]).map(item => (
+                                                {(isSoraVideoModel
+                                                    ? [{ r: '16:9', i: 'w-6 h-3.5' }, { r: '9:16', i: 'w-3.5 h-6' }]
+                                                    : videoGenModel === 'kling-3.0'
+                                                        ? [{ r: '16:9', i: 'w-6 h-3.5' }, { r: '9:16', i: 'w-3.5 h-6' }, { r: '1:1', i: 'w-4 h-4' }]
+                                                        : [{ r: '16:9', i: 'w-6 h-3.5' }, { r: '9:16', i: 'w-3.5 h-6' }, { r: '1:1', i: 'w-4 h-4' }, { r: '4:3', i: 'w-5 h-4' }, { r: '3:4', i: 'w-4 h-5' }, { r: '21:9', i: 'w-6 h-2.5' }]).map(item => (
                                                     <button key={item.r} onClick={() => setVideoGenRatio(item.r)} className={`flex flex-col items-center justify-center gap-2 py-3.5 rounded-xl border transition-all h-20 ${videoGenRatio === item.r ? 'bg-gray-100 border-gray-200' : 'border-gray-100 hover:border-gray-200 bg-white'}`}>
                                                         <div className={`border-[1.5px] border-gray-400 rounded-[2px] ${item.i} ${videoGenRatio === item.r ? 'bg-gray-400' : 'bg-transparent'}`} />
                                                         <span className="text-[11px] font-bold text-gray-600">{item.r}</span>
@@ -980,7 +1017,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
                                         <div className="flex flex-col gap-2.5">
                                             <div className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">Duration</div>
                                             <div className="flex gap-2">
-                                                {(videoGenModel === 'kling-3.0' ? ['5s', '10s'] : videoGenModel === 'sora-2' ? ['4s', '8s', '12s'] : ['4s', '6s', '8s']).map(sec => (
+                                                {(isSoraVideoModel ? ['10s', '15s'] : videoGenModel === 'kling-3.0' ? ['5s', '10s'] : ['4s', '6s', '8s']).map(sec => (
                                                     <button key={sec} onClick={() => setVideoGenDuration(sec)} className={`flex-1 py-2 text-[12px] font-bold rounded-xl border transition-all ${videoGenDuration === sec ? 'bg-gray-100 border-gray-200 text-black' : 'bg-white border-gray-100 text-gray-400'}`}>
                                                         {sec}
                                                     </button>
