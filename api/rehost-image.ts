@@ -26,7 +26,13 @@ export default async function handler(req: any, res: any) {
   const keyRaw = process.env.IMGBB_API_KEY || "";
   const key = keyRaw.split(/\r?\n/).map((k) => k.trim()).find(Boolean);
   if (!key) {
-    return res.status(500).json({ error: "Missing IMGBB_API_KEY" });
+    return res.status(200).json({
+      imageUrl,
+      hostedUrl: imageUrl,
+      provider: "passthrough",
+      fallback: true,
+      reason: "missing_imgbb_api_key",
+    });
   }
 
   try {

@@ -1,3 +1,6 @@
+import { normalizeResearchApiError, normalizeUnknownResearchError } from './research-errors';
+import { logResearchTelemetry } from './research-telemetry';
+
 export type ResearchSearchMode = "web+images" | "web" | "images";
 
 export type SearchWebItem = {
@@ -24,7 +27,7 @@ export type SearchResponse = {
   requestId: string;
   query: string;
   mode: ResearchSearchMode;
-  provider?: { web?: string; images?: string };
+  provider?: { web?: string; images?: string; fallback?: boolean };
   web: SearchWebItem[];
   images: SearchImageItem[];
   hints?: { suggestedQueries?: string[] };
@@ -48,30 +51,48 @@ export async function runResearchSearch(
   query: string,
   mode: ResearchSearchMode = "web+images",
 ): Promise<SearchResponse> {
-  const response = await fetch("/api/search", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      query,
-      mode,
-      locale: "zh-CN",
-      count: {
-        web: 8,
-        images: 16,
+  logResearchTelemetry('search.request', { mode, queryLength: query.length });
+
+  try {
+    const response = await fetch("/api/search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
       },
-      safeSearch: "moderate",
-      timeRange: "any",
-    }),
-  });
+      body: JSON.stringify({
+        query,
+        mode,
+        locale: "zh-CN",
+        count: {
+          web: 8,
+          images: 16,
+        },
+        safeSearch: "moderate",
+        timeRange: "any",
+      }),
+    });
 
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(payload?.error || "research_search_failed");
+    const payload = await response.json();
+    if (!response.ok) {
+      throw normalizeResearchApiError('search', response.status, payload);
+    }
+
+    logResearchTelemetry('search.success', {
+      requestId: payload?.requestId,
+      fallback: Boolean(payload?.provider?.fallback),
+      webCount: Array.isArray(payload?.web) ? payload.web.length : 0,
+      imageCount: Array.isArray(payload?.images) ? payload.images.length : 0,
+    });
+    return payload as SearchResponse;
+  } catch (error) {
+    const normalized = normalizeUnknownResearchError('search', error);
+    logResearchTelemetry('search.fail', {
+      code: normalized.code,
+      status: normalized.status,
+      message: normalized.message,
+    });
+    throw normalized;
   }
-
-  return payload as SearchResponse;
 }
 
 export function pickUsableReferenceImages(items: SearchImageItem[], max: number = 8): string[] {
@@ -88,31 +109,70 @@ export function pickUsableReferenceImages(items: SearchImageItem[], max: number 
 }
 
 export async function extractWebPage(url: string): Promise<ExtractResponse> {
-  const response = await fetch("/api/extract", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ url }),
-  });
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(payload?.error || "extract_failed");
+  logResearchTelemetry('extract.request', { url });
+
+  try {
+    const response = await fetch("/api/extract", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ url }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw normalizeResearchApiError('extract', response.status, payload);
+    }
+    logResearchTelemetry('extract.success', {
+      url: payload?.url || url,
+      length: payload?.length || 0,
+    });
+    return payload as ExtractResponse;
+  } catch (error) {
+    const normalized = normalizeUnknownResearchError('extract', error);
+    logResearchTelemetry('extract.fail', {
+      code: normalized.code,
+      status: normalized.status,
+      message: normalized.message,
+      url,
+    });
+    throw normalized;
   }
-  return payload as ExtractResponse;
 }
 
 export async function rehostImageUrl(imageUrl: string): Promise<RehostResponse> {
-  const response = await fetch("/api/rehost-image", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ imageUrl }),
-  });
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(payload?.error || "rehost_failed");
+  logResearchTelemetry('rehost.request', { imageUrl });
+
+  try {
+    const response = await fetch("/api/rehost-image", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ imageUrl }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw normalizeResearchApiError('rehost-image', response.status, payload);
+    }
+    const result = {
+      imageUrl,
+      hostedUrl: String(payload?.hostedUrl || imageUrl),
+      provider: String(payload?.provider || "passthrough"),
+    };
+    logResearchTelemetry('rehost.success', {
+      provider: result.provider,
+      fallback: Boolean(payload?.fallback),
+    });
+    return result;
+  } catch (error) {
+    const normalized = normalizeUnknownResearchError('rehost-image', error);
+    logResearchTelemetry('rehost.fail', {
+      code: normalized.code,
+      status: normalized.status,
+      message: normalized.message,
+      imageUrl,
+    });
+    throw normalized;
   }
-  return payload as RehostResponse;
 }

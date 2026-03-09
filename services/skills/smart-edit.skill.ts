@@ -61,12 +61,14 @@ export async function smartEditSkill(params: SmartEditParams): Promise<string | 
     }
 
     if (!result) {
+      const requestedAspectRatio = params.parameters?.aspectRatio || '1:1';
+      const requestedImageSize = params.parameters?.imageSize;
       // fallback to current robust generation flow
       result = await generateImage({
         prompt: finalPrompt,
         model: generationModel,
-        aspectRatio: '1:1', // Default for smart edit results, unless specified
-        imageSize: params.editType === 'upscale' ? (params.parameters?.factor >= 4 ? '4K' : '2K') : '1K',
+        aspectRatio: requestedAspectRatio,
+        imageSize: requestedImageSize || (params.editType === 'upscale' ? (params.parameters?.factor >= 4 ? '4K' : '2K') : '1K'),
         referenceImage: params.sourceUrl
       });
     }

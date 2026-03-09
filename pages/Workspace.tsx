@@ -1,4 +1,11 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+/* cspell:ignore rehost rehosted inpainting */
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+} from "react";
 import ReactDOM from "react-dom";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -92,6 +99,7 @@ import {
   Banana,
   Lock,
   Unlock,
+  SlidersHorizontal,
   Eye,
   EyeOff,
   FolderOpen,
@@ -143,7 +151,10 @@ import { smartEditSkill } from "../services/skills/smart-edit.skill";
 import { touchEditSkill } from "../services/skills/touch-edit.skill";
 import { exportSkill } from "../services/skills/export.skill";
 import { executeSkill } from "../services/skills";
-import { useClothingStudioChatStore, useClothingState } from "../stores/clothingStudioChat.store";
+import {
+  useClothingStudioChatStore,
+  useClothingState,
+} from "../stores/clothingStudioChat.store";
 import { uploadImage } from "../utils/uploader";
 import { safeLocalStorageSetItem } from "../utils/safe-storage";
 import { useImageHostStore } from "../stores/imageHost.store";
@@ -247,11 +258,11 @@ const VIDEO_RATIOS = [
 const DEFAULT_AUTO_IMAGE_MODEL: ImageModel = "Nano Banana Pro";
 
 const PREFERRED_IMAGE_MODEL_TO_STORAGE_ID: Partial<Record<ImageModel, string>> =
-{
-  "Nano Banana Pro": "gemini-3-pro-image-preview",
-  NanoBanana2: "gemini-3.1-flash-image-preview",
-  "Seedream5.0": "doubao-seedream-5-0-260128",
-};
+  {
+    "Nano Banana Pro": "gemini-3-pro-image-preview",
+    NanoBanana2: "gemini-3.1-flash-image-preview",
+    "Seedream5.0": "doubao-seedream-5-0-260128",
+  };
 
 const STORAGE_ID_TO_PREFERRED_IMAGE_MODEL: Record<string, ImageModel> = {
   "gemini-3-pro-image-preview": "Nano Banana Pro",
@@ -312,8 +323,14 @@ const calcInitialDisplaySize = (
 ) => {
   const safeW = Math.max(1, imgW);
   const safeH = Math.max(1, imgH);
-  const maxW = Math.min(viewportW * IMAGE_FIT_VIEWPORT_RATIO, IMAGE_FIT_MAX_WIDTH);
-  const maxH = Math.min(viewportH * IMAGE_FIT_VIEWPORT_RATIO, IMAGE_FIT_MAX_HEIGHT);
+  const maxW = Math.min(
+    viewportW * IMAGE_FIT_VIEWPORT_RATIO,
+    IMAGE_FIT_MAX_WIDTH,
+  );
+  const maxH = Math.min(
+    viewportH * IMAGE_FIT_VIEWPORT_RATIO,
+    IMAGE_FIT_MAX_HEIGHT,
+  );
   const scale = Math.min(maxW / safeW, maxH / safeH, 1);
   return {
     displayW: Math.max(1, Math.round(safeW * scale)),
@@ -330,7 +347,8 @@ const fileToDataUrl = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (event) => resolve((event.target?.result as string) || "");
-    reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
+    reader.onerror = () =>
+      reject(reader.error || new Error("Failed to read file"));
     reader.readAsDataURL(file);
   });
 };
@@ -449,7 +467,10 @@ const makeImageProxyFromUrl = async (
 
     const pixelCount = originalWidth * originalHeight;
     if (pixelCount > PROXY_TRIGGER_PIXELS) {
-      const scale = Math.min(1, maxDim / Math.max(originalWidth, originalHeight));
+      const scale = Math.min(
+        1,
+        maxDim / Math.max(originalWidth, originalHeight),
+      );
       const targetW = Math.max(1, Math.round(originalWidth * scale));
       const targetH = Math.max(1, Math.round(originalHeight * scale));
 
@@ -657,7 +678,10 @@ const LayerItem = ({
         <span className="font-serif text-gray-500 text-[10px]">T</span>
       )}
       {el.type === "image" && getElementDisplayUrl(el) && (
-        <img src={getElementDisplayUrl(el)} className="w-full h-full object-cover" />
+        <img
+          src={getElementDisplayUrl(el)}
+          className="w-full h-full object-cover"
+        />
       )}
       {(el.type === "video" || el.type === "gen-video") && (
         <Video size={14} className="text-gray-500" />
@@ -829,8 +853,14 @@ const Workspace: React.FC = () => {
   const [showHistoryPopover, setShowHistoryPopover] = useState(false);
   const [showFontPicker, setShowFontPicker] = useState(false);
   const [showWeightPicker, setShowWeightPicker] = useState(false);
-  const [fontPickerPos, setFontPickerPos] = useState<{ x: number; y: number } | null>(null);
-  const [weightPickerPos, setWeightPickerPos] = useState<{ x: number; y: number } | null>(null);
+  const [fontPickerPos, setFontPickerPos] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const [weightPickerPos, setWeightPickerPos] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showRatioPicker, setShowRatioPicker] = useState(false);
   const [showResPicker, setShowResPicker] = useState(false);
@@ -838,6 +868,11 @@ const Workspace: React.FC = () => {
     "frames" | "motion" | "multi"
   >("frames");
   const [showFramePanel, setShowFramePanel] = useState(false);
+  const [showTextSettings, setShowTextSettings] = useState(false);
+  const [textSettingsPos, setTextSettingsPos] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const [showFastEdit, setShowFastEdit] = useState(false);
   const fastEditPrompt = useAgentStore((s) => s.fastEditPrompt);
   const [history, setHistory] = useState<HistoryState[]>([
@@ -991,7 +1026,9 @@ const Workspace: React.FC = () => {
   const toolbarExpandTimer = useRef<NodeJS.Timeout | null>(null);
   const [eraserMode, setEraserMode] = useState(false);
   const brushSize = useAgentStore((s) => s.brushSize);
-  const [eraserMaskDataUrl, setEraserMaskDataUrl] = useState<string | null>(null);
+  const [eraserMaskDataUrl, setEraserMaskDataUrl] = useState<string | null>(
+    null,
+  );
   const [eraserHistory, setEraserHistory] = useState<
     Array<{ display: string; mask: string }>
   >([]);
@@ -1030,8 +1067,11 @@ const Workspace: React.FC = () => {
   // Product Swap States
   const [showProductSwapPanel, setShowProductSwapPanel] = useState(false);
   const [productSwapImages, setProductSwapImages] = useState<string[]>([]);
-  const [productSwapRes, setProductSwapRes] = useState<"1K" | "2K" | "4K">("2K");
-  const [showProductSwapResDropdown, setShowProductSwapResDropdown] = useState(false);
+  const [productSwapRes, setProductSwapRes] = useState<"1K" | "2K" | "4K">(
+    "2K",
+  );
+  const [showProductSwapResDropdown, setShowProductSwapResDropdown] =
+    useState(false);
 
   const clothingState = useClothingState();
   const clothingActions = useClothingStudioChatStore((s) => s.actions);
@@ -1044,7 +1084,8 @@ const Workspace: React.FC = () => {
 
   const projectActions = useProjectStore((s) => s.actions);
 
-  const getCurrentConversationId = () => String(activeConversationId || "").trim();
+  const getCurrentConversationId = () =>
+    String(activeConversationId || "").trim();
   const buildMemoryKey = (conversationId: string) => {
     const workspaceId = String(id || "").trim();
     const convId = String(conversationId || "").trim();
@@ -1068,84 +1109,101 @@ const Workspace: React.FC = () => {
     return topicId;
   };
 
-  const getElementReferenceSummary = useCallback((element?: CanvasElement | null, extraRefs: string[] = []) => {
-    const refs = [
-      ...(element?.genRefImages || []),
-      element?.genRefImage || '',
-      ...(element?.genVideoRefs || []),
-      ...extraRefs,
-    ].filter(Boolean) as string[];
-    return summarizeReferenceSet(refs);
-  }, []);
-
-  const persistEditSession = useCallback(async (
-    mode: DesignTaskMode,
-    element: CanvasElement,
-    details: {
-      instruction: string;
-      referenceUrls?: string[];
-      analysis?: string;
-      constraints?: string[];
-      researchSummary?: string;
+  const getElementReferenceSummary = useCallback(
+    (element?: CanvasElement | null, extraRefs: string[] = []) => {
+      const refs = [
+        ...(element?.genRefImages || []),
+        element?.genRefImage || "",
+        ...(element?.genVideoRefs || []),
+        ...extraRefs,
+      ].filter(Boolean) as string[];
+      return summarizeReferenceSet(refs);
     },
-  ) => {
-    const topicId = ensureTopicId();
-    const referenceSummary = getElementReferenceSummary(element, details.referenceUrls || []);
-    const normalizedConstraints = mergeUniqueStrings(
-      extractConstraintHints(details.instruction),
-      details.constraints || [],
-      20,
-    );
+    [],
+  );
 
-    projectActions.updateDesignSession({
-      taskMode: mode,
-      referenceSummary,
-      subjectAnchors: mergeUniqueStrings(
-        useProjectStore.getState().designSession.subjectAnchors || [],
-        [...(details.referenceUrls || []), ...(element?.genRefImages || []), element?.genRefImage || ''].filter(Boolean) as string[],
-        8,
-      ),
-      constraints: mergeUniqueStrings(
-        useProjectStore.getState().designSession.constraints || [],
-        normalizedConstraints,
+  const persistEditSession = useCallback(
+    async (
+      mode: DesignTaskMode,
+      element: CanvasElement,
+      details: {
+        instruction: string;
+        referenceUrls?: string[];
+        analysis?: string;
+        constraints?: string[];
+        researchSummary?: string;
+      },
+    ) => {
+      const topicId = ensureTopicId();
+      const referenceSummary = getElementReferenceSummary(
+        element,
+        details.referenceUrls || [],
+      );
+      const normalizedConstraints = mergeUniqueStrings(
+        extractConstraintHints(details.instruction),
+        details.constraints || [],
         20,
-      ),
-      styleHints: mergeUniqueStrings(
-        useProjectStore.getState().designSession.styleHints || [],
-        [details.analysis || '', details.researchSummary || ''].filter(Boolean),
-        12,
-      ),
-      researchSummary: details.researchSummary || useProjectStore.getState().designSession.researchSummary,
-    });
+      );
 
-    if (topicId) {
-      await upsertTopicSnapshot(topicId, {
-        summaryText: referenceSummary,
-        pinned: {
-          constraints: normalizedConstraints,
-          decisions: mergeUniqueStrings(
-            useProjectStore.getState().designSession.styleHints || [],
-            [mode, details.analysis || ''].filter(Boolean),
-            20,
+      projectActions.updateDesignSession({
+        taskMode: mode,
+        referenceSummary,
+        subjectAnchors: mergeUniqueStrings(
+          useProjectStore.getState().designSession.subjectAnchors || [],
+          [
+            ...(details.referenceUrls || []),
+            ...(element?.genRefImages || []),
+            element?.genRefImage || "",
+          ].filter(Boolean) as string[],
+          8,
+        ),
+        constraints: mergeUniqueStrings(
+          useProjectStore.getState().designSession.constraints || [],
+          normalizedConstraints,
+          20,
+        ),
+        styleHints: mergeUniqueStrings(
+          useProjectStore.getState().designSession.styleHints || [],
+          [details.analysis || "", details.researchSummary || ""].filter(
+            Boolean,
           ),
-        },
+          12,
+        ),
+        researchSummary:
+          details.researchSummary ||
+          useProjectStore.getState().designSession.researchSummary,
       });
 
-      await addTopicMemoryItem({
-        topicId,
-        type: 'instruction',
-        text: `[${mode}] ${details.instruction}`,
-      });
+      if (topicId) {
+        await upsertTopicSnapshot(topicId, {
+          summaryText: referenceSummary,
+          pinned: {
+            constraints: normalizedConstraints,
+            decisions: mergeUniqueStrings(
+              useProjectStore.getState().designSession.styleHints || [],
+              [mode, details.analysis || ""].filter(Boolean),
+              20,
+            ),
+          },
+        });
 
-      if (details.analysis) {
         await addTopicMemoryItem({
           topicId,
-          type: 'analysis',
-          text: details.analysis,
+          type: "instruction",
+          text: `[${mode}] ${details.instruction}`,
         });
+
+        if (details.analysis) {
+          await addTopicMemoryItem({
+            topicId,
+            type: "analysis",
+            text: details.analysis,
+          });
+        }
       }
-    }
-  }, [getElementReferenceSummary, projectActions]);
+    },
+    [getElementReferenceSummary, projectActions],
+  );
 
   const getDesignConsistencyContext = useCallback(() => {
     const session = useProjectStore.getState().designSession;
@@ -1157,65 +1215,75 @@ const Workspace: React.FC = () => {
     };
   }, []);
 
-  const validateAgainstApprovedAnchor = useCallback(async (candidateUrl: string) => {
-    const session = useProjectStore.getState().designSession;
-    const approvedAnchor = session.subjectAnchors?.[session.subjectAnchors.length - 1];
-    if (!approvedAnchor || !candidateUrl) {
-      return { pass: true, reasons: [] as string[] };
-    }
+  const validateAgainstApprovedAnchor = useCallback(
+    async (candidateUrl: string) => {
+      const session = useProjectStore.getState().designSession;
+      const approvedAnchor =
+        session.subjectAnchors?.[session.subjectAnchors.length - 1];
+      if (!approvedAnchor || !candidateUrl) {
+        return { pass: true, reasons: [] as string[] };
+      }
 
-    try {
-      return await validateApprovedAnchorConsistency(
-        approvedAnchor,
-        candidateUrl,
-        session.referenceSummary || '',
-        session.forbiddenChanges || [],
-      );
-    } catch (error) {
-      console.warn('[Workspace] consistency validation skipped:', error);
-      return { pass: true, reasons: [] as string[] };
-    }
-  }, []);
+      try {
+        return await validateApprovedAnchorConsistency(
+          approvedAnchor,
+          candidateUrl,
+          session.referenceSummary || "",
+          session.forbiddenChanges || [],
+        );
+      } catch (error) {
+        console.warn("[Workspace] consistency validation skipped:", error);
+        return { pass: true, reasons: [] as string[] };
+      }
+    },
+    [],
+  );
 
-  const maybeWarnConsistencyDrift = useCallback(async (candidateUrl: string, label: string) => {
-    const validation = await validateAgainstApprovedAnchor(candidateUrl);
-    if (!validation.pass) {
+  const maybeWarnConsistencyDrift = useCallback(
+    async (candidateUrl: string, label: string) => {
+      const validation = await validateAgainstApprovedAnchor(candidateUrl);
+      if (!validation.pass) {
+        addMessage({
+          id: `consistency-warn-${Date.now()}`,
+          role: "model",
+          text: `${label}与当前已采用版本存在偏差：${validation.reasons.join("；")}${validation.suggestedFix ? `。建议：${validation.suggestedFix}` : ""}`,
+          timestamp: Date.now(),
+          error: true,
+        });
+      }
+      return validation;
+    },
+    [validateAgainstApprovedAnchor],
+  );
+
+  const retryWithConsistencyFix = useCallback(
+    async (
+      label: string,
+      initialUrl: string,
+      rerun: (fixPrompt?: string) => Promise<string | null>,
+    ) => {
+      const validation = await maybeWarnConsistencyDrift(initialUrl, label);
+      if (validation.pass || !validation.suggestedFix) {
+        return initialUrl;
+      }
+
       addMessage({
-        id: `consistency-warn-${Date.now()}`,
+        id: `consistency-retry-${Date.now()}`,
         role: "model",
-        text: `${label}与当前已采用版本存在偏差：${validation.reasons.join('；')}${validation.suggestedFix ? `。建议：${validation.suggestedFix}` : ''}`,
+        text: `${label}正在根据一致性质检建议自动修正一次：${validation.suggestedFix}`,
         timestamp: Date.now(),
-        error: true,
       });
-    }
-    return validation;
-  }, [validateAgainstApprovedAnchor]);
 
-  const retryWithConsistencyFix = useCallback(async (
-    label: string,
-    initialUrl: string,
-    rerun: (fixPrompt?: string) => Promise<string | null>,
-  ) => {
-    const validation = await maybeWarnConsistencyDrift(initialUrl, label);
-    if (validation.pass || !validation.suggestedFix) {
-      return initialUrl;
-    }
+      const retriedUrl = await rerun(validation.suggestedFix);
+      if (!retriedUrl) {
+        return initialUrl;
+      }
 
-    addMessage({
-      id: `consistency-retry-${Date.now()}`,
-      role: "model",
-      text: `${label}正在根据一致性质检建议自动修正一次：${validation.suggestedFix}`,
-      timestamp: Date.now(),
-    });
-
-    const retriedUrl = await rerun(validation.suggestedFix);
-    if (!retriedUrl) {
-      return initialUrl;
-    }
-
-    await maybeWarnConsistencyDrift(retriedUrl, `${label}（自动修正后）`);
-    return retriedUrl;
-  }, [maybeWarnConsistencyDrift]);
+      await maybeWarnConsistencyDrift(retriedUrl, `${label}（自动修正后）`);
+      return retriedUrl;
+    },
+    [maybeWarnConsistencyDrift],
+  );
 
   useEffect(() => {
     const topicId = getCurrentTopicId();
@@ -1229,7 +1297,13 @@ const Workspace: React.FC = () => {
         const cs = snapshot.clothingStudio;
         const actions = store.actions;
         if (cs.productImageRefs?.length) {
-          actions.addProductImages(cs.productImageRefs.map(r => ({ id: r.assetId, url: r.url || '' })), topicId);
+          actions.addProductImages(
+            cs.productImageRefs.map((r) => ({
+              id: r.assetId,
+              url: r.url || "",
+            })),
+            topicId,
+          );
         }
         if (cs.productAnchorRef?.url) {
           actions.setProductAnchorUrl(cs.productAnchorRef.url, topicId);
@@ -1238,7 +1312,10 @@ const Workspace: React.FC = () => {
           actions.setModelAnchorSheetUrl(cs.modelAnchorSheetRef.url, topicId);
         }
         if (cs.modelRef?.url) {
-          actions.setModelImage({ id: cs.modelRef.assetId, url: cs.modelRef.url }, topicId);
+          actions.setModelImage(
+            { id: cs.modelRef.assetId, url: cs.modelRef.url },
+            topicId,
+          );
         }
         if (cs.analysis) {
           actions.setAnalysis(cs.analysis as any, topicId);
@@ -1265,29 +1342,29 @@ const Workspace: React.FC = () => {
 
     const productAnchorRef = clothingState.productAnchorUrl
       ? {
-        assetId: `product-anchor-${topicId}`,
-        role: "product_anchor" as const,
-        url: clothingState.productAnchorUrl,
-        createdAt: Date.now(),
-      }
+          assetId: `product-anchor-${topicId}`,
+          role: "product_anchor" as const,
+          url: clothingState.productAnchorUrl,
+          createdAt: Date.now(),
+        }
       : undefined;
 
     const modelAnchorSheetRef = clothingState.modelAnchorSheetUrl
       ? {
-        assetId: `model-anchor-sheet-${topicId}`,
-        role: "model_anchor_sheet" as const,
-        url: clothingState.modelAnchorSheetUrl,
-        createdAt: Date.now(),
-      }
+          assetId: `model-anchor-sheet-${topicId}`,
+          role: "model_anchor_sheet" as const,
+          url: clothingState.modelAnchorSheetUrl,
+          createdAt: Date.now(),
+        }
       : undefined;
 
     const modelRef = clothingState.modelImage?.url
       ? {
-        assetId: clothingState.modelImage.id,
-        role: "model" as const,
-        url: clothingState.modelImage.url,
-        createdAt: Date.now(),
-      }
+          assetId: clothingState.modelImage.id,
+          role: "model" as const,
+          url: clothingState.modelImage.url,
+          createdAt: Date.now(),
+        }
       : undefined;
 
     const timer = window.setTimeout(() => {
@@ -1298,18 +1375,21 @@ const Workspace: React.FC = () => {
         modelRef,
         analysis: clothingState.analysis
           ? {
-            anchorDescription: clothingState.analysis.anchorDescription,
-            forbiddenChanges: clothingState.analysis.forbiddenChanges,
-            recommendedPoses: clothingState.analysis.recommendedPoses,
-            recommendedStyling: clothingState.analysis.recommendedStyling,
-          }
+              anchorDescription: clothingState.analysis.anchorDescription,
+              forbiddenChanges: clothingState.analysis.forbiddenChanges,
+              recommendedPoses: clothingState.analysis.recommendedPoses,
+              recommendedStyling: clothingState.analysis.recommendedStyling,
+            }
           : undefined,
         requirements: {
           platform: clothingState.requirements.platform,
           aspectRatio: clothingState.requirements.aspectRatio,
           targetLanguage: clothingState.requirements.targetLanguage,
           clarity: "2K",
-          count: Math.max(1, Math.min(10, clothingState.requirements.count || 1)),
+          count: Math.max(
+            1,
+            Math.min(10, clothingState.requirements.count || 1),
+          ),
           referenceUrl: clothingState.requirements.referenceUrl,
           description: clothingState.requirements.description,
         },
@@ -1445,10 +1525,16 @@ const Workspace: React.FC = () => {
       const topicId = getCurrentTopicId();
       if (topicId) {
         if (anchorSheetUrl) {
-          await saveTopicAsset(topicId, "model_anchor_sheet", { url: anchorSheetUrl, mime: "image/png" });
+          await saveTopicAsset(topicId, "model_anchor_sheet", {
+            url: anchorSheetUrl,
+            mime: "image/png",
+          });
         }
         if (images[0]?.url) {
-          await saveTopicAsset(topicId, "model", { url: images[0].url, mime: "image/png" });
+          await saveTopicAsset(topicId, "model", {
+            url: images[0].url,
+            mime: "image/png",
+          });
         }
       }
     } catch (error: any) {
@@ -1740,9 +1826,9 @@ const Workspace: React.FC = () => {
     const selectedImageModels = autoModelSelect
       ? ["Auto"]
       : [
-        PREFERRED_IMAGE_MODEL_TO_STORAGE_ID[preferredImageModel] ||
-        preferredImageModel,
-      ];
+          PREFERRED_IMAGE_MODEL_TO_STORAGE_ID[preferredImageModel] ||
+            preferredImageModel,
+        ];
     safeLocalStorageSetItem(
       "setting_image_models",
       JSON.stringify(selectedImageModels),
@@ -1937,7 +2023,7 @@ const Workspace: React.FC = () => {
         },
       });
       if (result) {
-        await maybeWarnConsistencyDrift(result, '放大结果');
+        await maybeWarnConsistencyDrift(result, "放大结果");
         await applyGeneratedImageToElement(newId, result, true);
       } else {
         setElements((prev) => {
@@ -1979,7 +2065,12 @@ const Workspace: React.FC = () => {
       maskCtx.drawImage(maskImg, 0, 0, maskCanvas.width, maskCanvas.height);
       setEraserMaskDataUrl(previous.mask);
       setEraserHistory((prev) => prev.slice(0, -1));
-      const imageData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height).data;
+      const imageData = maskCtx.getImageData(
+        0,
+        0,
+        maskCanvas.width,
+        maskCanvas.height,
+      ).data;
       let hasPaint = false;
       for (let i = 0; i < imageData.length; i += 4) {
         if (imageData[i] > 0) {
@@ -2005,7 +2096,10 @@ const Workspace: React.FC = () => {
     if (!eraserMode) return;
     if (!selectedElementId) return;
     const current = elements.find((e) => e.id === selectedElementId);
-    if (!current || (current.type !== "image" && current.type !== "gen-image")) {
+    if (
+      !current ||
+      (current.type !== "image" && current.type !== "gen-image")
+    ) {
       return;
     }
 
@@ -2083,10 +2177,12 @@ const Workspace: React.FC = () => {
 
     try {
       const sourceImage = await urlToBase64(getElementSourceUrl(el) || el.url);
-      const preservePrompt = 'Preserve the original product identity, lighting direction, scene composition, typography, and all unmasked areas.';
-      await persistEditSession('edit', el, {
-        instruction: 'Remove objects in white mask area only. Keep black mask area unchanged. Blend naturally.',
-        constraints: ['仅修改白色蒙版区域', '保持未遮罩区域完全一致'],
+      const preservePrompt =
+        "Preserve the original product identity, lighting direction, scene composition, typography, and all unmasked areas.";
+      await persistEditSession("edit", el, {
+        instruction:
+          "Remove objects in white mask area only. Keep black mask area unchanged. Blend naturally.",
+        constraints: ["仅修改白色蒙版区域", "保持未遮罩区域完全一致"],
       });
       const result = await smartEditSkill({
         sourceUrl: sourceImage,
@@ -2130,7 +2226,7 @@ const Workspace: React.FC = () => {
       });
 
       if (result) {
-        await maybeWarnConsistencyDrift(result, '矢量重绘结果');
+        await maybeWarnConsistencyDrift(result, "矢量重绘结果");
         await applyGeneratedImageToElement(newId, result, true);
       } else {
         throw new Error("No result from eraser edit");
@@ -2179,9 +2275,10 @@ const Workspace: React.FC = () => {
     try {
       const base64Ref = await urlToBase64(el.url);
       const prompt = `【任务】将输入图像解析为专业级矢量线稿\n\n【自适应分析】\n首先识别画面主体类型，动态调整线条策略：\n- 生物类：捕捉毛发走向、皮肤褶皱、肌肉轮廓\n- 建筑/物品：强调结构边缘、材质分界、几何关系\n- 自然景观：表现植被层次、地形起伏、水纹流向\n- 织物/软质：体现垂坠感、褶皱逻辑、编织纹理\n\n【线条层级系统】\nL1 主轮廓：定义物体边界与剪影\nL2 结构线：表达体积转折、内部形态\nL3 细节线：材质特征、微观纹理走向\nL4 氛围线：暗示光影边界、空间深度（可选）\n\n【输出标准】\n✓ 纯黑白、线条闭合流畅、层次分明\n✗ 禁止：灰度填充、渐变、模糊、噪点`;
-      await persistEditSession('edit', el, {
-        instruction: 'Convert the image into a professional vector-style line drawing while preserving structure and key details.',
-        constraints: ['保持主体结构比例', '输出黑白线稿，不引入灰度噪点'],
+      await persistEditSession("edit", el, {
+        instruction:
+          "Convert the image into a professional vector-style line drawing while preserving structure and key details.",
+        constraints: ["保持主体结构比例", "输出黑白线稿，不引入灰度噪点"],
       });
 
       const result = await smartEditSkill({
@@ -2190,7 +2287,8 @@ const Workspace: React.FC = () => {
         parameters: {
           factor: 2,
           prompt,
-          preservePrompt: 'Preserve the original silhouette, structure, and detail hierarchy while translating to clean vector-style line art.',
+          preservePrompt:
+            "Preserve the original silhouette, structure, and detail hierarchy while translating to clean vector-style line art.",
         },
       });
       if (result) {
@@ -2217,9 +2315,9 @@ const Workspace: React.FC = () => {
     setIsTouchEditing(true);
     try {
       const base64Ref = await urlToBase64(el.url);
-      await persistEditSession('touch-edit', el, {
+      await persistEditSession("touch-edit", el, {
         instruction: `Analyze local region near (${clickX}, ${clickY}) for precise edit intent.`,
-        constraints: ['仅聚焦用户点选附近区域', '保持整体构图与主体一致'],
+        constraints: ["仅聚焦用户点选附近区域", "保持整体构图与主体一致"],
       });
       const result = await touchEditSkill({
         imageData: base64Ref,
@@ -2255,10 +2353,10 @@ const Workspace: React.FC = () => {
     try {
       const base64Ref = await urlToBase64(el.url);
       const aspectRatio = getNearestAspectRatio(el.width, el.height);
-      await persistEditSession('touch-edit', el, {
+      await persistEditSession("touch-edit", el, {
         instruction: touchEditInstruction,
         analysis: touchEditPopup.analysis,
-        constraints: ['仅编辑目标区域', '保持整体视觉连续性'],
+        constraints: ["仅编辑目标区域", "保持整体视觉连续性"],
       });
       const result = await touchEditSkill({
         imageData: base64Ref,
@@ -2269,10 +2367,10 @@ const Workspace: React.FC = () => {
         editInstruction: touchEditInstruction,
         aspectRatio,
         preservePrompt:
-          'Preserve overall composition, perspective, identity, lighting, materials, typography, and all untouched regions. Apply a localized edit only where requested.',
+          "Preserve overall composition, perspective, identity, lighting, materials, typography, and all untouched regions. Apply a localized edit only where requested.",
       });
       if (result.editedImage) {
-        await maybeWarnConsistencyDrift(result.editedImage, '局部编辑结果');
+        await maybeWarnConsistencyDrift(result.editedImage, "局部编辑结果");
         await applyGeneratedImageToElement(
           touchEditPopup.elementId,
           result.editedImage,
@@ -2328,18 +2426,18 @@ const Workspace: React.FC = () => {
         if (latestTask && latestTask.output) {
           const derivedImageUrls =
             latestTask.output.imageUrls &&
-              latestTask.output.imageUrls.length > 0
+            latestTask.output.imageUrls.length > 0
               ? latestTask.output.imageUrls
               : [
-                ...(latestTask.output.assets || [])
-                  .filter((a: any) => a?.type === "image" && a?.url)
-                  .map((a: any) => a.url),
-                ...(latestTask.output.skillCalls || [])
-                  .filter(
-                    (s: any) => s?.success && typeof s?.result === "string",
-                  )
-                  .map((s: any) => s.result),
-              ];
+                  ...(latestTask.output.assets || [])
+                    .filter((a: any) => a?.type === "image" && a?.url)
+                    .map((a: any) => a.url),
+                  ...(latestTask.output.skillCalls || [])
+                    .filter(
+                      (s: any) => s?.success && typeof s?.result === "string",
+                    )
+                    .map((s: any) => s.result),
+                ];
 
           addMessage({
             id: `proposal-${latestTask.id}-${Date.now()}`,
@@ -2408,7 +2506,7 @@ const Workspace: React.FC = () => {
             reader.readAsDataURL(f);
           });
           referenceImages.push(base64);
-        } catch (_) { }
+        } catch (_) {}
       }
 
       // 2. From Canvas if no blocks
@@ -2424,7 +2522,7 @@ const Workspace: React.FC = () => {
       const resultUrl = await imageGenSkill({
         prompt: prompt,
         model: activeImageModel,
-        aspectRatio: "1:1",
+        aspectRatio: newEl.genAspectRatio || "1:1",
         referenceImages:
           referenceImages.length > 0 ? referenceImages : undefined,
         consistencyContext: getDesignConsistencyContext(),
@@ -2432,15 +2530,19 @@ const Workspace: React.FC = () => {
 
       if (resultUrl) {
         const finalUrl = await retryWithConsistencyFix(
-          '智能生成结果',
+          "智能生成结果",
           resultUrl,
-          async (fixPrompt?: string) => imageGenSkill({
-            prompt: fixPrompt ? `${prompt}\n\nConsistency fix: ${fixPrompt}` : prompt,
-            model: activeImageModel,
-            aspectRatio: "1:1",
-            referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
-            consistencyContext: getDesignConsistencyContext(),
-          }),
+          async (fixPrompt?: string) =>
+            imageGenSkill({
+              prompt: fixPrompt
+                ? `${prompt}\n\nConsistency fix: ${fixPrompt}`
+                : prompt,
+              model: activeImageModel,
+              aspectRatio: newEl.genAspectRatio || "1:1",
+              referenceImages:
+                referenceImages.length > 0 ? referenceImages : undefined,
+              consistencyContext: getDesignConsistencyContext(),
+            }),
         );
         await applyGeneratedImageToElement(id, finalUrl, false);
       } else {
@@ -2546,7 +2648,9 @@ const Workspace: React.FC = () => {
       }
 
       const confirmedCanvasIds = (currentBlocks || [])
-        .filter((b) => b.type === "file" && b.file && (b.file as any)._canvasElId)
+        .filter(
+          (b) => b.type === "file" && b.file && (b.file as any)._canvasElId,
+        )
         .map((b) => (b.file as any)._canvasElId as string);
       for (const canvasId of confirmedCanvasIds) {
         const hit = elementsSnapshot.find((e) => e.id === canvasId);
@@ -2554,7 +2658,8 @@ const Workspace: React.FC = () => {
         pushUrl(getElementSourceUrl(hit) || hit.url);
       }
 
-      const pendingAttachments = useAgentStore.getState().pendingAttachments || [];
+      const pendingAttachments =
+        useAgentStore.getState().pendingAttachments || [];
       for (const pending of pendingAttachments) {
         if (pending.source !== "canvas" || !pending.canvasElId) continue;
         const hit = elementsSnapshot.find((e) => e.id === pending.canvasElId);
@@ -2589,7 +2694,9 @@ const Workspace: React.FC = () => {
         if (attachments.length > 0) {
           const hostProvider = useImageHostStore.getState().selectedProvider;
           if (hostProvider === "none") {
-            throw new Error("请先在设置中启用图床（如 ImgBB），再上传产品/参考图");
+            throw new Error(
+              "请先在设置中启用图床（如 ImgBB），再上传产品/参考图",
+            );
           }
 
           const uploaded: Array<{ id: string; url: string; name?: string }> =
@@ -2604,8 +2711,14 @@ const Workspace: React.FC = () => {
                 name: file.name,
               });
               if (topicId) {
-                const role = clothingState.step === "WAIT_PRODUCT" ? "product" : "reference";
-                await saveTopicAsset(topicId, role, { url, mime: file.type || "image/png" });
+                const role =
+                  clothingState.step === "WAIT_PRODUCT"
+                    ? "product"
+                    : "reference";
+                await saveTopicAsset(topicId, role, {
+                  url,
+                  mime: file.type || "image/png",
+                });
               }
             } catch (uploadErr: any) {
               failedNames.push(file.name || "未命名文件");
@@ -2637,7 +2750,10 @@ const Workspace: React.FC = () => {
               `已接收产品图 ${nextCount}/6`,
             );
 
-            pushWorkflowUiMessage({ type: "clothingStudio.analyzing" }, "正在分析产品特征与一致性锚点");
+            pushWorkflowUiMessage(
+              { type: "clothingStudio.analyzing" },
+              "正在分析产品特征与一致性锚点",
+            );
 
             try {
               const mergedProductImages = [
@@ -2650,8 +2766,16 @@ const Workspace: React.FC = () => {
               });
 
               clothingActions.setAnalysis(analysis);
-              const anchorIndex = Math.max(0, Math.min(mergedProductImages.length - 1, Number(analysis?.productAnchorIndex || 0)));
-              clothingActions.setProductAnchorUrl(mergedProductImages[anchorIndex] || mergedProductImages[0]);
+              const anchorIndex = Math.max(
+                0,
+                Math.min(
+                  mergedProductImages.length - 1,
+                  Number(analysis?.productAnchorIndex || 0),
+                ),
+              );
+              clothingActions.setProductAnchorUrl(
+                mergedProductImages[anchorIndex] || mergedProductImages[0],
+              );
               clothingActions.setStep("WAIT_MODEL_OPTIONAL");
 
               if (topicId) {
@@ -2820,7 +2944,8 @@ const Workspace: React.FC = () => {
     try {
       let researchPayload: SearchResponse | null = null;
       let researchReferenceImageUrls: string[] = [];
-      const canvasSelectionReferenceUrls = collectCanvasSelectionReferenceUrls();
+      const canvasSelectionReferenceUrls =
+        collectCanvasSelectionReferenceUrls();
       let researchWebPages: Array<{
         title: string;
         url: string;
@@ -2838,7 +2963,15 @@ const Workspace: React.FC = () => {
       if (shouldRunResearch) {
         try {
           researchPayload = await runResearchSearch(text, researchMode);
-          const rawImageUrls = pickUsableReferenceImages(researchPayload.images, 8);
+          if (researchPayload.provider?.fallback) {
+            console.warn(
+              "[Workspace] research is using fallback providers (no Bing key)",
+            );
+          }
+          const rawImageUrls = pickUsableReferenceImages(
+            researchPayload.images,
+            8,
+          );
           if (rawImageUrls.length > 0) {
             const rehosted = await Promise.allSettled(
               rawImageUrls.map((url) => rehostImageUrl(url)),
@@ -2866,16 +2999,18 @@ const Workspace: React.FC = () => {
             }),
           );
 
-          researchWebPages = extractedWebs.map((item, index) => {
-            if (item.status === "fulfilled") return item.value;
-            const fallback = webCandidates[index];
-            return {
-              title: fallback?.title || "",
-              url: fallback?.url || "",
-              snippet: fallback?.snippet,
-              siteName: fallback?.siteName,
-            };
-          }).filter((item) => /^https?:\/\//i.test(item.url));
+          researchWebPages = extractedWebs
+            .map((item, index) => {
+              if (item.status === "fulfilled") return item.value;
+              const fallback = webCandidates[index];
+              return {
+                title: fallback?.title || "",
+                url: fallback?.url || "",
+                snippet: fallback?.snippet,
+                siteName: fallback?.siteName,
+              };
+            })
+            .filter((item) => /^https?:\/\//i.test(item.url));
 
           researchWebPages = researchWebPages.map((item) => ({
             title: item.title,
@@ -2908,26 +3043,26 @@ const Workspace: React.FC = () => {
           referenceWebPages: researchWebPages,
           research: researchPayload
             ? {
-              requestId: researchPayload.requestId,
-              query: researchPayload.query,
-              mode: researchPayload.mode,
-              provider: researchPayload.provider,
-              suggestedQueries: researchPayload.hints?.suggestedQueries || [],
-              reportBrief:
-                researchWebPages.length > 0
-                  ? `已检索 ${researchWebPages.length} 条网页资料与 ${researchReferenceImageUrls.length} 张参考图。`
-                  : `已检索 ${researchReferenceImageUrls.length} 张参考图。`,
-              reportFull: (researchWebPages || [])
-                .map(
-                  (w, idx) =>
-                    `${idx + 1}. ${w.title}\n${w.url}\n${w.snippet || ""}`,
-                )
-                .join("\n\n"),
-              citations: researchWebPages.map((w) => ({
-                title: w.title,
-                url: w.url,
-              })),
-            }
+                requestId: researchPayload.requestId,
+                query: researchPayload.query,
+                mode: researchPayload.mode,
+                provider: researchPayload.provider,
+                suggestedQueries: researchPayload.hints?.suggestedQueries || [],
+                reportBrief:
+                  researchWebPages.length > 0
+                    ? `已检索 ${researchWebPages.length} 条网页资料与 ${researchReferenceImageUrls.length} 张参考图。`
+                    : `已检索 ${researchReferenceImageUrls.length} 张参考图。`,
+                reportFull: (researchWebPages || [])
+                  .map(
+                    (w, idx) =>
+                      `${idx + 1}. ${w.title}\n${w.url}\n${w.snippet || ""}`,
+                  )
+                  .join("\n\n"),
+                citations: researchWebPages.map((w) => ({
+                  title: w.title,
+                  url: w.url,
+                })),
+              }
             : undefined,
         },
       };
@@ -2954,15 +3089,15 @@ const Workspace: React.FC = () => {
           result.output.imageUrls && result.output.imageUrls.length > 0
             ? result.output.imageUrls
             : [
-              ...(result.output.assets || [])
-                .filter((a: any) => a?.type === "image" && a?.url)
-                .map((a: any) => a.url),
-              ...(result.output.skillCalls || [])
-                .filter(
-                  (s: any) => s?.success && typeof s?.result === "string",
-                )
-                .map((s: any) => s.result),
-            ];
+                ...(result.output.assets || [])
+                  .filter((a: any) => a?.type === "image" && a?.url)
+                  .map((a: any) => a.url),
+                ...(result.output.skillCalls || [])
+                  .filter(
+                    (s: any) => s?.success && typeof s?.result === "string",
+                  )
+                  .map((s: any) => s.result),
+              ];
 
         // 5. 构造并添加 Agent 消息
         const agentMsg: ChatMessage = {
@@ -3199,8 +3334,10 @@ const Workspace: React.FC = () => {
   const chatSessionRef = useRef<any>(null);
   const fontTriggerRef = useRef<HTMLButtonElement>(null);
   const weightTriggerRef = useRef<HTMLButtonElement>(null);
+  const textSettingsTriggerRef = useRef<HTMLButtonElement>(null);
   const fontPopoverRef = useRef<HTMLDivElement>(null);
   const weightPopoverRef = useRef<HTMLDivElement>(null);
+  const textSettingsPopoverRef = useRef<HTMLDivElement>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasLayerRef = useRef<HTMLDivElement>(null);
@@ -3487,7 +3624,9 @@ const Workspace: React.FC = () => {
           : [];
     if (idsToDelete.length === 0) return;
 
-    const newElements = elementsRef.current.filter((el) => !idsToDelete.includes(el.id));
+    const newElements = elementsRef.current.filter(
+      (el) => !idsToDelete.includes(el.id),
+    );
     const newMarkers = markersRef.current.filter(
       (m) => !idsToDelete.includes(m.elementId),
     );
@@ -3500,16 +3639,33 @@ const Workspace: React.FC = () => {
   };
 
   const commitTextEdit = (elementId: string, rawText: string) => {
-    const nextText = rawText ?? "";
+    const nextText = rawText || "";
     delete textEditDraftRef.current[elementId];
 
     const prevEl = elementsRef.current.find((el) => el.id === elementId);
     if (!prevEl || prevEl.type !== "text") return;
-    if ((prevEl.text ?? "") === nextText) return;
+
+    // 计算最终宽度
+    const finalWidth = getTextWidth(
+      nextText,
+      prevEl.fontSize,
+      prevEl.fontFamily,
+      prevEl.fontWeight,
+      prevEl.letterSpacing,
+    );
 
     const newElements = elementsRef.current.map((el) =>
-      el.id === elementId ? { ...el, text: nextText } : el,
+      el.id === elementId
+        ? {
+            ...el,
+            text: nextText,
+            width: Math.max(10, finalWidth),
+            height: prevEl.fontSize * (prevEl.lineHeight || 1.2),
+          }
+        : el,
     );
+    
+    // 强制触发 UI 同步
     setElementsSynced(newElements);
     saveToHistory(newElements, markersRef.current);
   };
@@ -3685,14 +3841,17 @@ const Workspace: React.FC = () => {
     if (topicId) {
       await rememberApprovedAsset(topicId, {
         url: originalUrl,
-        role: 'result',
+        role: "result",
         summary: summarizeReferenceSet([originalUrl]),
         decision: decisionText,
       });
     }
   };
 
-  const setElementGeneratingState = (elementId: string, isGenerating: boolean) => {
+  const setElementGeneratingState = (
+    elementId: string,
+    isGenerating: boolean,
+  ) => {
     const baseElements = elementsRef.current;
     let changed = false;
     const nextElements = baseElements.map((e) => {
@@ -3716,21 +3875,23 @@ const Workspace: React.FC = () => {
 
     try {
       const base64Ref = await urlToBase64(el.url);
-      await persistEditSession('edit', el, {
-        instruction: 'Upscale this image while preserving identity, composition, and all visible details.',
-        constraints: ['提升清晰度与细节', '保持主体和构图不变'],
+      await persistEditSession("edit", el, {
+        instruction:
+          "Upscale this image while preserving identity, composition, and all visible details.",
+        constraints: ["提升清晰度与细节", "保持主体和构图不变"],
       });
       const resultUrl = await smartEditSkill({
         sourceUrl: base64Ref,
         editType: "upscale",
         parameters: {
           factor: 4,
-          preservePrompt: 'Preserve identity, composition, textures, text layout, and all visible details while increasing clarity and resolution.',
+          preservePrompt:
+            "Preserve identity, composition, textures, text layout, and all visible details while increasing clarity and resolution.",
         },
       });
 
       if (resultUrl) {
-        await maybeWarnConsistencyDrift(resultUrl, '放大结果');
+        await maybeWarnConsistencyDrift(resultUrl, "放大结果");
         await applyGeneratedImageToElement(selectedElementId, resultUrl, true);
       } else {
         throw new Error("No result");
@@ -3749,20 +3910,22 @@ const Workspace: React.FC = () => {
 
     try {
       const base64Ref = await urlToBase64(el.url);
-      await persistEditSession('edit', el, {
-        instruction: 'Remove the background while preserving the main subject exactly.',
-        constraints: ['只移除背景', '保持主体轮廓和材质不变'],
+      await persistEditSession("edit", el, {
+        instruction:
+          "Remove the background while preserving the main subject exactly.",
+        constraints: ["只移除背景", "保持主体轮廓和材质不变"],
       });
       const resultUrl = await smartEditSkill({
         sourceUrl: base64Ref,
         editType: "background-remove",
         parameters: {
-          preservePrompt: 'Preserve the exact subject identity, silhouette, materials, and visible details. Remove only the background.',
+          preservePrompt:
+            "Preserve the exact subject identity, silhouette, materials, and visible details. Remove only the background.",
         },
       });
 
       if (resultUrl) {
-        await maybeWarnConsistencyDrift(resultUrl, '去背结果');
+        await maybeWarnConsistencyDrift(resultUrl, "去背结果");
         await applyGeneratedImageToElement(selectedElementId, resultUrl, true);
       } else {
         throw new Error("No result");
@@ -3795,7 +3958,10 @@ ${analysis}
     setShowProductSwapPanel(false);
 
     const sourceSize = await loadElementSourceSize(el);
-    const targetAspectRatio = getNearestAspectRatio(sourceSize.width, sourceSize.height);
+    const targetAspectRatio = getNearestAspectRatio(
+      sourceSize.width,
+      sourceSize.height,
+    );
 
     const newId = `product-swap-${Date.now()}`;
     const newEl: CanvasElement = {
@@ -3816,34 +3982,48 @@ ${analysis}
       const prompt = buildProductSwapPrompt(analysisText);
 
       const allImages = [sceneBase64, ...productSwapImages];
-      await persistEditSession('edit', el, {
-        instruction: 'Swap the current product with the provided replacement product while preserving the original scene.',
+      await persistEditSession("edit", el, {
+        instruction:
+          "Swap the current product with the provided replacement product while preserving the original scene.",
         referenceUrls: productSwapImages,
         analysis: analysisText,
-        constraints: ['保持原场景光影和透视', '新产品必须真实贴合场景'],
+        constraints: ["保持原场景光影和透视", "新产品必须真实贴合场景"],
       });
 
       const result = await generateImage({
         prompt: prompt,
-        model: 'Nano Banana Pro',
+        model: "Nano Banana Pro",
         aspectRatio: targetAspectRatio,
-        imageSize: productSwapRes === '1K' ? '1K' : productSwapRes === '2K' ? '2K' : '4K',
+        imageSize:
+          productSwapRes === "1K"
+            ? "1K"
+            : productSwapRes === "2K"
+              ? "2K"
+              : "4K",
         referenceImages: allImages,
         consistencyContext: getDesignConsistencyContext(),
       });
 
       if (result) {
         const finalResult = await retryWithConsistencyFix(
-          '产品替换结果',
+          "产品替换结果",
           result,
-          async (fixPrompt?: string) => generateImage({
-            prompt: fixPrompt ? `${prompt}\n\nConsistency fix: ${fixPrompt}` : prompt,
-            model: 'Nano Banana Pro',
-            aspectRatio: targetAspectRatio,
-            imageSize: productSwapRes === '1K' ? '1K' : productSwapRes === '2K' ? '2K' : '4K',
-            referenceImages: allImages,
-            consistencyContext: getDesignConsistencyContext(),
-          }),
+          async (fixPrompt?: string) =>
+            generateImage({
+              prompt: fixPrompt
+                ? `${prompt}\n\nConsistency fix: ${fixPrompt}`
+                : prompt,
+              model: "Nano Banana Pro",
+              aspectRatio: targetAspectRatio,
+              imageSize:
+                productSwapRes === "1K"
+                  ? "1K"
+                  : productSwapRes === "2K"
+                    ? "2K"
+                    : "4K",
+              referenceImages: allImages,
+              consistencyContext: getDesignConsistencyContext(),
+            }),
         );
         await applyGeneratedImageToElement(newId, finalResult, true);
       } else {
@@ -3902,7 +4082,10 @@ ${analysis}
 
     // 计算正确的宽高比
     const sourceSize = await loadElementSourceSize(el);
-    const targetAspectRatio = getNearestAspectRatio(sourceSize.width, sourceSize.height);
+    const targetAspectRatio = getNearestAspectRatio(
+      sourceSize.width,
+      sourceSize.height,
+    );
 
     // 在原图旁边创建同尺寸的新元素
     const newId = `text-edit-${Date.now()}`;
@@ -3920,9 +4103,9 @@ ${analysis}
 
     try {
       const base64Ref = await urlToBase64(el.url);
-      await persistEditSession('text-edit', el, {
+      await persistEditSession("text-edit", el, {
         instruction: editPrompt,
-        constraints: ['只修改图中文字', '保持字体风格、版式和背景尽量不变'],
+        constraints: ["只修改图中文字", "保持字体风格、版式和背景尽量不变"],
       });
       const resultUrl = await generateImage({
         prompt: editPrompt,
@@ -3934,15 +4117,18 @@ ${analysis}
 
       if (resultUrl) {
         const finalUrl = await retryWithConsistencyFix(
-          '文字编辑结果',
+          "文字编辑结果",
           resultUrl,
-          async (fixPrompt?: string) => generateImage({
-            prompt: fixPrompt ? `${editPrompt}\n\nConsistency fix: ${fixPrompt}` : editPrompt,
-            model: (el.genModel as any) || "Nano Banana Pro",
-            aspectRatio: targetAspectRatio,
-            referenceImage: base64Ref,
-            consistencyContext: getDesignConsistencyContext(),
-          }),
+          async (fixPrompt?: string) =>
+            generateImage({
+              prompt: fixPrompt
+                ? `${editPrompt}\n\nConsistency fix: ${fixPrompt}`
+                : editPrompt,
+              model: (el.genModel as any) || "Nano Banana Pro",
+              aspectRatio: targetAspectRatio,
+              referenceImage: base64Ref,
+              consistencyContext: getDesignConsistencyContext(),
+            }),
         );
         await applyGeneratedImageToElement(newId, finalUrl, true);
       } else {
@@ -3958,41 +4144,87 @@ ${analysis}
     if (!selectedElementId || !fastEditPrompt) return;
     const el = elementsRef.current.find((e) => e.id === selectedElementId);
     if (!el || !el.url) return;
-    setElementGeneratingState(selectedElementId, true);
+
+    setShowFastEdit(false);
+
+    const sourceSize = await loadElementSourceSize(el);
+    const targetAspectRatio = getNearestAspectRatio(
+      sourceSize.width,
+      sourceSize.height,
+    );
+
+    const newId = `fast-edit-${Date.now()}`;
+    const newEl: CanvasElement = {
+      ...el,
+      id: newId,
+      x: el.x + el.width + 20,
+      isGenerating: true,
+      generatingType: "fast-edit",
+      url: undefined,
+      zIndex: elements.length + 10,
+    };
+    setElements((prev) => [...prev, newEl]);
+    setSelectedElementId(newId);
+
     try {
       const base64Ref = await urlToBase64(el.url);
-      await persistEditSession('edit', el, {
+      await persistEditSession("edit", el, {
         instruction: fastEditPrompt,
-        constraints: ['在原图基础上做受控编辑', '尽量保持主体与构图连续性'],
+        constraints: ["在原图基础上做受控编辑", "尽量保持主体与构图连续性"],
       });
-      const resultUrl = await imageGenSkill({
-        prompt: fastEditPrompt,
-        model: (el.genModel as any) || "Nano Banana Pro",
-        aspectRatio: el.genAspectRatio || "1:1",
-        referenceImage: base64Ref,
-        consistencyContext: getDesignConsistencyContext(),
+      const editInstruction = [
+        `Only apply the requested change: ${fastEditPrompt}`,
+        "Keep identity, subject, composition, perspective, lighting, shadows, materials, texture, text layout, and all untouched areas unchanged.",
+        "Do not redesign or restyle the whole image.",
+      ].join(" ");
+
+      const resultUrl = await smartEditSkill({
+        sourceUrl: base64Ref,
+        editType: "style-transfer",
+        parameters: {
+          prompt: editInstruction,
+          model: (el.genModel as any) || "Nano Banana Pro",
+          editModel: "gemini-3-pro-image-preview",
+          aspectRatio: targetAspectRatio,
+          imageSize: "2K",
+          preservePrompt:
+            "Preserve identity, composition, perspective, lighting, shadows, materials, text layout, and all untouched regions exactly.",
+        },
       });
       if (resultUrl) {
         const finalUrl = await retryWithConsistencyFix(
-          '快速编辑结果',
+          "快速编辑结果",
           resultUrl,
-          async (fixPrompt?: string) => imageGenSkill({
-            prompt: fixPrompt ? `${fastEditPrompt}\n\nConsistency fix: ${fixPrompt}` : fastEditPrompt,
-            model: (el.genModel as any) || "Nano Banana Pro",
-            aspectRatio: el.genAspectRatio || "1:1",
-            referenceImage: base64Ref,
-            consistencyContext: getDesignConsistencyContext(),
-          }),
+          async (fixPrompt?: string) =>
+            smartEditSkill({
+              sourceUrl: base64Ref,
+              editType: "style-transfer",
+              parameters: {
+                prompt: fixPrompt
+                  ? `${editInstruction}\n\nConsistency fix: ${fixPrompt}`
+                  : editInstruction,
+                model: (el.genModel as any) || "Nano Banana Pro",
+                editModel: "gemini-3-pro-image-preview",
+                aspectRatio: targetAspectRatio,
+                imageSize: "2K",
+                preservePrompt:
+                  "Preserve identity, composition, perspective, lighting, shadows, materials, text layout, and all untouched regions exactly.",
+              },
+            }),
         );
-        await applyGeneratedImageToElement(selectedElementId, finalUrl, true);
-        setShowFastEdit(false);
+        await applyGeneratedImageToElement(newId, finalUrl, true);
         setFastEditPrompt("");
       } else {
         throw new Error("No result");
       }
     } catch (e) {
       console.error(e);
-      setElementGeneratingState(selectedElementId, false);
+      setElements((prev) => {
+        const next = prev.filter((item) => item.id !== newId);
+        elementsRef.current = next;
+        return next;
+      });
+      setSelectedElementId(el.id);
     }
   };
 
@@ -4216,10 +4448,16 @@ ${analysis}
         !!fontTriggerRef.current && fontTriggerRef.current.contains(target);
       const clickedInWeightTrigger =
         !!weightTriggerRef.current && weightTriggerRef.current.contains(target);
+      const clickedInTextSettingsTrigger =
+        !!textSettingsTriggerRef.current &&
+        textSettingsTriggerRef.current.contains(target);
       const clickedInFontPopover =
         !!fontPopoverRef.current && fontPopoverRef.current.contains(target);
       const clickedInWeightPopover =
         !!weightPopoverRef.current && weightPopoverRef.current.contains(target);
+      const clickedInTextSettingsPopover =
+        !!textSettingsPopoverRef.current &&
+        textSettingsPopoverRef.current.contains(target);
       if (
         !target.closest(".history-popover-trigger") &&
         !target.closest(".history-popover-content")
@@ -4229,12 +4467,15 @@ ${analysis}
       if (
         !clickedInFontTrigger &&
         !clickedInWeightTrigger &&
+        !clickedInTextSettingsTrigger &&
         !clickedInFontPopover &&
         !clickedInWeightPopover &&
+        !clickedInTextSettingsPopover &&
         !target.closest(".relative")
       ) {
         setShowFontPicker(false);
         setShowWeightPicker(false);
+        setShowTextSettings(false);
         setShowResPicker(false);
         setShowRatioPicker(false);
         setShowModelPicker(false);
@@ -4260,8 +4501,10 @@ ${analysis}
               const containerW =
                 window.innerWidth - (showAssistantRef.current ? 480 : 0);
               const containerH = window.innerHeight;
-              const centerX = (containerW / 2 - panRef.current.x) / (zoomRef.current / 100);
-              const centerY = (containerH / 2 - panRef.current.y) / (zoomRef.current / 100);
+              const centerX =
+                (containerW / 2 - panRef.current.x) / (zoomRef.current / 100);
+              const centerY =
+                (containerH / 2 - panRef.current.y) / (zoomRef.current / 100);
               const newElement: CanvasElement = {
                 id: Date.now().toString(),
                 type: "image",
@@ -4381,7 +4624,9 @@ ${analysis}
         setFontPickerPos(getPopoverPosition(fontTriggerRef.current, 192, 260));
       }
       if (showWeightPicker && weightTriggerRef.current) {
-        setWeightPickerPos(getPopoverPosition(weightTriggerRef.current, 128, 210));
+        setWeightPickerPos(
+          getPopoverPosition(weightTriggerRef.current, 128, 210),
+        );
       }
     };
 
@@ -4658,6 +4903,23 @@ ${analysis}
     setShowShapeMenu(false);
   };
 
+  // 文本宽度测量辅助函数
+  const getTextWidth = (
+    text: string,
+    fontSize: number,
+    fontFamily: string,
+    fontWeight: string | number = 400,
+    letterSpacing: number = 0,
+  ): number => {
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    if (!context) return text.length * (fontSize * 0.6); // Fallback
+    context.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+    const measurementText = text || " "; // 确保空内容也有基本测量
+    const metrics = context.measureText(measurementText);
+    return metrics.width + (measurementText.length * letterSpacing);
+  };
+
   const addText = (opts?: {
     x?: number;
     y?: number;
@@ -4668,18 +4930,20 @@ ${analysis}
     const containerH = window.innerHeight;
     const centerX = (containerW / 2 - pan.x) / (zoom / 100);
     const centerY = (containerH / 2 - pan.y) / (zoom / 100);
-    const textWidth = 320;
-    const textHeight = 84;
-    const nextX = typeof opts?.x === "number" ? opts.x : centerX - textWidth / 2;
-    const nextY = typeof opts?.y === "number" ? opts.y : centerY - textHeight / 2;
+    const textWidth = 10;
+    const textHeight = 48; // Matches font size
+    const nextX =
+      typeof opts?.x === "number" ? opts.x : centerX;
+    const nextY =
+      typeof opts?.y === "number" ? opts.y : centerY - textHeight / 2;
     const newElement: CanvasElement = {
       id: Date.now().toString(),
       type: "text",
-      text: "Type something...",
+      text: "", // Start empty for click-to-type feeling
       x: nextX,
       y: nextY,
       width: textWidth,
-      height: textHeight,
+      height: 48,
       fontSize: 48,
       fontFamily: "Inter",
       fontWeight: 400,
@@ -4823,16 +5087,20 @@ ${analysis}
       });
       if (resultUrl) {
         const finalUrl = await retryWithConsistencyFix(
-          '重新生成结果',
+          "重新生成结果",
           resultUrl,
-          async (fixPrompt?: string) => imageGenSkill({
-            prompt: fixPrompt ? `${el.genPrompt}\n\nConsistency fix: ${fixPrompt}` : el.genPrompt,
-            model,
-            aspectRatio: currentAspectRatio,
-            imageSize: el.genResolution,
-            referenceImages: el.genRefImages || (el.genRefImage ? [el.genRefImage] : []),
-            consistencyContext: getDesignConsistencyContext(),
-          }),
+          async (fixPrompt?: string) =>
+            imageGenSkill({
+              prompt: fixPrompt
+                ? `${el.genPrompt}\n\nConsistency fix: ${fixPrompt}`
+                : el.genPrompt,
+              model,
+              aspectRatio: currentAspectRatio,
+              imageSize: el.genResolution,
+              referenceImages:
+                el.genRefImages || (el.genRefImage ? [el.genRefImage] : []),
+              consistencyContext: getDesignConsistencyContext(),
+            }),
         );
         await applyGeneratedImageToElement(elementId, finalUrl, true);
       } else {
@@ -5018,7 +5286,11 @@ ${analysis}
               originalHeight,
               displayWidth,
               displayHeight,
-            } = await makeImageProxyDataUrl(file, DEFAULT_PROXY_MAX_DIM, viewport);
+            } = await makeImageProxyDataUrl(
+              file,
+              DEFAULT_PROXY_MAX_DIM,
+              viewport,
+            );
             const containerW = viewport.width;
             const containerH = viewport.height;
             const centerX = (containerW / 2 - pan.x) / (zoom / 100);
@@ -5030,10 +5302,7 @@ ${analysis}
               type: "image",
               url: displayUrl,
               originalUrl,
-              proxyUrl:
-                displayUrl !== originalUrl
-                  ? displayUrl
-                  : undefined,
+              proxyUrl: displayUrl !== originalUrl ? displayUrl : undefined,
               x: centerX - displayWidth / 2 + offset,
               y: centerY - displayHeight / 2 + offset,
               width: displayWidth,
@@ -5043,7 +5312,10 @@ ${analysis}
             };
             newElementsToAppend.push(newElement);
           } catch (error) {
-            console.warn("Failed to create image proxy, fallback to dataURL", error);
+            console.warn(
+              "Failed to create image proxy, fallback to dataURL",
+              error,
+            );
             const fallbackUrl = await fileToDataUrl(file);
             const img = new Image();
             img.onload = () => {
@@ -5130,7 +5402,8 @@ ${analysis}
     const baseZIndex = elementsRef.current.length;
     const checkDone = () => {
       addedCount++;
-      if (addedCount === files.length) appendElementsAndSaveHistory(newElementsToAppend);
+      if (addedCount === files.length)
+        appendElementsAndSaveHistory(newElementsToAppend);
     };
 
     files.forEach((file, index) => {
@@ -5145,17 +5418,18 @@ ${analysis}
               originalHeight,
               displayWidth,
               displayHeight,
-            } = await makeImageProxyDataUrl(file, DEFAULT_PROXY_MAX_DIM, viewport);
+            } = await makeImageProxyDataUrl(
+              file,
+              DEFAULT_PROXY_MAX_DIM,
+              viewport,
+            );
             const offset = index * 20;
             newElementsToAppend.push({
               id: Date.now().toString() + index,
               type: "image",
               url: displayUrl,
               originalUrl,
-              proxyUrl:
-                displayUrl !== originalUrl
-                  ? displayUrl
-                  : undefined,
+              proxyUrl: displayUrl !== originalUrl ? displayUrl : undefined,
               x: canvasDropX - displayWidth / 2 + offset,
               y: canvasDropY - displayHeight / 2 + offset,
               width: displayWidth,
@@ -5363,6 +5637,17 @@ ${analysis}
           newHeight = newWidth / ratio;
         }
       }
+      let scale = 1;
+      if (el?.type === "text") {
+        const scaleX = newWidth / resizeStart.width;
+        const scaleY = newHeight / resizeStart.height;
+        if (resizeHandle?.length === 2) {
+          scale = Math.max(scaleX, scaleY);
+        } else {
+          scale = resizeHandle === "e" || resizeHandle === "w" ? scaleX : scaleY;
+        }
+      }
+
       resizePreviewRef.current = {
         id: selectedElementId,
         x: newX,
@@ -5370,14 +5655,8 @@ ${analysis}
         width: newWidth,
         height: newHeight,
         fontSize:
-          el.type === "text"
-            ? Math.max(
-              8,
-              Math.min(
-                512,
-                resizeStart.fontSize * (newWidth / resizeStart.width),
-              ),
-            )
+          el?.type === "text"
+            ? Math.max(8, Math.min(512, Math.round(resizeStart.fontSize * scale)))
             : undefined,
       };
       cancelAnimationFrame(resizeRafIdRef.current);
@@ -5389,11 +5668,12 @@ ${analysis}
           dom.style.width = `${newWidth}px`;
           dom.style.height = `${newHeight}px`;
           if (el.type === "text") {
+            const nextScale = scale;
             const newFontSize = Math.max(
               8,
               Math.min(
                 512,
-                resizeStart.fontSize * (newWidth / resizeStart.width),
+                Math.round(resizeStart.fontSize * nextScale),
               ),
             );
             const textInner = dom.querySelector(".text-inner-target") || dom;
@@ -5614,12 +5894,13 @@ ${analysis}
 
       if (Object.keys(offsets).length > 0 && moved) {
         let committedElements: CanvasElement[] = [];
-        setElements((prev) =>
-        (committedElements = prev.map((el) => {
-          const pos = offsets[el.id];
-          if (pos) return { ...el, x: pos.x, y: pos.y };
-          return el;
-        })),
+        setElements(
+          (prev) =>
+            (committedElements = prev.map((el) => {
+              const pos = offsets[el.id];
+              if (pos) return { ...el, x: pos.x, y: pos.y };
+              return el;
+            })),
         );
         if (committedElements.length > 0) {
           elementsRef.current = committedElements;
@@ -5844,7 +6125,7 @@ ${analysis}
                   );
                 }
               })
-              .catch(() => { });
+              .catch(() => {});
           }
         }
       } catch (err) {
@@ -5957,9 +6238,7 @@ ${analysis}
     // Locked element protection (including inheritance)
     const isLocked =
       el.isLocked ||
-      (el.groupId
-        ? elementById.get(el.groupId)?.isLocked
-        : false);
+      (el.groupId ? elementById.get(el.groupId)?.isLocked : false);
     if (isLocked) return;
 
     setIsResizing(true);
@@ -6053,6 +6332,20 @@ ${analysis}
     setShowFontPicker(false);
     setWeightPickerPos(getPopoverPosition(weightTriggerRef.current, 128, 210));
     setShowWeightPicker(true);
+  };
+
+  const toggleTextSettings = () => {
+    if (showTextSettings) {
+      setShowTextSettings(false);
+      return;
+    }
+    if (!textSettingsTriggerRef.current) return;
+    setShowFontPicker(false);
+    setShowWeightPicker(false);
+    setTextSettingsPos(
+      getPopoverPosition(textSettingsTriggerRef.current, 208, 160),
+    );
+    setShowTextSettings(true);
   };
 
   const handleToolMenuMouseEnter = () => {
@@ -6373,226 +6666,295 @@ ${analysis}
   };
 
   const renderTextToolbar = () => {
-    if (!selectedElementId || selectedElementIds.length > 1 || isDraggingElement) return null;
+    if (
+      !selectedElementId ||
+      selectedElementIds.length > 1 ||
+      isDraggingElement // 拖动时隐藏工具栏，防止卡顿
+    )
+      return null;
     const el = selectedElement;
     if (!el || el.type !== "text") return null;
 
-    const adaptiveScale = Math.max(0.4, Math.min(2.0, zoom / 100));
-    const flexibleScale = 1 + (1 / adaptiveScale - 1) * 0.85;
-    const finalScale = Math.max(0.6, flexibleScale);
+    // 自适应动态缩放逻辑：
+    // 当 zoom >= 100 时，工具栏随画布 1:1 缩放，保持物理关联感。
+    // 当 zoom < 100 时，工具栏缓慢缩小（不完全随 zoom 消失），保证在极小缩放时依然可操作。
+    const currentZoom = zoom / 100;
+    const dynamicScale = currentZoom >= 1 
+      ? 1 
+      : 1 / (1 + (1 / currentZoom - 1) * 0.6); // 这里的 0.6 是补偿系数，值越大缩小越快，值越小越“坚挺”
+    
     const canvasCenterX = el.x + el.width / 2;
-    const topToolbarTop = el.y - 60 / adaptiveScale;
+    const toolbarTop = el.y - (64 / dynamicScale); // 增加偏移到 64，防止遮挡内容
+    const updateEl = (patch: any) => {
+      const newElements = elements.map(item => 
+        item.id === el.id ? { ...item, ...patch } : item
+      );
+      setElementsSynced(newElements);
+    };
+
+    const updateFontSize = (newSize: number) => {
+      const currentText = textEditDraftRef.current[el.id] || el.text || "";
+      const newWidth = getTextWidth(currentText, newSize, el.fontFamily, el.fontWeight, el.letterSpacing);
+      updateEl({
+        fontSize: newSize,
+        width: newWidth,
+        height: newSize * (el.lineHeight || 1.2)
+      });
+    };
 
     return (
       <>
-      <div
-        id="active-floating-toolbar"
-        className={`absolute z-50 ${isDraggingElement ? "" : "animate-in fade-in zoom-in-95 duration-200"} pointer-events-auto origin-bottom-left flex items-center bg-white rounded-full px-4 py-2 shadow-[0_8px_30px_rgba(0,0,0,0.12)] border border-gray-100 gap-3`}
-        style={{
-          left: canvasCenterX,
-          top: topToolbarTop,
-          transform: `translateX(-50%) scale(${finalScale})`,
-          whiteSpace: "nowrap",
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {/* Color Picker */}
-        <div className="relative w-6 h-6 rounded-full overflow-hidden border border-gray-200 cursor-pointer shadow-sm shrink-0">
-          <input
-            type="color"
-            value={el.fillColor || "#000000"}
-            onChange={(e) => updateSelectedElement({ fillColor: e.target.value })}
-            className="absolute -top-2 -left-2 w-10 h-10 cursor-pointer p-0 border-0"
-          />
-        </div>
+        <div
+          id="active-floating-toolbar"
+          className={`absolute z-50 ${isDraggingElement ? "" : "animate-in fade-in zoom-in-95 duration-200"} pointer-events-auto origin-bottom-center flex items-center bg-white rounded-2xl px-3 py-1.5 shadow-[0_12px_40px_rgba(0,0,0,0.15)] border border-gray-100 gap-2`}
+          style={{
+            left: canvasCenterX,
+            top: toolbarTop,
+            transform: `translateX(-50%) scale(${dynamicScale})`, // 应用自适应缩放因子
+            whiteSpace: "nowrap",
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {/* Color Picker */}
+          <div className="relative w-6 h-6 rounded-full overflow-hidden border border-gray-200 cursor-pointer shadow-sm shrink-0 hover:ring-2 hover:ring-blue-100 transition-all">
+            <input
+              type="color"
+              value={el.fillColor || "#000000"}
+              onChange={(e) => updateEl({ fillColor: e.target.value })}
+              className="absolute -top-3 -left-3 w-12 h-12 cursor-pointer p-0 border-0"
+            />
+          </div>
 
-        <div className="w-px h-4 bg-gray-200 mx-1 shrink-0"></div>
+          <div className="w-px h-4 bg-gray-100 mx-0.5 shrink-0"></div>
 
-        {/* Font Family */}
-        <div>
+          {/* Font Family Dropdown */}
           <button
             ref={fontTriggerRef}
             onClick={toggleFontPicker}
-            className="flex items-center gap-2 px-3 py-1 hover:bg-gray-50 rounded-lg text-sm font-medium min-w-[100px] justify-between transition-colors"
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold transition-all group ${showFontPicker ? "bg-gray-900 text-white shadow-md" : "hover:bg-gray-50 text-gray-700"}`}
           >
-            <span className="truncate max-w-[80px]">{el.fontFamily || "Inter"}</span>
-            <ChevronDown size={14} className="text-gray-400" />
+            <span className="truncate max-w-[70px]">
+              {el.fontFamily || "Inter"}
+            </span>
+            <ChevronDown
+              size={12}
+              className={showFontPicker ? "text-white/60" : "text-gray-400"}
+            />
           </button>
-        </div>
 
-        <div className="w-px h-4 bg-gray-200 mx-1 shrink-0"></div>
-
-        {/* Font Weight Dropdown */}
-        <div>
+          {/* Font Weight Dropdown */}
           <button
             ref={weightTriggerRef}
             onClick={toggleWeightPicker}
-            className="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 rounded-lg text-sm font-medium transition-colors"
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold transition-all group ${showWeightPicker ? "bg-gray-900 text-white shadow-md" : "hover:bg-gray-50 text-gray-700"}`}
           >
-            <span className="w-16 text-center">
-              {el.fontWeight === 700 ? "Bold" : el.fontWeight === 600 ? "Semibold" : el.fontWeight === 500 ? "Medium" : "Regular"}
+            <span className="w-14 text-center">
+              {el.fontWeight === 700
+                ? "Bold"
+                : el.fontWeight === 600
+                  ? "Semibold"
+                  : el.fontWeight === 500
+                    ? "Medium"
+                    : "Regular"}
             </span>
-            <ChevronDown size={14} className="text-gray-400" />
+            <ChevronDown
+              size={12}
+              className={showWeightPicker ? "text-white/60" : "text-gray-400"}
+            />
+          </button>
+
+          <div className="w-px h-5 bg-gray-100 mx-1 shrink-0"></div>
+
+          {/* Font Size Control */}
+          <div className="flex items-center bg-gray-50 rounded-xl px-1.5 py-0.5">
+            <button
+              onClick={() => updateFontSize(Math.max(8, (el.fontSize || 16) - 2))}
+              className="p-1 hover:bg-white hover:shadow-sm rounded-lg transition-all text-gray-400 hover:text-gray-900"
+            >
+              <Minus size={14} />
+            </button>
+            <input
+              type="number"
+              value={el.fontSize || 16}
+              onChange={(e) => updateFontSize(Number(e.target.value))}
+              className="w-9 bg-transparent border-none text-center text-sm font-bold focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-gray-900"
+            />
+            <button
+              onClick={() => updateFontSize((el.fontSize || 16) + 2)}
+              className="p-1 hover:bg-white hover:shadow-sm rounded-lg transition-all text-gray-400 hover:text-gray-900"
+            >
+              <Plus size={14} />
+            </button>
+          </div>
+
+          <div className="w-px h-5 bg-gray-100 mx-1 shrink-0"></div>
+
+          {/* Alignment Controls */}
+          <div className="flex items-center bg-gray-50 rounded-xl px-1 py-0.5">
+            <TooltipButton
+              icon={AlignLeft}
+              label="左对齐"
+              active={el.textAlign === "left"}
+              onClick={() => updateEl({ textAlign: "left" })}
+            />
+            <TooltipButton
+              icon={AlignCenter}
+              label="居中对齐"
+              active={el.textAlign === "center" || !el.textAlign}
+              onClick={() => updateEl({ textAlign: "center" })}
+            />
+            <TooltipButton
+              icon={AlignRight}
+              label="右对齐"
+              active={el.textAlign === "right"}
+              onClick={() => updateEl({ textAlign: "right" })}
+            />
+          </div>
+
+          <div className="w-px h-5 bg-gray-100 mx-1 shrink-0"></div>
+
+          {/* Advanced Settings Toggle */}
+          <button
+            ref={textSettingsTriggerRef}
+            onClick={toggleTextSettings}
+            className={`p-1.5 rounded-xl transition-all ${showTextSettings ? "bg-gray-900 text-white shadow-md" : "text-gray-400 hover:bg-gray-50 hover:text-gray-700"}`}
+          >
+            <SlidersHorizontal size={17} />
           </button>
         </div>
 
-        <div className="w-px h-4 bg-gray-200 mx-1 shrink-0"></div>
+        {/* Font Picker Portal */}
+        {showFontPicker &&
+          fontPickerPos &&
+          ReactDOM.createPortal(
+            <div
+              ref={fontPopoverRef}
+              className="fixed w-48 max-h-64 overflow-y-auto bg-white/95 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.2)] border border-gray-100 p-1.5 z-[9999] backdrop-blur-md animate-in fade-in zoom-in-95 duration-200"
+              style={{ left: fontPickerPos.x, top: fontPickerPos.y }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="flex flex-col gap-0.5">
+                {FONTS.map((font) => (
+                  <button
+                    key={font}
+                    onClick={() => {
+                      updateEl({ fontFamily: font });
+                      setShowFontPicker(false);
+                    }}
+                    className={`h-10 w-full text-left px-3 rounded-xl text-sm transition-all flex items-center justify-between ${el.fontFamily === font ? "bg-gray-900 text-white font-bold" : "hover:bg-gray-50 text-gray-700"}`}
+                    style={{ fontFamily: font }}
+                  >
+                    <span>{font}</span>
+                    {el.fontFamily === font && <Check size={14} />}
+                  </button>
+                ))}
+              </div>
+            </div>,
+            document.body,
+          )}
 
-        {/* Font Size */}
-        <div className="flex items-center gap-1.5 px-2">
-          <button
-            onClick={() => updateSelectedElement({ fontSize: Math.max(8, (el.fontSize || 16) - 2) })}
-            className="p-1 hover:bg-gray-100 rounded transition-colors text-gray-400 hover:text-black"
-          >
-            <Minus size={14} />
-          </button>
-          <input
-            type="number"
-            value={el.fontSize || 16}
-            onChange={(e) => updateSelectedElement({ fontSize: Number(e.target.value) })}
-            className="w-10 bg-transparent border-none text-center text-sm font-bold focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-          />
-          <button
-            onClick={() => updateSelectedElement({ fontSize: (el.fontSize || 16) + 2 })}
-            className="p-1 hover:bg-gray-100 rounded transition-colors text-gray-400 hover:text-black"
-          >
-            <Plus size={14} />
-          </button>
-        </div>
+        {/* Weight Picker Portal */}
+        {showWeightPicker &&
+          weightPickerPos &&
+          ReactDOM.createPortal(
+            <div
+              ref={weightPopoverRef}
+              className="fixed w-36 bg-white/95 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.2)] border border-gray-100 p-1.5 z-[9999] backdrop-blur-md animate-in fade-in zoom-in-95 duration-200"
+              style={{ left: weightPickerPos.x, top: weightPickerPos.y }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="flex flex-col gap-0.5">
+                {[400, 500, 600, 700].map((w) => (
+                  <button
+                    key={w}
+                    onClick={() => {
+                      updateEl({ fontWeight: w });
+                      setShowWeightPicker(false);
+                    }}
+                    className={`h-10 w-full text-left px-3 rounded-xl text-sm transition-all flex items-center justify-between ${el.fontWeight === w ? "bg-gray-900 text-white font-bold" : "hover:bg-gray-50 text-gray-700"}`}
+                  >
+                    <span>
+                      {w === 400
+                        ? "Regular"
+                        : w === 500
+                          ? "Medium"
+                          : w === 600
+                            ? "Semibold"
+                            : "Bold"}
+                    </span>
+                    {el.fontWeight === w && <Check size={14} />}
+                  </button>
+                ))}
+              </div>
+            </div>,
+            document.body,
+          )}
 
-        <div className="w-px h-4 bg-gray-200 mx-1 shrink-0"></div>
-
-        {/* Line Height */}
-        <div className="flex items-center gap-1.5 px-1.5">
-          <span className="text-[11px] font-medium text-gray-500">LH</span>
-          <input
-            type="number"
-            min={0.8}
-            max={3}
-            step={0.1}
-            value={Number((el.lineHeight || 1.2).toFixed(1))}
-            onChange={(e) => updateSelectedElement({ lineHeight: Math.max(0.8, Math.min(3, Number(e.target.value) || 1.2)) })}
-            className="w-12 bg-transparent border-none text-center text-sm font-semibold focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-          />
-        </div>
-
-        <div className="w-px h-4 bg-gray-200 mx-1 shrink-0"></div>
-
-        {/* Letter Spacing */}
-        <div className="flex items-center gap-1.5 px-1.5">
-          <span className="text-[11px] font-medium text-gray-500">LS</span>
-          <input
-            type="number"
-            min={-5}
-            max={30}
-            step={0.5}
-            value={Number((el.letterSpacing || 0).toFixed(1))}
-            onChange={(e) => updateSelectedElement({ letterSpacing: Math.max(-5, Math.min(30, Number(e.target.value) || 0)) })}
-            className="w-12 bg-transparent border-none text-center text-sm font-semibold focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-          />
-        </div>
-
-        <div className="w-px h-4 bg-gray-200 mx-1 shrink-0"></div>
-
-        {/* Text Align */}
-        <div className="flex items-center gap-0.5">
-          <button
-            onClick={() => updateSelectedElement({ textAlign: "left" })}
-            className={`p-1.5 rounded-lg transition-colors ${el.textAlign === "left" || !el.textAlign ? "bg-gray-100 text-black shadow-inner" : "text-gray-400 hover:bg-gray-50 hover:text-gray-800"}`}
-          >
-            <AlignLeft size={16} />
-          </button>
-          <button
-            onClick={() => updateSelectedElement({ textAlign: "center" })}
-            className={`p-1.5 rounded-lg transition-colors ${el.textAlign === "center" ? "bg-gray-100 text-black shadow-inner" : "text-gray-400 hover:bg-gray-50 hover:text-gray-800"}`}
-          >
-            <AlignCenter size={16} />
-          </button>
-          <button
-            onClick={() => updateSelectedElement({ textAlign: "right" })}
-            className={`p-1.5 rounded-lg transition-colors ${el.textAlign === "right" ? "bg-gray-100 text-black shadow-inner" : "text-gray-400 hover:bg-gray-50 hover:text-gray-800"}`}
-          >
-            <AlignRight size={16} />
-          </button>
-          <button
-            onClick={() => updateSelectedElement({ textAlign: "justify" })}
-            className={`p-1.5 rounded-lg transition-colors ${el.textAlign === "justify" ? "bg-gray-100 text-black shadow-inner" : "text-gray-400 hover:bg-gray-50 hover:text-gray-800"}`}
-          >
-            <AlignJustify size={16} />
-          </button>
-        </div>
-
-        <div className="w-px h-4 bg-gray-200 mx-1 shrink-0"></div>
-
-        {/* Style Buttons (Underline/Strikethrough) */}
-        <div className="flex items-center gap-0.5">
-          <button
-            onClick={() => updateSelectedElement({ textDecoration: el.textDecoration === "underline" ? "none" : "underline" })}
-            className={`p-1.5 rounded-lg transition-colors ${el.textDecoration === "underline" ? "bg-gray-100 text-black" : "text-gray-400 hover:bg-gray-50"}`}
-          >
-            <Underline size={16} />
-          </button>
-          <button
-            onClick={() => updateSelectedElement({ textDecoration: el.textDecoration === "line-through" ? "none" : "line-through" })}
-            className={`p-1.5 rounded-lg transition-colors ${el.textDecoration === "line-through" ? "bg-gray-100 text-black" : "text-gray-400 hover:bg-gray-50"}`}
-          >
-            <Strikethrough size={16} />
-          </button>
-        </div>
-      </div>
-      {showFontPicker &&
-        fontPickerPos &&
-        ReactDOM.createPortal(
-          <div
-            ref={fontPopoverRef}
-            className="fixed w-48 max-h-60 overflow-y-auto bg-white/95 rounded-xl shadow-[0_18px_50px_rgba(0,0,0,0.18)] border border-black/10 p-1 z-[9999] backdrop-blur-sm animate-in fade-in zoom-in-95 duration-150"
-            style={{ left: fontPickerPos.x, top: fontPickerPos.y }}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="flex flex-col gap-1">
-              {FONTS.map((font) => (
-                <button
-                  key={font}
-                  onClick={() => {
-                    updateSelectedElement({ fontFamily: font });
-                    setShowFontPicker(false);
-                  }}
-                  className={`h-9 w-full text-left px-3 rounded-lg text-sm transition-colors ${el.fontFamily === font ? "bg-blue-50 text-blue-600 font-bold" : "hover:bg-gray-50 text-gray-700"}`}
-                  style={{ fontFamily: font }}
-                >
-                  {font}
-                </button>
-              ))}
-            </div>
-          </div>,
-          document.body,
-        )}
-      {showWeightPicker &&
-        weightPickerPos &&
-        ReactDOM.createPortal(
-          <div
-            ref={weightPopoverRef}
-            className="fixed w-32 bg-white/95 rounded-xl shadow-[0_18px_50px_rgba(0,0,0,0.18)] border border-black/10 p-1 z-[9999] backdrop-blur-sm animate-in fade-in zoom-in-95 duration-150"
-            style={{ left: weightPickerPos.x, top: weightPickerPos.y }}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="flex flex-col gap-1">
-              {[400, 500, 600, 700].map((w) => (
-                <button
-                  key={w}
-                  onClick={() => {
-                    updateSelectedElement({ fontWeight: w });
-                    setShowWeightPicker(false);
-                  }}
-                  className={`h-9 w-full text-left px-3 rounded-lg text-sm transition-colors ${el.fontWeight === w ? "bg-blue-50 text-blue-600 font-bold" : "hover:bg-gray-50 text-gray-700"}`}
-                >
-                  {w === 700 ? "Bold" : w === 600 ? "Semibold" : w === 500 ? "Medium" : "Regular"}
-                </button>
-              ))}
-            </div>
-          </div>,
-          document.body,
-        )}
+        {/* Advanced Text Settings Portal (LH / LS) */}
+        {showTextSettings &&
+          textSettingsPos &&
+          ReactDOM.createPortal(
+            <div
+              ref={textSettingsPopoverRef}
+              className="fixed w-52 bg-white/95 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.2)] border border-gray-100 p-3 z-[9999] backdrop-blur-md animate-in fade-in zoom-in-95 duration-200"
+              style={{ left: textSettingsPos.x, top: textSettingsPos.y }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="flex flex-col gap-4">
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center text-[11px] font-bold text-gray-400 px-1">
+                    <span>LINE HEIGHT</span>
+                    <span className="text-gray-900">
+                      {(el.lineHeight || 1.2).toFixed(1)}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.8}
+                    max={3}
+                    step={0.1}
+                    value={el.lineHeight || 1.2}
+                    onChange={(e) => {
+                      const newVal = Number(e.target.value);
+                      const currentText = textEditDraftRef.current[el.id] || el.text || "";
+                      const newWidth = getTextWidth(currentText, el.fontSize, el.fontFamily, el.fontWeight, newVal);
+                      updateEl({
+                        lineHeight: newVal,
+                        width: newWidth
+                      });
+                    }}
+                    className="w-full h-1.5 bg-gray-100 rounded-full appearance-none cursor-pointer accent-gray-900"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center text-[11px] font-bold text-gray-400 px-1">
+                    <span>LETTER SPACING</span>
+                    <span className="text-gray-900">
+                      {(el.letterSpacing || 0).toFixed(1)}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={-5}
+                    max={30}
+                    step={0.5}
+                    value={el.letterSpacing || 0}
+                    onChange={(e) => {
+                      const newVal = Number(e.target.value);
+                      const currentText = textEditDraftRef.current[el.id] || el.text || "";
+                      const newWidth = getTextWidth(currentText, el.fontSize, el.fontFamily, el.fontWeight, newVal);
+                      updateEl({
+                        letterSpacing: newVal,
+                        width: newWidth
+                      });
+                    }}
+                    className="w-full h-1.5 bg-gray-100 rounded-full appearance-none cursor-pointer accent-gray-900"
+                  />
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )}
       </>
     );
   };
@@ -6611,9 +6973,12 @@ ${analysis}
           <input
             type="color"
             value={el.fillColor}
-            onChange={(e) =>
-              updateSelectedElement({ fillColor: e.target.value })
-            }
+            onChange={(e) => {
+              const newElements = elements.map(item => 
+                item.id === el.id ? { ...item, fillColor: e.target.value } : item
+              );
+              setElementsSynced(newElements);
+            }}
             className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer"
           />
         </div>
@@ -6708,7 +7073,7 @@ ${analysis}
     const counterScale = 100 / zoom;
 
     // Configuration Toolbar for Empty Gen-Image
-    if (!el.url && el.type === "gen-image") {
+    if (!el.url && el.type === "gen-image" && !el.isGenerating) {
       const toolbarTop = elY + el.height + 16;
       const toolbarDesignWidth = 440;
       // Strict inverse scale: makes the toolbar stay pixel-perfect regardless of canvas zoom
@@ -6984,9 +7349,7 @@ ${analysis}
           onMouseDown={(e) => e.stopPropagation()}
           onKeyDown={(e) => e.stopPropagation()}
         >
-          <span className="text-sm font-bold text-gray-900">
-            编辑文字
-          </span>
+          <span className="text-sm font-bold text-gray-900">编辑文字</span>
           {detectedTexts.length > 0 ? (
             <>
               <div className="max-h-56 overflow-y-auto pr-1 flex flex-col gap-2.5 custom-scrollbar">
@@ -7047,7 +7410,8 @@ ${analysis}
       const selectedImageEl = selectedElement;
       const canDrawMask =
         !!selectedImageEl &&
-        (selectedImageEl.type === "image" || selectedImageEl.type === "gen-image") &&
+        (selectedImageEl.type === "image" ||
+          selectedImageEl.type === "gen-image") &&
         !!selectedImageEl.url;
 
       const syncMaskSnapshot = () => {
@@ -7060,7 +7424,8 @@ ${analysis}
       const getPointerPos = (event: React.PointerEvent<HTMLCanvasElement>) => {
         const canvas = eraserCanvasRef.current;
         if (!canvas) return null;
-        const rect = eraserCanvasRectRef.current || canvas.getBoundingClientRect();
+        const rect =
+          eraserCanvasRectRef.current || canvas.getBoundingClientRect();
         const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
         const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
         return { x, y };
@@ -7077,7 +7442,8 @@ ${analysis}
         const canvas = eraserCanvasRef.current;
         const cursor = eraserCursorRef.current;
         if (!canvas || !cursor) return;
-        const rect = eraserCanvasRectRef.current || canvas.getBoundingClientRect();
+        const rect =
+          eraserCanvasRectRef.current || canvas.getBoundingClientRect();
         const viewScale = Math.max(0.001, zoom / 100);
         const x = (event.clientX - rect.left) / viewScale;
         const y = (event.clientY - rect.top) / viewScale;
@@ -7095,7 +7461,9 @@ ${analysis}
         cursor.style.transform = "translate3d(-9999px,-9999px,0)";
       };
 
-      const handleEraserPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+      const handleEraserPointerDown = (
+        event: React.PointerEvent<HTMLCanvasElement>,
+      ) => {
         if (!canDrawMask) return;
         const canvas = eraserCanvasRef.current;
         const maskCanvas = eraserMaskCanvasRef.current;
@@ -7140,7 +7508,9 @@ ${analysis}
         updateEraserCursor(event);
       };
 
-      const handleEraserPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+      const handleEraserPointerMove = (
+        event: React.PointerEvent<HTMLCanvasElement>,
+      ) => {
         updateEraserCursor(event);
         if (!isDrawingEraser) return;
         const canvas = eraserCanvasRef.current;
@@ -7184,7 +7554,9 @@ ${analysis}
         eraserLastPointRef.current = pt;
       };
 
-      const handleEraserPointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
+      const handleEraserPointerUp = (
+        event: React.PointerEvent<HTMLCanvasElement>,
+      ) => {
         if (!isDrawingEraser) return;
         const canvas = eraserCanvasRef.current;
         const maskCanvas = eraserMaskCanvasRef.current;
@@ -7261,7 +7633,9 @@ ${analysis}
                 onChange={(e) => setBrushSize(Number(e.target.value))}
                 className="flex-1 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black"
               />
-              <div className="w-8 text-[11px] text-gray-500 text-right">{brushSize}</div>
+              <div className="w-8 text-[11px] text-gray-500 text-right">
+                {brushSize}
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -7547,7 +7921,9 @@ ${analysis}
               >
                 <Shirt size={16} strokeWidth={2} className="flex-shrink-0" />
                 {toolbarExpanded && (
-                  <span className="text-[13px] whitespace-nowrap">产品替换</span>
+                  <span className="text-[13px] whitespace-nowrap">
+                    产品替换
+                  </span>
                 )}
               </button>
 
@@ -7574,10 +7950,20 @@ ${analysis}
                     </span>
                     <div className="flex flex-wrap gap-2">
                       {productSwapImages.map((imgUrl, i) => (
-                        <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border border-gray-200 group">
-                          <img src={imgUrl} className="w-full h-full object-cover" />
+                        <div
+                          key={i}
+                          className="relative w-16 h-16 rounded-lg overflow-hidden border border-gray-200 group"
+                        >
+                          <img
+                            src={imgUrl}
+                            className="w-full h-full object-cover"
+                          />
                           <button
-                            onClick={() => setProductSwapImages(prev => prev.filter((_, idx) => idx !== i))}
+                            onClick={() =>
+                              setProductSwapImages((prev) =>
+                                prev.filter((_, idx) => idx !== i),
+                              )
+                            }
                             className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
                           >
                             <X size={10} />
@@ -7596,14 +7982,20 @@ ${analysis}
                             onChange={async (e) => {
                               const files = Array.from(e.target.files || []);
                               if (files.length === 0) return;
-                              const toProcess = files.slice(0, 3 - productSwapImages.length);
+                              const toProcess = files.slice(
+                                0,
+                                3 - productSwapImages.length,
+                              );
                               const newImgs: string[] = [];
                               for (let file of toProcess) {
                                 const b64 = await fileToDataUrl(file);
                                 newImgs.push(b64);
                               }
-                              setProductSwapImages(prev => [...prev, ...newImgs]);
-                              e.target.value = '';
+                              setProductSwapImages((prev) => [
+                                ...prev,
+                                ...newImgs,
+                              ]);
+                              e.target.value = "";
                             }}
                           />
                         </label>
@@ -7619,7 +8011,9 @@ ${analysis}
                     <div className="relative">
                       <button
                         onClick={() =>
-                          setShowProductSwapResDropdown(!showProductSwapResDropdown)
+                          setShowProductSwapResDropdown(
+                            !showProductSwapResDropdown,
+                          )
                         }
                         className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 border border-gray-100 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100 transition"
                       >
@@ -7642,9 +8036,7 @@ ${analysis}
                               className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition ${productSwapRes === res ? "bg-blue-50 text-blue-600 font-bold" : "text-gray-600 hover:bg-gray-50"}`}
                             >
                               <span>{res}</span>
-                              {productSwapRes === res && (
-                                <Check size={14} />
-                              )}
+                              {productSwapRes === res && <Check size={14} />}
                             </button>
                           ))}
                         </div>
@@ -7932,7 +8324,9 @@ ${analysis}
             />
           </div>
 
-          <div className={`px-4 pb-2 relative z-10 ${videoToolbarTab === "frames" ? "block" : "hidden"}`}>
+          <div
+            className={`px-4 pb-2 relative z-10 ${videoToolbarTab === "frames" ? "block" : "hidden"}`}
+          >
             <div className="flex items-center gap-2.5 w-max relative">
               {/* 首帧 Card */}
               <div
@@ -7948,7 +8342,9 @@ ${analysis}
                         src={el.genStartFrame}
                         className="w-full h-full object-cover"
                       />
-                      <div className="absolute bottom-0 left-0 right-0 bg-black/40 text-[8px] text-white py-0.5 text-center">首帧</div>
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/40 text-[8px] text-white py-0.5 text-center">
+                        首帧
+                      </div>
                     </div>
                     <div
                       className="absolute -top-1.5 -right-1.5 bg-gray-600/90 text-white rounded-full p-0.5 cursor-pointer hover:bg-red-500 opacity-0 group-hover/startframe:opacity-100 transition-opacity z-30"
@@ -7963,7 +8359,9 @@ ${analysis}
                 ) : (
                   <>
                     <Plus size={14} className="text-gray-400" />
-                    <span className="text-[8px] text-gray-400 font-bold">首帧</span>
+                    <span className="text-[8px] text-gray-400 font-bold">
+                      首帧
+                    </span>
                   </>
                 )}
                 <input
@@ -7989,7 +8387,9 @@ ${analysis}
                         src={el.genEndFrame}
                         className="w-full h-full object-cover"
                       />
-                      <div className="absolute bottom-0 left-0 right-0 bg-black/40 text-[8px] text-white py-0.5 text-center">尾帧</div>
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/40 text-[8px] text-white py-0.5 text-center">
+                        尾帧
+                      </div>
                     </div>
                     <div
                       className="absolute -top-1.5 -right-1.5 bg-gray-600/90 text-white rounded-full p-0.5 cursor-pointer hover:bg-red-500 opacity-0 group-hover/endframe:opacity-100 transition-opacity z-30"
@@ -8004,7 +8404,9 @@ ${analysis}
                 ) : (
                   <>
                     <Plus size={14} className="text-gray-400" />
-                    <span className="text-[8px] text-gray-400 font-bold">尾帧</span>
+                    <span className="text-[8px] text-gray-400 font-bold">
+                      尾帧
+                    </span>
                   </>
                 )}
                 <input
@@ -8019,10 +8421,15 @@ ${analysis}
           </div>
 
           {/* Multi-Ref Upload Panel */}
-          <div className={`px-4 pb-2 relative ${videoToolbarTab === "multi" ? "block" : "hidden"}`}>
+          <div
+            className={`px-4 pb-2 relative ${videoToolbarTab === "multi" ? "block" : "hidden"}`}
+          >
             <div className="flex items-center gap-2.5 w-max">
               {(el.genVideoRefs || []).map((refImage, index) => (
-                <div key={index} className="relative group/multiref shrink-0 overflow-visible">
+                <div
+                  key={index}
+                  className="relative group/multiref shrink-0 overflow-visible"
+                >
                   <div
                     className="w-10 h-10 rounded-[10px] border border-gray-200 relative cursor-pointer shadow-sm overflow-visible"
                     onClick={() =>
@@ -8132,8 +8539,13 @@ ${analysis}
                   className={`h-8 px-2.5 flex items-center gap-1.5 text-[12px] font-semibold transition whitespace-nowrap overflow-hidden max-w-[150px] shrink-0 rounded-lg ${showVideoModelPicker ? "bg-gray-100 text-gray-900" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50/80"}`}
                   tabIndex={-1}
                 >
-                  <Box size={14} className={`shrink-0 ${showVideoModelPicker ? "text-blue-500" : "text-gray-400"}`} />
-                  <span className="truncate">{el.genModel || "Veo 3.1 Fast"}</span>
+                  <Box
+                    size={14}
+                    className={`shrink-0 ${showVideoModelPicker ? "text-blue-500" : "text-gray-400"}`}
+                  />
+                  <span className="truncate">
+                    {el.genModel || "Veo 3.1 Fast"}
+                  </span>
                   <ChevronDown
                     size={12}
                     className={`text-gray-400 transition-transform duration-300 shrink-0 ${showVideoModelPicker ? "rotate-180" : ""}`}
@@ -8546,14 +8958,14 @@ ${analysis}
         const orig = originalData[e.id];
         return orig
           ? {
-            ...e,
-            groupId: undefined,
-            x: orig.x,
-            y: orig.y,
-            width: orig.width,
-            height: orig.height,
-            zIndex: orig.zIndex,
-          }
+              ...e,
+              groupId: undefined,
+              x: orig.x,
+              y: orig.y,
+              width: orig.width,
+              height: orig.height,
+              zIndex: orig.zIndex,
+            }
           : { ...e, groupId: undefined };
       });
     setElementsSynced(newElements);
@@ -8787,7 +9199,8 @@ ${analysis}
   }, [elements]);
 
   const selectedElement = useMemo(
-    () => (selectedElementId ? elementById.get(selectedElementId) ?? null : null),
+    () =>
+      selectedElementId ? (elementById.get(selectedElementId) ?? null) : null,
     [selectedElementId, elementById],
   );
 
@@ -8797,8 +9210,12 @@ ${analysis}
   );
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#E8E8E8] font-sans">
-      {renderContextMenu()}
+    <div 
+      className="flex h-screen w-screen overflow-hidden bg-[#E8E8E8] font-sans"
+      style={{ cursor: activeTool === "text" ? "crosshair" : "default" }}
+    >
+      <div className="flex flex-1 relative overflow-hidden">
+        {renderContextMenu()}
       {previewUrl && (
         <div
           className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-10 cursor-pointer backdrop-blur-sm animate-in fade-in duration-200"
@@ -8905,12 +9322,14 @@ ${analysis}
                         className={`text-gray-400 transition-transform ${isHistoryExpanded ? "" : "rotate-180"}`}
                       />
                     </div>
-                    <div className={`px-4 ${isHistoryExpanded ? "pb-4" : "pb-0"}`}>
+                    <div
+                      className={`px-4 ${isHistoryExpanded ? "pb-4" : "pb-0"}`}
+                    >
                       {isHistoryExpanded && (
-                      <div className="h-24 bg-gray-50/80 rounded-lg flex flex-col items-center justify-center text-gray-400 text-xs border border-dashed border-gray-200">
-                        <ImageIcon size={24} className="opacity-15 mb-1.5" />
-                        暂无历史记录
-                      </div>
+                        <div className="h-24 bg-gray-50/80 rounded-lg flex flex-col items-center justify-center text-gray-400 text-xs border border-dashed border-gray-200">
+                          <ImageIcon size={24} className="opacity-15 mb-1.5" />
+                          暂无历史记录
+                        </div>
                       )}
                     </div>
                   </div>
@@ -8944,8 +9363,10 @@ ${analysis}
                               const newHidden = !hit?.isHidden;
                               setElements((prev) =>
                                 prev.map((e) => {
-                                  if (e.id === id) return { ...e, isHidden: newHidden };
-                                  if (e.groupId === id) return { ...e, isHidden: newHidden };
+                                  if (e.id === id)
+                                    return { ...e, isHidden: newHidden };
+                                  if (e.groupId === id)
+                                    return { ...e, isHidden: newHidden };
                                   return e;
                                 }),
                               );
@@ -9304,11 +9725,11 @@ ${analysis}
               // Filter elements based on focused group and visibility
               const visibleElements = focusedGroupId
                 ? elements.filter(
-                  (el) =>
-                    (el.groupId === focusedGroupId ||
-                      el.id === focusedGroupId) &&
-                    !el.isHidden,
-                )
+                    (el) =>
+                      (el.groupId === focusedGroupId ||
+                        el.id === focusedGroupId) &&
+                      !el.isHidden,
+                  )
                 : elements.filter((el) => !el.isHidden);
 
               return visibleElements.map((el) => {
@@ -9398,7 +9819,7 @@ ${analysis}
                   <div
                     key={el.id}
                     id={`canvas-el-${el.id}`}
-                    className={`absolute group ${isSelected && el.type !== "text" ? "ring-2 ring-blue-500" : ""} ${isSelected && el.type === "text" ? "ring-1 ring-blue-500 ring-offset-2" : ""} ${isLocked ? "pointer-events-none" : ""}`}
+                    className={`absolute group ${isSelected && el.type !== "text" ? "ring-2 ring-blue-500" : ""} ${isSelected && el.type === "text" && editingTextId !== el.id ? "ring-1 ring-blue-500 ring-offset-2" : ""} ${isLocked ? "pointer-events-none" : ""}`}
                     style={{
                       left: el.x,
                       top: el.y,
@@ -9412,9 +9833,11 @@ ${analysis}
                             ? isLocked
                               ? "default"
                               : "move"
-                            : "default",
-                      whiteSpace: el.type === "text" ? "pre-wrap" : "normal",
-                      wordBreak: "break-word",
+                            : activeTool === "text" 
+                              ? "text"
+                              : "default",
+                      whiteSpace: el.type === "text" ? "nowrap" : "normal",
+                      wordBreak: el.type === "text" ? "keep-all" : "break-word",
                       overflow: el.type === "text" ? "visible" : "hidden",
                     }}
                     onMouseDown={(e) =>
@@ -9442,7 +9865,7 @@ ${analysis}
                         </div>
                       )}
                     {el.type === "text" && (
-                      <div className="w-full h-full flex items-start justify-center">
+                      <div className="w-full h-full flex items-start justify-start">
                         {editingTextId === el.id ? (
                           <textarea
                             autoFocus
@@ -9460,9 +9883,13 @@ ${analysis}
                               padding: 0,
                               margin: 0,
                               minHeight: "1em",
-                              minWidth: "120px",
+                              overflow: "hidden", // 依靠实时宽度测量，不再需要滚动
+                              whiteSpace: "pre", // 保持单行，不换行
+                              scrollbarWidth: "none", // 隐藏滚动条 (Firefox)
                             }}
-                            defaultValue={textEditDraftRef.current[el.id] ?? el.text ?? ""}
+                            defaultValue={
+                              textEditDraftRef.current[el.id] ?? el.text ?? ""
+                            }
                             onFocus={(e) => {
                               if (pendingSelectAllTextIdRef.current === el.id) {
                                 e.currentTarget.select();
@@ -9470,7 +9897,24 @@ ${analysis}
                               }
                             }}
                             onChange={(e) => {
-                              textEditDraftRef.current[el.id] = e.target.value;
+                              const val = e.target.value;
+                              textEditDraftRef.current[el.id] = val;
+                              const currentWidth = getTextWidth(
+                                val,
+                                el.fontSize,
+                                el.fontFamily,
+                                el.fontWeight,
+                                el.letterSpacing,
+                              );
+                              
+                              const targetWidth = Math.max(10, currentWidth);
+                              const targetHeight = el.fontSize * (el.lineHeight || 1.2);
+                              
+                              // 实时更新当前编辑的物理尺寸
+                              const newElements = elements.map(item => 
+                                item.id === el.id ? { ...item, text: val, width: targetWidth, height: targetHeight } : item
+                              );
+                              setElementsSynced(newElements);
                             }}
                             onKeyDown={(e) => {
                               if (e.key === "Escape") {
@@ -9478,7 +9922,8 @@ ${analysis}
                                 e.stopPropagation();
                                 const prevText = el.text || "";
                                 textEditDraftRef.current[el.id] = prevText;
-                                (e.currentTarget as HTMLTextAreaElement).value = prevText;
+                                (e.currentTarget as HTMLTextAreaElement).value =
+                                  prevText;
                                 e.currentTarget.blur();
                               }
                             }}
@@ -9502,8 +9947,11 @@ ${analysis}
                               textDecoration: el.textDecoration || "none",
                               letterSpacing: `${el.letterSpacing || 0}px`,
                               textTransform: el.textTransform || "none",
+                              whiteSpace: "nowrap", // 确保非编辑态文字也不换行
                               margin: 0,
                               padding: 0,
+                              width: "100%",
+                              height: "100%",
                             }}
                           >
                             {el.text || "Text"}
@@ -9511,43 +9959,46 @@ ${analysis}
                         )}
                       </div>
                     )}
-                    {el.type === "text" && isSelected && editingTextId !== el.id && (
-                      <>
-                        <div
-                          className="absolute top-0 left-0 w-3 h-3 bg-white border-2 border-blue-500 rounded-full -translate-x-1/2 -translate-y-1/2 z-20 cursor-nw-resize hover:scale-125 transition"
-                          onMouseDown={(e) => handleResizeStart(e, "nw", el.id)}
-                        ></div>
-                        <div
-                          className="absolute top-0 right-0 w-3 h-3 bg-white border-2 border-blue-500 rounded-full translate-x-1/2 -translate-y-1/2 z-20 cursor-ne-resize hover:scale-125 transition"
-                          onMouseDown={(e) => handleResizeStart(e, "ne", el.id)}
-                        ></div>
-                        <div
-                          className="absolute bottom-0 left-0 w-3 h-3 bg-white border-2 border-blue-500 rounded-full -translate-x-1/2 translate-y-1/2 z-20 cursor-sw-resize hover:scale-125 transition"
-                          onMouseDown={(e) => handleResizeStart(e, "sw", el.id)}
-                        ></div>
-                        <div
-                          className="absolute bottom-0 right-0 w-3 h-3 bg-white border-2 border-blue-500 rounded-full translate-x-1/2 translate-y-1/2 z-20 cursor-se-resize hover:scale-125 transition"
-                          onMouseDown={(e) => handleResizeStart(e, "se", el.id)}
-                        ></div>
-                        <div
-                          className="absolute top-1/2 left-0 w-1.5 h-6 bg-white border border-blue-500 rounded-full -translate-x-1/2 -translate-y-1/2 z-20 cursor-ew-resize hover:scale-110 transition"
-                          onMouseDown={(e) => handleResizeStart(e, "w", el.id)}
-                        ></div>
-                        <div
-                          className="absolute top-1/2 right-0 w-1.5 h-6 bg-white border border-blue-500 rounded-full translate-x-1/2 -translate-y-1/2 z-20 cursor-ew-resize hover:scale-110 transition"
-                          onMouseDown={(e) => handleResizeStart(e, "e", el.id)}
-                        ></div>
-                        <div
-                          className="absolute top-0 right-0 font-mono text-[10px] font-medium text-gray-500 whitespace-nowrap pointer-events-none select-none z-50"
-                          style={{
-                            transform: `scale(${100 / zoom}) translateY(calc(-100% - 6px))`,
-                            transformOrigin: "top right",
-                          }}
-                        >
-                          {Math.round(el.width)} × {Math.round(el.height)} · {Math.round(el.fontSize || 16)}px
-                        </div>
-                      </>
-                    )}
+                    {el.type === "text" &&
+                      isSelected &&
+                      editingTextId !== el.id && (
+                        <>
+                          <div
+                            className="absolute top-0 left-0 w-3 h-3 bg-white border-2 border-blue-500 rounded-full -translate-x-1/2 -translate-y-1/2 z-20 cursor-nw-resize hover:scale-125 transition"
+                            onMouseDown={(e) =>
+                              handleResizeStart(e, "nw", el.id)
+                            }
+                          ></div>
+                          <div
+                            className="absolute top-0 right-0 w-3 h-3 bg-white border-2 border-blue-500 rounded-full translate-x-1/2 -translate-y-1/2 z-20 cursor-ne-resize hover:scale-125 transition"
+                            onMouseDown={(e) =>
+                              handleResizeStart(e, "ne", el.id)
+                            }
+                          ></div>
+                          <div
+                            className="absolute bottom-0 left-0 w-3 h-3 bg-white border-2 border-blue-500 rounded-full -translate-x-1/2 translate-y-1/2 z-20 cursor-sw-resize hover:scale-125 transition"
+                            onMouseDown={(e) =>
+                              handleResizeStart(e, "sw", el.id)
+                            }
+                          ></div>
+                          <div
+                            className="absolute bottom-0 right-0 w-3 h-3 bg-white border-2 border-blue-500 rounded-full translate-x-1/2 translate-y-1/2 z-20 cursor-se-resize hover:scale-125 transition"
+                            onMouseDown={(e) =>
+                              handleResizeStart(e, "se", el.id)
+                            }
+                          ></div>
+                          <div
+                            className="absolute top-0 right-0 font-mono text-[10px] font-medium text-gray-500 whitespace-nowrap pointer-events-none select-none z-50"
+                            style={{
+                              transform: `scale(${100 / zoom}) translateY(calc(-100% - 6px))`,
+                              transformOrigin: "top right",
+                            }}
+                          >
+                            {Math.round(el.width)} × {Math.round(el.height)} ·{" "}
+                            {Math.round(el.fontSize || 16)}px
+                          </div>
+                        </>
+                      )}
                     {el.type === "shape" && (
                       <svg
                         width="100%"
@@ -9565,8 +10016,8 @@ ${analysis}
                             rx={
                               el.cornerRadius
                                 ? (el.cornerRadius /
-                                  Math.min(el.width, el.height)) *
-                                100
+                                    Math.min(el.width, el.height)) *
+                                  100
                                 : 0
                             }
                             fill={el.fillColor}
@@ -9678,7 +10129,10 @@ ${analysis}
                               draggable={false}
                               decoding="async"
                               loading="lazy"
-                              style={{ willChange: "transform", contain: "paint" }}
+                              style={{
+                                willChange: "transform",
+                                contain: "paint",
+                              }}
                             />
                             {/* 文字提取中的扫描动画覆盖层 */}
                             {isSelected && isExtractingText && (
@@ -9689,9 +10143,12 @@ ${analysis}
                                 <div
                                   className="absolute left-0 right-0 h-1"
                                   style={{
-                                    background: "linear-gradient(180deg, transparent, rgba(59,130,246,0.6), transparent)",
-                                    animation: "textExtractScan 1.8s ease-in-out infinite",
-                                    boxShadow: "0 0 20px 8px rgba(59,130,246,0.25)",
+                                    background:
+                                      "linear-gradient(180deg, transparent, rgba(59,130,246,0.6), transparent)",
+                                    animation:
+                                      "textExtractScan 1.8s ease-in-out infinite",
+                                    boxShadow:
+                                      "0 0 20px 8px rgba(59,130,246,0.25)",
                                   }}
                                 />
                                 {/* 提取文字标签 */}
@@ -9700,7 +10157,10 @@ ${analysis}
                                   style={{ transform: `scale(${100 / zoom})` }}
                                 >
                                   <div className="bg-blue-600/80 backdrop-blur-sm text-white text-xs font-bold px-4 py-2 rounded-full flex items-center gap-2 shadow-lg">
-                                    <Loader2 size={14} className="animate-spin" />
+                                    <Loader2
+                                      size={14}
+                                      className="animate-spin"
+                                    />
                                     提取文字
                                   </div>
                                 </div>
@@ -9818,7 +10278,12 @@ ${analysis}
                                       size={48}
                                       className="animate-spin text-blue-500"
                                     />
-                                    {(el.generatingType === ("upscale" as any) || el.generatingType === ("eraser" as any)) && (
+                                    {(el.generatingType ===
+                                      ("upscale" as any) ||
+                                      el.generatingType ===
+                                        ("fast-edit" as any) ||
+                                      el.generatingType ===
+                                        ("eraser" as any)) && (
                                       <div className="absolute inset-0 flex items-center justify-center">
                                         <ImageIcon
                                           size={20}
@@ -9831,17 +10296,23 @@ ${analysis}
                                     <span className="text-sm text-blue-500 font-bold whitespace-nowrap">
                                       {el.generatingType === ("upscale" as any)
                                         ? "高清放大中"
-                                        : el.generatingType === "vector"
-                                          ? "矢量线稿中"
-                                          : el.generatingType === "remove-bg"
-                                            ? "背景移除中"
-                                            : el.generatingType === "product-swap"
-                                              ? "产品替换中"
-                                              : el.generatingType === "text-edit"
-                                                ? "文字编辑中"
-                                                : el.generatingType === ("eraser" as any)
-                                                  ? "橡皮擦处理中"
-                                                  : "正在处理中"}
+                                        : el.generatingType ===
+                                            ("fast-edit" as any)
+                                          ? "正在编辑"
+                                          : el.generatingType === "vector"
+                                            ? "矢量线稿中"
+                                            : el.generatingType === "remove-bg"
+                                              ? "背景移除中"
+                                              : el.generatingType ===
+                                                  "product-swap"
+                                                ? "产品替换中"
+                                                : el.generatingType ===
+                                                    "text-edit"
+                                                  ? "文字编辑中"
+                                                  : el.generatingType ===
+                                                      ("eraser" as any)
+                                                    ? "橡皮擦处理中"
+                                                    : "正在处理中"}
                                     </span>
                                     <span className="text-[10px] text-blue-400 opacity-70 animate-pulse">
                                       Creating magic...
@@ -10024,7 +10495,7 @@ ${analysis}
                     background: "#f43f5e",
                   }}
                 />
-              )
+              ),
             )}
             {/* Markers Layer */}
             <AnimatePresence mode="popLayout">
@@ -10302,6 +10773,7 @@ ${analysis}
           </button>
         </div>
       )}
+      </div>
     </div>
   );
 };

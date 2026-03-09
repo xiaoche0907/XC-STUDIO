@@ -12,6 +12,12 @@ type SearchRequest = {
   timeRange?: "day" | "week" | "month" | "year" | "any";
 };
 
+type SearchProviderMeta = {
+  web: string;
+  images: string;
+  fallback?: boolean;
+};
+
 const DEFAULT_WEB_COUNT = 8;
 const DEFAULT_IMAGE_COUNT = 16;
 
@@ -96,7 +102,7 @@ async function searchBing(
   freshness: string,
   key: string,
 ): Promise<{
-  provider: { web: string; images: string };
+  provider: SearchProviderMeta;
   web: NormalizedWebItem[];
   images: NormalizedImageItem[];
   suggestedQueries: string[];
@@ -266,7 +272,7 @@ async function searchFree(
   webCount: number,
   imageCount: number,
 ): Promise<{
-  provider: { web: string; images: string };
+  provider: SearchProviderMeta;
   web: NormalizedWebItem[];
   images: NormalizedImageItem[];
   suggestedQueries: string[];
@@ -290,6 +296,7 @@ async function searchFree(
     provider: {
       web: mode === "images" ? "none" : "wikipedia",
       images: mode === "web" ? "none" : "wikimedia+openverse",
+      fallback: true,
     },
     web,
     images,
