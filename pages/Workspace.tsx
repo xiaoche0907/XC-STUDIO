@@ -2917,6 +2917,11 @@ const Workspace: React.FC = () => {
     const effectiveTopicId = buildMemoryKey(effectiveConversationId);
 
     const attachmentPreviews = attachments.map((f) => URL.createObjectURL(f));
+    const attachmentMetadata = attachments.map((f) => ({
+      markerId: (f as any).markerId,
+      markerName: (f as any).markerName,
+      markerInfo: (f as any).markerInfo,
+    }));
 
     // 2. 构造并将用户消息添加至 Store
     const userMsg: ChatMessage = {
@@ -2924,6 +2929,7 @@ const Workspace: React.FC = () => {
       role: "user",
       text,
       attachments: attachmentPreviews,
+      attachmentMetadata,
       timestamp: Date.now(),
       skillData,
     };
@@ -3022,6 +3028,9 @@ const Workspace: React.FC = () => {
         }
       }
 
+      // --- [XC-STUDIO 优化] 标记点编辑指令增强 ---
+      const hasMarkers = inputBlocks.some(b => b.type === "file" && b.file && (b.file as any).markerId);
+
       const requestMetadata = {
         topicId: effectiveTopicId,
         enableWebSearch: isWeb,
@@ -3029,6 +3038,7 @@ const Workspace: React.FC = () => {
         preferredAspectRatio:
           creationMode === "video" ? videoGenRatio : imageGenRatio,
         skillData,
+        forceToolCall: hasMarkers, // 标记点场景强制出图
         multimodalContext: {
           referenceImageUrls: Array.from(
             new Set([
@@ -3068,8 +3078,14 @@ const Workspace: React.FC = () => {
         "[Workspace] handleSend: calling processMessage with text:",
         text.substring(0, 50),
       );
+
+      let effectiveText = text;
+      if (hasMarkers && !text.includes("保持整图其它部分不变")) {
+         effectiveText = `${text}\n\n(提示：这是针对原图标记点的局部修改，请务必参考所附标记截图及对应的整图，仅对标记区域实施精准调整，保持整图光影、主体特征及非标记区域完全一致。)`;
+      }
+
       const result = await processMessage(
-        text,
+        effectiveText,
         attachments,
         requestMetadata,
         userMsg.id,
@@ -3095,26 +3111,48 @@ const Workspace: React.FC = () => {
                   .map((s: any) => s.result),
               ];
 
+        const failedSkill = result.output?.skillCalls?.find((s: any) => !s?.success);
+        const hasFailedSkills = !!failedSkill;
+        const fallbackErrorText = hasFailedSkills ? `生成遇到问题: ${failedSkill.error || '未知错误'}` : '';
+
         // 5. 构造并添加 Agent 消息
         const agentMsg: ChatMessage = {
           id: result.id,
           role: "model",
-          text: result.output.message || "已完成任务。",
+          text: result.output?.error
+            ? `生成遇到问题: ${result.output.error.message || '未知错误'}`
+            : (hasFailedSkills && derivedImageUrls.length === 0 ? fallbackErrorText : (result.output?.message || "已完成任务。")),
           timestamp: Date.now(),
-          error: result.status === "failed",
+          error: result.status === "failed" || (hasFailedSkills && derivedImageUrls.length === 0),
           agentData: {
             model: result.agentId,
             title: "智能助理",
             imageUrls: Array.from(new Set(derivedImageUrls)),
-            proposals: result.output.proposals,
-            skillCalls: result.output.skillCalls,
-            analysis: result.output.analysis,
-            preGenerationMessage: result.output.preGenerationMessage,
-            postGenerationSummary: result.output.postGenerationSummary,
-            suggestions: result.output.adjustments || [],
+            proposals: result.output?.proposals,
+            skillCalls: result.output?.skillCalls,
+            analysis: result.output?.analysis,
+            preGenerationMessage: result.output?.preGenerationMessage,
+            postGenerationSummary: result.output?.postGenerationSummary,
+            suggestions: result.output?.adjustments || [],
+            isGenerating: false, // 明确关闭生成状态
           },
         };
-        addMessage(agentMsg);
+        const store = useAgentStore.getState();
+        const existingMsg = store.messages.find(m => m.id === result.id);
+        if (existingMsg) {
+          store.actions.updateMessage(result.id, agentMsg);
+        } else {
+          addMessage(agentMsg);
+        }
+
+        // --- [XC-STUDIO 优化] 生成成功后自动清理标记点与输入状态 ---
+        if (result.status === "completed" && hasMarkers) {
+          console.log("[Workspace] Auto-clearing markers after successful generation");
+          setMarkers([]);
+          setHistory(prev => [{ elements: elementsRef.current, markers: [] }, ...prev]);
+          // 重置输入块为初始状态
+          setInputBlocks([{ id: "init", type: "text", text: "" }]);
+        }
       }
     } catch (error) {
       console.error("[Workspace] handleSend failed:", error);
@@ -3125,9 +3163,7 @@ const Workspace: React.FC = () => {
       addMessage({
         id: `err-${Date.now()}`,
         role: "model",
-        text: isImageError
-          ? "图片处理失败，请检查网络或重新上传"
-          : "处理请求时遇到问题，请稍后重试。",
+        text: `抱歉，处理您的请求时出现了错误：\n> ${rawError}\n\n建议：检查网络连接、重试一次，或者尝试切换为其它模型（如 Nano Banana Pro）再试。`,
         timestamp: Date.now(),
         error: true,
       });

@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     ChevronDown, ChevronUp, Search, Eye, Sparkles, 
-    ThumbsUp, ThumbsDown, Copy, Check, Wand2, Image as ImageIcon
+    ThumbsUp, ThumbsDown, Copy, Check, Wand2, Image as ImageIcon, Loader2
 } from 'lucide-react';
 import { ChatMessage } from '../../../types';
 import { MarkdownRenderer } from './MarkdownRenderer';
@@ -153,7 +153,7 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
 
                 {/* 1. 引导文字 */}
                 {cleanText && oneClickView.sections.length === 0 && (
-                    <div className="agent-msg-text px-1 break-words">
+                    <div className={`agent-msg-text px-1 break-words ${message.error ? 'text-red-600 bg-red-50 p-2.5 rounded-xl mt-1 border border-red-100' : ''}`}>
                         <MarkdownRenderer text={cleanText} className="text-[13px]" />
                     </div>
                 )}
@@ -346,6 +346,16 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
                                 ))}
                             </div>
                         )}
+                    </div>
+                )}
+
+                {/* 5.5 生成中效果 */}
+                {agentData?.isGenerating && imageCards.length === 0 && (
+                    <div className="px-1 mt-1">
+                        <div className="relative aspect-square rounded-xl overflow-hidden border border-gray-100 shadow-sm bg-gray-50/80 flex flex-col items-center justify-center gap-3">
+                            <Loader2 size={24} className="text-gray-400 animate-spin" strokeWidth={2.5} />
+                            <span className="text-[12px] font-medium text-gray-500 tracking-wider">正在使用 <span className="uppercase text-gray-600 font-bold">{agentData.model || 'AI'}</span> 生成中...</span>
+                        </div>
                     </div>
                 )}
 

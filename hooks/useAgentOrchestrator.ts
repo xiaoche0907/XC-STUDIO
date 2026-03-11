@@ -612,9 +612,10 @@ export function useAgentOrchestrator(options: UseAgentOrchestratorOptions) {
       const failMessage = imageFailure
         ? '图片处理失败，请检查网络或重新上传'
         : '抱歉，生成过程中遇到网络或解析错误，请重试。';
+      const curTask = useAgentStore.getState().currentTask;
       const errorTask: AgentTask = {
-        id: `task-${Date.now()}`,
-        agentId: 'coco' as AgentType,
+        id: curTask?.id || `task-${Date.now()}`,
+        agentId: curTask?.agentId || 'coco' as AgentType,
         status: 'failed',
         input: { message, context: projectContext },
         output: {

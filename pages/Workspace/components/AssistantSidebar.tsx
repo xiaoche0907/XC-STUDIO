@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     MessageSquare, ChevronDown, CirclePlus, Clock, Search, X, Share2,
-    File as FileIcon, Image as ImageIcon, Video, Download, Store, Layout, Globe, FileText, PanelRightClose, Compass, Pin
+    File as FileIcon, Image as ImageIcon, Video, Download, Store, Layout, Globe, FileText, PanelRightClose, Compass, Pin, Sparkles
 } from 'lucide-react';
 import { useAgentStore } from '../../../stores/agent.store';
 import { useClothingStudioChatStore } from '../../../stores/clothingStudioChat.store';
@@ -10,6 +10,7 @@ import { deleteTopicMemory } from '../../../services/topic-memory';
 import { getMemoryKey } from '../../../services/topicMemory/key';
 import { MessageList } from './MessageList';
 import { InputArea } from './InputArea';
+
 import { ConversationSession, ImageModel, VideoModel, Marker } from '../../../types';
 import type { Requirements, ModelGenOptions } from '../../../types/workflow.types';
 
@@ -99,6 +100,7 @@ export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
 }) => {
     const messages = useAgentStore(s => s.messages);
     const inputBlocks = useAgentStore(s => s.inputBlocks);
+    const currentTask = useAgentStore(s => s.currentTask);
     const { setMessages, clearMessages, setIsAgentMode } = useAgentStore(s => s.actions);
     const webEnabled = useAgentStore(s => s.webEnabled);
     const clothingActions = useClothingStudioChatStore(s => s.actions);
@@ -471,6 +473,49 @@ export const AssistantSidebar: React.FC<AssistantSidebarProps> = ({
                     />
                 )}
             </div>
+
+            {/* [XC-STUDIO] 生成进度展示位 - 仅在分析或执行生图阶段显示 */}
+            <AnimatePresence mode="wait">
+                {currentTask && currentTask.status === 'analyzing' && (
+                    <motion.div 
+                        key="analyzing"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.98 }}
+                        className="mx-5 mb-4 flex items-center gap-3 px-4 py-2.5 bg-[#F1F3F5] rounded-xl"
+                    >
+                        <div className="w-7 h-7 rounded-full bg-gray-900 flex items-center justify-center shadow-sm transform scale-90 text-white font-bold text-[9px] tracking-wide">
+                           XC
+                        </div>
+                        <span className="text-[11px] font-bold text-gray-400">AI 正在深度分析中...</span>
+                        <div className="flex items-center gap-1 opacity-10 ml-auto">
+                            <span className="w-0.5 h-0.5 bg-gray-600 rounded-full animate-bounce"></span>
+                            <span className="w-0.5 h-0.5 bg-gray-600 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
+                        </div>
+                    </motion.div>
+                )}
+
+                {currentTask && currentTask.status === 'executing' && (
+                    <motion.div 
+                        key="executing"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.98 }}
+                        className="mx-5 mb-4 flex items-center gap-3 px-4 py-2.5 bg-[#F1F3F5] rounded-xl"
+                    >
+                        <div className="w-7 h-7 rounded-full bg-gray-900 flex items-center justify-center shadow-sm transform scale-90 text-white font-bold text-[9px] tracking-wide">
+                           XC
+                        </div>
+                        <span className="text-[11px] font-bold text-gray-400">正在生成设计中...</span>
+                        <div className="flex items-center gap-1 opacity-10 ml-auto">
+                            <span className="w-0.5 h-0.5 bg-gray-600 rounded-full animate-bounce"></span>
+                            <span className="w-0.5 h-0.5 bg-gray-600 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
+                        </div>
+                    </motion.div>
+                )}
+
+
+            </AnimatePresence>
 
             <div className="shrink-0 flex-shrink-0 border-t border-gray-100 bg-[#f8f9fc]">
                 <InputArea

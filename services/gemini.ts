@@ -1463,10 +1463,12 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
         }
     }
 
-    // Concurrency check: If user has multi-key, the getApiKey() will handle its own poll.
-    // Here we focus on model rotation.
-
-    const modelsToTry = Array.from(new Set([targetModelId]));
+    // --- [XC-STUDIO 优化] 模型失败回退机制 ---
+    // 如果首选是 NanoBanana2 (Flash)，失败后尝试 Pro。
+    const modelsToTry = [targetModelId];
+    if (targetModelId === IMAGE_NANOBANANA_2_MODEL) {
+        modelsToTry.push(IMAGE_PRO_MODEL);
+    }
 
     const configProvider = getProviderConfig();
     const isProxy = configProvider.id !== 'gemini' || (configProvider.baseUrl && !configProvider.baseUrl.includes('googleapis.com'));
@@ -1552,7 +1554,11 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
     };
 
     if ((config.model === 'Nano Banana Pro' || config.model === 'NanoBanana2') && config.imageSize) {
-        imageConfig.imageSize = config.imageSize;
+        imageConfig.imageSize = config.imageSize.toUpperCase();
+        
+        // 兼容性修正：如果用户选了 4k/2k（小写），统一转为大写 '4K' / '2K'
+        if (imageConfig.imageSize === '4KB') imageConfig.imageSize = '4K'; // 防止意外输入
+        if (imageConfig.imageSize === '2KB') imageConfig.imageSize = '2K';
     }
 
     let lastError: any = null;

@@ -16,6 +16,7 @@ import { errorHandler, ErrorType, AppError } from "../../utils/error-handler";
 import { buildEcommerceProposals } from "./shared/ecommerce-variants";
 import { useAgentStore } from "../../stores/agent.store";
 import { collectReferenceCandidates } from "./utils/reference-images";
+import { sanitizeObject, sanitizeStringBase64 } from "./utils/payload-sanitizer";
 
 // 带指数退避的重试工具（用于 analyzeAndPlan 等内部调用）
 const retryAsync = async <T>(
@@ -1016,6 +1017,23 @@ export abstract class EnhancedBaseAgent {
         totalSteps: 4,
       });
 
+      // --- [XC-STUDIO 优化] 提前将分析和生成中状态推入聊天 ----
+      const existing = store.messages.find((m) => m.id === task.id);
+      if (!existing) {
+        store.actions.addMessage({
+          id: task.id,
+          role: "model",
+          text: plan.preGenerationMessage || `现在我将为您生成${genDesc}。`,
+          timestamp: Date.now(),
+          agentData: {
+            model: task.agentId,
+            title: "智能助理",
+            analysis: plan.analysis,
+            isGenerating: true,
+          },
+        });
+      }
+
       skillResults = await this.executeSkills(activeSkillCalls, task);
     }
 
@@ -1255,20 +1273,23 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${mul
 }
 仅当用户明确要求“先看方案/给几个方案再选”时，才返回 proposals 字段。`;
 
+      // [XC-STUDIO] 最后一层保险：强力清洗满文件名的 base64 内容，防止 413
+      const sanitizedPrompt = sanitizeStringBase64(fullPrompt);
+
       // Build content parts - text + image attachments for visual understanding
-      const parts: any[] = [{ text: fullPrompt }];
+      const parts: any[] = [{ text: sanitizedPrompt }];
 
       const selectedMode = useAgentStore.getState().modelMode || 'fast';
       const bestModel = getBestModelId(selectedMode === 'thinking' ? "thinking" : "text");
 
       const payloadDiagnostics = {
-        promptChars: fullPrompt.length,
+        promptChars: sanitizedPrompt.length,
         historyCount: (context.conversationHistory || []).length,
         historyUsed: Math.min((context.conversationHistory || []).length, MAX_ANALYZE_HISTORY_MESSAGES),
         attachmentCount: attachments?.length || 0,
         uploadedAttachmentCount: uploadedAttachments?.length || 0,
         includesInlineImages: false,
-        estimatedPayloadChars: JSON.stringify({ prompt: fullPrompt }).length,
+        estimatedPayloadChars: JSON.stringify({ prompt: sanitizedPrompt }).length,
         model: bestModel,
       };
       console.log(`[${this.agentInfo.id}] [analyzeAndPlan] payload diagnostics`, payloadDiagnostics);
@@ -1636,9 +1657,9 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${mul
           }
         }
 
-        task.input.metadata = task.input.metadata || {};
-        task.input.metadata.referenceInjection = {
-          ...(task.input.metadata.referenceInjection || {}),
+        const nextMetadata = { ...(task.input.metadata || {}) };
+        nextMetadata.referenceInjection = {
+          ...(nextMetadata.referenceInjection || {}),
           maxReferenceImages: MAX_REFERENCE_IMAGES,
           uploaded_total: task.input.uploadedAttachments?.length || 0,
           source_total: resolvedRefs.sourceCount,
@@ -1646,6 +1667,8 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${mul
           truncated: resolvedRefs.truncated,
           omitted_total: resolvedRefs.omittedCount,
         };
+        task.input = { ...task.input, metadata: nextMetadata };
+        
         console.info(
           `[${this.agentInfo.id}] reference injection stats`,
           task.input.metadata.referenceInjection,

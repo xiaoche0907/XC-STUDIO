@@ -111,14 +111,8 @@ export const normalizeReferenceToDataUrl = async (input: string): Promise<string
         return serverDataUrl;
       }
 
-      throw new ProviderError({
-        provider: getProviderConfig().id || 'unknown',
-        code: 'REFERENCE_IMAGE_FETCH_FAILED',
-        retryable: false,
-        stage: 'generateRequest',
-        details: `reference_image_unreachable:${input}`,
-        message: '部分参考图源不支持直接读取，请先上传图片或使用可访问图源。',
-      });
+      console.warn('[reference-resolver] All attempts to fetch reference image failed, continuing without it:', input);
+      return null;
     }
   }
 

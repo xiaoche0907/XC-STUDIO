@@ -141,7 +141,7 @@ class ErrorHandler {
         // 未知错误
         return this.createError(
             ErrorType.UNKNOWN,
-            '发生未知错误，请稍后重试',
+            error instanceof Error ? error.message : '发生未知错误，请稍后重试',
             error instanceof Error ? error : undefined,
             context,
             true

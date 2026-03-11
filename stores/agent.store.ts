@@ -165,6 +165,7 @@ interface AgentState {
     setCurrentTask: (task: AgentTask | null) => void;
 
     addMessage: (message: ChatMessage) => void;
+    updateMessage: (id: string, updates: Partial<ChatMessage>) => void;
     updateMessageAttachments: (messageId: string, attachments: string[]) => void;
     setMessages: (messages: ChatMessage[]) => void;
     clearMessages: () => void;
@@ -272,6 +273,13 @@ export const useAgentStore = create<AgentState>()(
 
         addMessage: (message) => set((state) => {
           state.messages.push(message);
+        }),
+
+        updateMessage: (id, updates) => set((state) => {
+          const msgIndex = state.messages.findIndex(m => m.id === id);
+          if (msgIndex !== -1) {
+            state.messages[msgIndex] = { ...state.messages[msgIndex], ...updates };
+          }
         }),
 
         updateMessageAttachments: (messageId, attachments) => set((state) => {

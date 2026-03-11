@@ -9,6 +9,7 @@ import { COCO_SYSTEM_PROMPT } from './prompts/coco.prompt';
 import { errorHandler, ErrorType } from '../../utils/error-handler';
 import { getApiKey, getBestModelId, generateJsonResponse } from '../gemini';
 import { localPreRoute } from './local-router';
+import { sanitizeObject } from './utils/payload-sanitizer';
 import { z } from 'zod';
 
 
@@ -191,11 +192,15 @@ export async function routeToAgent(
             .map(m => `${m.role}: ${m.text}`)
             .join('\n');
 
+        // [XC-STUDIO] 修复 413 负载过大：清洗品牌信息和会话上下文中的 Base64 数据
+        const cleanBrandInfo = sanitizeObject(context.brandInfo || {}, 512);
+        const cleanDesignSession = sanitizeObject(context.designSession || {}, 512);
+
         const prompt = `${COCO_SYSTEM_PROMPT}
 
 Current Project: ${context.projectTitle}
-Brand Info: ${JSON.stringify(context.brandInfo || {})}
-Design Session: ${JSON.stringify(context.designSession || {})}
+Brand Info: ${JSON.stringify(cleanBrandInfo)}
+Design Session: ${JSON.stringify(cleanDesignSession)}
 Conversation History:
 ${historyText}
 

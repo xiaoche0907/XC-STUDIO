@@ -138,6 +138,7 @@ export interface ChatMessage {
   workflowUi?: WorkflowUiMessage;
   timestamp: number;
   attachments?: string[]; // Array of base64 images
+  attachmentMetadata?: any[]; // Metadata for attachments (e.g. marker info)
   error?: boolean;
   relatedMarkerId?: string;
   // Agent structured data (Lovart-style)
@@ -174,6 +175,7 @@ export interface ChatMessage {
     preGenerationMessage?: string;
     postGenerationSummary?: string;
     suggestions?: string[]; // 可点击的建议按钮（如"温馨日常故事"、"科技感风格"）
+    isGenerating?: boolean;
   };
   // User skill invocation structured data
   skillData?: {
