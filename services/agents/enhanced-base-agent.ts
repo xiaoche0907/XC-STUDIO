@@ -1805,8 +1805,19 @@ ${productSection}${quantitySection}${multiImageSection}${forcedToolSection}${mul
               const maskBase64 = await createMaskDataUrl(info);
               if (maskBase64) {
                 call.params.maskImage = maskBase64;
+
+                // 3. 增强指令：强制保留原图上下文，防止“人没了”或背景变白底
+                if (typeof call.params.prompt === 'string') {
+                  const contextGuidance = "Must preserve the person, background, pose, and all untouched areas from the original image. ONLY change the selected area according to the prompt.";
+                  if (!call.params.prompt.includes(contextGuidance)) {
+                    call.params.prompt = `${contextGuidance}\n\nTask: ${call.params.prompt}`;
+                  }
+                }
+
                 if (call.skillName === "generateImage") {
                   call.params.referenceMode = "portrait";
+                  // 强制高一致性，确保非选区绝对不动
+                  call.params.referenceStrength = 0.85; 
                 }
               }
             } catch (maskErr) {
