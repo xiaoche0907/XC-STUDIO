@@ -2777,6 +2777,24 @@ const Workspace: React.FC = () => {
           productDataUrls.push(dataUrl);
         }
 
+        // Phase 1: analyze first (like storyboard flow)
+        updateProgress('正在分析产品图（提取材质/颜色/结构锚点）...');
+        const analysis = await executeSkill('analyzeClothingProduct', {
+          productImages: productDataUrls.slice(0, 6),
+          brief: text,
+        });
+
+        // Show analysis as an explicit message before generation.
+        addMessage({
+          id: `clothing-quick-analysis-${Date.now()}`,
+          role: 'model',
+          text: `产品分析完成（将严格保持材质/颜色/结构一致）。\n\n- 品类：${analysis?.productType || 'unknown'}\n- 锚点：${analysis?.anchorDescription || '保持服装廓形、颜色和关键结构线不变'}\n- 禁止变更：${Array.isArray(analysis?.forbiddenChanges) && analysis.forbiddenChanges.length ? analysis.forbiddenChanges.slice(0, 6).join('；') : '不要改变版型/颜色/材质'}\n\n接下来开始生成棚拍组图（同一模特脸）。`,
+          timestamp: Date.now(),
+        });
+
+        // Phase 2: generate images
+        updateProgress('开始生成棚拍组图（先生成模特锚点，再出图）...');
+
         const countMatch = text.match(/(\d+)\s*[张幅]|(?:count|imgs?|images?)\s*[:=]\s*(\d+)/i);
         const requestedCount = countMatch ? Number(countMatch[1] || countMatch[2]) : undefined;
 
@@ -2791,7 +2809,6 @@ const Workspace: React.FC = () => {
         const bgMatch = text.match(/背景\s*[:：]\s*([^\n]+)/);
         const background = bgMatch ? String(bgMatch[1] || '').trim() : undefined;
 
-        updateProgress('开始生成：锁定产品一致性 + 自动生成同一模特锚点...');
         const result = await executeSkill("clothingStudioQuick", {
           productImages: productDataUrls.slice(0, 6),
           brief: text,
@@ -2805,6 +2822,7 @@ const Workspace: React.FC = () => {
           regenerateModel: false,
           topicId: effectiveTopicId,
           onProgress: (t: string) => updateProgress(String(t || '').trim() || '处理中...'),
+          analysisOverride: analysis,
         });
 
         const imageUrls = Array.isArray(result?.images)

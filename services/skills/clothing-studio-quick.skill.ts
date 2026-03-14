@@ -22,6 +22,9 @@ const schema = z.object({
   preferredImageModel: z.string().optional(),
   sessionModelAnchorSheetUrl: z.string().optional(),
   regenerateModel: z.boolean().optional(),
+  // Optional: allow caller to run analysis first (like storyboard flow)
+  // and pass it in to avoid duplicate model calls.
+  analysisOverride: z.any().optional(),
 });
 
 const defaultPlatformShots = (productType: string): Array<{ label: string; shotSpec: string }> => {
@@ -149,12 +152,17 @@ export async function clothingStudioQuickSkill(raw: unknown): Promise<ClothingSt
   const clarity = (params.clarity || '2K') as '1K' | '2K' | '4K';
   const preferredModel = (params.preferredImageModel || 'nanobanana2') as ImageModel;
 
-  onProgress?.('正在分析产品图（锁定材质/颜色/结构锚点）...');
-  const analysis = await analyzeClothingProductSkill({
-    productImages,
-    brief,
-  });
-  onProgress?.('产品分析完成，准备生成/复用模特锚点...');
+  let analysis: any = params.analysisOverride;
+  if (!analysis) {
+    onProgress?.('正在分析产品图（锁定材质/颜色/结构锚点）...');
+    analysis = await analyzeClothingProductSkill({
+      productImages,
+      brief,
+    });
+    onProgress?.('产品分析完成，准备生成/复用模特锚点...');
+  } else {
+    onProgress?.('已获取产品分析结果，准备生成/复用模特锚点...');
+  }
 
   const productAnchorUrl = productImages[Math.max(0, Math.min(productImages.length - 1, Number(analysis.productAnchorIndex || 0)))] || productImages[0];
 
