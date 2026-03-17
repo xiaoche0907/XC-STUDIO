@@ -68,6 +68,30 @@ const buildOpenAIUrl = (baseUrl: string, path: string, authMode: OpenAIAuthMode,
     return base;
 };
 
+const AUTH_MODE_CACHE_KEY = 'xcai_auth_mode_cache';
+
+const getAuthModeCache = (): Record<string, OpenAIAuthMode> => {
+    try {
+        return JSON.parse(localStorage.getItem(AUTH_MODE_CACHE_KEY) || '{}');
+    } catch {
+        return {};
+    }
+};
+
+const saveAuthModeToCache = (baseUrl: string, mode: OpenAIAuthMode) => {
+    try {
+        const cache = getAuthModeCache();
+        cache[baseUrl] = mode;
+        localStorage.setItem(AUTH_MODE_CACHE_KEY, JSON.stringify(cache));
+    } catch (e) {
+        console.warn('[AuthCache] Failed to save auth mode', e);
+    }
+};
+
+const getCachedAuthMode = (baseUrl: string): OpenAIAuthMode | null => {
+    return getAuthModeCache()[baseUrl] || null;
+};
+
 const fetchOpenAIJsonWithFallback = async <T>(
     baseUrl: string,
     path: string,
@@ -75,13 +99,14 @@ const fetchOpenAIJsonWithFallback = async <T>(
     body: unknown,
     contextTag: string
 ): Promise<T> => {
-    const plans: OpenAIAuthMode[] = ['bearer', 'query'];
+    const cachedMode = getCachedAuthMode(baseUrl);
+    const plans: OpenAIAuthMode[] = cachedMode ? [cachedMode, cachedMode === 'bearer' ? 'query' : 'bearer'] : ['bearer', 'query'];
     let lastError: any = null;
 
     for (const authMode of plans) {
         const url = buildOpenAIUrl(baseUrl, path, authMode, apiKey);
         const headers = buildOpenAIHeaders(authMode, apiKey);
-        console.log(`[${contextTag}] POST [${authMode}] ${url.replace(apiKey, '***')}`);
+        console.log(`[${contextTag}] POST [${authMode}]${cachedMode === authMode ? ' (Cached)' : ''} ${url.replace(apiKey, '***')}`);
         const res = await fetchWithResilience(url, {
             method: 'POST',
             headers,
@@ -89,6 +114,9 @@ const fetchOpenAIJsonWithFallback = async <T>(
         }, { operation: `${contextTag}.openaiPost`, retries: 0, timeoutMs: 0, idleTimeoutMs: 300000 });
 
         if (res.ok) {
+            if (authMode !== cachedMode) {
+                saveAuthModeToCache(baseUrl, authMode);
+            }
             return res.json();
         }
 
@@ -877,7 +905,7 @@ export const sendMessage = async (
             ];
 
             let response: any;
-            const primaryBody = {
+            const primaryBody: any = {
                 model: openAIChat.model,
                 temperature: 0.7,
                 messages: requestMessages,
@@ -949,10 +977,129 @@ export const sendMessage = async (
             }
         }
 
+        if (typeof (chat as any).history?.push === 'function') {
+             // Already managed by SDK for GoogleDirect
+        }
+
         return text;
     } catch (error) {
         console.error("Gemini API Error:", error);
         return "Sorry, I encountered an error while processing your request. Please ensure the file types are supported.";
+    }
+};
+
+/**
+ * Streaming version of sendMessage to provide faster feedback
+ */
+export async function* sendMessageStream(
+    chat: ChatSession,
+    message: string,
+    attachments: File[] = [],
+    enableWebSearch: boolean = false
+): AsyncGenerator<string> {
+    const parts: Part[] = [];
+    if (message.trim()) parts.push({ text: message });
+    for (const file of attachments) {
+        parts.push(await fileToPart(file));
+    }
+    if (parts.length === 0) return;
+
+    const isOpenAIChat = (chat as OpenAIChatSession)?.__mode === 'openai';
+    if (!isOpenAIChat) {
+        // Fallback for Google Direct (no stream support implemented here yet, just direct call)
+        const res = await sendMessage(chat, message, attachments, enableWebSearch);
+        yield res;
+        return;
+    }
+
+    const openAIChat = chat as OpenAIChatSession;
+    const provider = getProviderConfig();
+    const baseUrl = normalizeUrl(provider.baseUrl || '');
+    const apiKey = requireApiKey('sendMessageStream');
+
+    const openAIContent = toOpenAIMessageContent(parts as any);
+    const historyMessages = (openAIChat.history || []).flatMap((item) => {
+        const role = item.role === 'model' ? 'assistant' : 'user';
+        const textParts = (item.parts || []).map((p: any) => p.text || '').filter(Boolean).join('\n');
+        return textParts ? [{ role, content: [{ type: 'text', text: textParts }] }] : [];
+    });
+
+    const body = {
+        model: openAIChat.model,
+        temperature: 0.7,
+        stream: true,
+        messages: [
+            { role: 'system', content: [{ type: 'text', text: openAIChat.systemInstruction }] },
+            ...historyMessages,
+            { role: 'user', content: openAIContent },
+        ],
+    };
+
+    const cachedMode = getCachedAuthMode(baseUrl) || 'bearer';
+    const plans: OpenAIAuthMode[] = [cachedMode, cachedMode === 'bearer' ? 'query' : 'bearer'];
+    
+    let streamSucceeded = false;
+    let accumulatedText = '';
+
+    for (const authMode of plans) {
+        const url = buildOpenAIUrl(baseUrl, '/v1/chat/completions', authMode, apiKey);
+        const headers = buildOpenAIHeaders(authMode, apiKey);
+        
+        try {
+            console.log(`[sendMessageStream] POST [${authMode}] ${url.replace(apiKey, '***')}`);
+            const response = await fetchWithResilience(url, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(body),
+            }, { operation: 'sendMessageStream', retries: 0 });
+
+            if (!response.ok) {
+                if (shouldTryAlternateAuth(response.status)) continue;
+                throw new Error(`Streaming failed: ${response.status}`);
+            }
+
+            if (authMode !== cachedMode) saveAuthModeToCache(baseUrl, authMode);
+
+            const reader = response.body?.getReader();
+            if (!reader) throw new Error('ReadableStream not supported');
+
+            const decoder = new TextDecoder();
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+                
+                for (const line of lines) {
+                    const cleanLine = line.trim();
+                    if (!cleanLine || !cleanLine.startsWith('data:')) continue;
+                    const dataStr = cleanLine.substring(5).trim();
+                    if (dataStr === '[DONE]') continue;
+
+                    try {
+                        const json = JSON.parse(dataStr);
+                        const delta = json.choices?.[0]?.delta?.content || '';
+                        if (delta) {
+                            accumulatedText += delta;
+                            yield delta;
+                        }
+                    } catch (e) {
+                        console.warn('[SSE] Parse error', e, dataStr);
+                    }
+                }
+            }
+            streamSucceeded = true;
+            break;
+        } catch (err) {
+            console.error('[sendMessageStream] Attempt failed', authMode, err);
+            if (authMode === plans[plans.length - 1]) throw err;
+        }
+    }
+
+    if (streamSucceeded) {
+        openAIChat.history.push({ role: 'user', parts: [{ text: message }] } as any);
+        openAIChat.history.push({ role: 'model', parts: [{ text: accumulatedText }] } as any);
     }
 };
 
@@ -1112,15 +1259,48 @@ const generateImageREST = async (
     imageConfig: any
 ): Promise<string | null> => {
     const url = buildImageGenerateUrl(baseUrl, modelId, apiKey);
-    // Google API expects contents: [{ parts }] and generationConfig
+    
+    // 将宽高比转换为精确尺寸字符串，部分中转模型（如 Nano 系列或 Flux）可能需要该参数
+    const ratioToSize: Record<string, string> = {
+        '1:1': '1024x1024',
+        '16:9': '1456x816',
+        '9:16': '816x1456',
+        '4:3': '1232x928',
+        '3:4': '928x1232',
+        '21:9': '1568x672',
+        '3:2': '1344x896',
+        '2:3': '896x1344',
+        '5:4': '1280x1024',
+        '4:5': '1024x1280',
+        '1:4': '512x2048',
+        '4:1': '2048x512',
+        '1:8': '256x2048',
+        '8:1': '2048x256'
+    };
+
+    const normalizedImageConfig: Record<string, any> = {};
+    if (imageConfig.aspectRatio) {
+        normalizedImageConfig.aspect_ratio = imageConfig.aspectRatio;
+        normalizedImageConfig.aspectRatio = imageConfig.aspectRatio; // 同时传两个版本，提升兼容性
+        
+        // 如果存在尺寸映射，通过 image_size 进行额外兜底
+        if (ratioToSize[imageConfig.aspectRatio]) {
+            normalizedImageConfig.image_size = ratioToSize[imageConfig.aspectRatio];
+        }
+    }
+    
+    if (imageConfig.imageSize) {
+        normalizedImageConfig.image_size = imageConfig.imageSize;
+    }
+
     const body = {
         contents: [{ parts }],
         generationConfig: {
-            imageConfig
+            image_generation_config: normalizedImageConfig
         }
     };
     
-    console.log(`[generateImageREST] POST ${url.replace(apiKey, '***')} with model ${modelId}`);
+    console.log(`[generateImageREST] POST ${url.replace(apiKey, '***')} with model ${modelId}, config:`, JSON.stringify(normalizedImageConfig));
     
     const res = await fetchWithResilience(url, {
         method: 'POST',
@@ -1131,7 +1311,7 @@ const generateImageREST = async (
     }, { 
         operation: 'generateImage.rest', 
         retries: 0,
-        timeoutMs: 300000 // 5 minutes for high-res images
+        timeoutMs: 300000 
     });
 
     if (!res.ok) {
@@ -1490,21 +1670,20 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
     let targetModelId = IMAGE_PRO_MODEL;
 
     if (requestedModel && requestedModel !== 'Auto') {
-        if (requestedModel === 'Nano Banana Pro') {
+        const lowerRequested = requestedModel.toLowerCase();
+        const normalized = lowerRequested.replace(/\s+/g, '');
+        if (normalized === 'nanobanana' + 'pro') {
             targetModelId = IMAGE_PRO_MODEL;
-        } else if (requestedModel === 'NanoBanana2') {
+        } else if (normalized === 'nanobanana2') {
             targetModelId = IMAGE_NANOBANANA_2_MODEL;
-        } else if (requestedModel.includes('1.5-flash')) {
-            // 强制防止回退到云雾不支持的旧 ID
+        } else if (lowerRequested.includes('1.5-flash')) {
             targetModelId = IMAGE_PRO_MODEL;
         } else {
-            // 允许上层传入已是底层 ID 的模型
             targetModelId = requestedModel;
         }
     }
 
     // --- [XC-STUDIO 优化] 模型失败回退机制 ---
-    // 如果首选是 NanoBanana2 (Flash)，失败后尝试 Pro。
     const modelsToTry = [targetModelId];
     if (targetModelId === IMAGE_NANOBANANA_2_MODEL) {
         modelsToTry.push(IMAGE_PRO_MODEL);
@@ -1515,20 +1694,18 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
 
     let validAspectRatio = config.aspectRatio;
 
-    // Expand supported ratios for proxy-based models (Yunwu Nano Banana Pro / 2, etc.)
-    const supported = isProxy
-        ? ["1:1", "3:4", "4:3", "9:16", "16:9", "21:9", "3:2", "2:3", "5:4", "4:5", "1:4", "4:1", "1:8", "8:1"]
-        : ["1:1", "3:4", "4:3", "9:16", "16:9"];
+    // 针对不同模型动态定义支持的比例
+    const standardRatios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
+    // 现代模型（Nano 系列）支持更丰富的比例
+    const expandedRatios = [...standardRatios, "2:3", "3:2", "21:9", "5:4", "4:5", "1:4", "4:1", "1:8", "8:1"];
+    
+    const isModernModel = targetModelId === IMAGE_PRO_MODEL || targetModelId === IMAGE_NANOBANANA_2_MODEL;
+    // 允许透传所有扩展比例，不再限制为 standardRatios
+    const supported = isModernModel ? expandedRatios : standardRatios;
 
     if (!supported.includes(validAspectRatio)) {
-        // 仅在完全不匹配时才执行降级回退
-        if (validAspectRatio === '21:9' && !isProxy) validAspectRatio = '16:9';
-        else if (validAspectRatio === '3:2' && !isProxy) validAspectRatio = '16:9';
-        else if (validAspectRatio === '2:3' && !isProxy) validAspectRatio = '9:16';
-        else if (validAspectRatio === '5:4' && !isProxy) validAspectRatio = '4:3';
-        else if (validAspectRatio === '4:5' && !isProxy) validAspectRatio = '3:4';
-        else if (['1:4', '4:1', '1:8', '8:1'].includes(validAspectRatio) && !isProxy) validAspectRatio = '1:1';
-        else if (!supported.includes(validAspectRatio)) validAspectRatio = '1:1';
+        // 仅对完全不支持的未知比例进行降级
+        validAspectRatio = '1:1';
     }
 
     // Prepare parts: Image(s) should generally come before or alongside text for multimodal models
@@ -1613,11 +1790,12 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
         aspectRatio: validAspectRatio,
     };
 
-    if ((config.model === 'Nano Banana Pro' || config.model === 'NanoBanana2') && config.imageSize) {
+    // 重点排查点：模型判定应使用最终解析后的 ID 或统一转换后的名称
+    if ((targetModelId === IMAGE_PRO_MODEL || targetModelId === IMAGE_NANOBANANA_2_MODEL) && config.imageSize) {
         imageConfig.imageSize = config.imageSize.toUpperCase();
         
         // 兼容性修正：如果用户选了 4k/2k（小写），统一转为大写 '4K' / '2K'
-        if (imageConfig.imageSize === '4KB') imageConfig.imageSize = '4K'; // 防止意外输入
+        if (imageConfig.imageSize === '4KB') imageConfig.imageSize = '4K'; 
         if (imageConfig.imageSize === '2KB') imageConfig.imageSize = '2K';
     }
 
@@ -1639,8 +1817,8 @@ export const generateImage = async (config: ImageGenerationConfig): Promise<stri
                         model: modelToUse,
                         contents: { parts },
                         config: {
-                            imageConfig
-                        }
+                            imageGenerationConfig: imageConfig
+                        } as any
                     });
                     
                     if (response.candidates?.[0]?.content?.parts) {

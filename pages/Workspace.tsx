@@ -109,6 +109,7 @@ import {
 import {
   createChatSession,
   sendMessage,
+  sendMessageStream,
   generateImage,
   generateVideo,
   extractTextFromImage,
@@ -2793,23 +2794,30 @@ const Workspace: React.FC = () => {
           ? `${text}\n\n${extraNotes.join("\n")}`
           : text;
 
-        const reply = await sendMessage(
+        const messageId = `chat-${Date.now()}`;
+        addMessage({
+          id: messageId,
+          role: "model",
+          text: "",
+          timestamp: Date.now(),
+        });
+
+        const stream = sendMessageStream(
           promptOptimizerChatRef.current as any,
           composedText,
           sendFiles,
           Boolean(isWeb),
         );
 
+        let fullReply = "";
+        for await (const chunk of stream) {
+          fullReply += chunk;
+          updateMessage(messageId, { text: fullReply });
+        }
+
         // Track chat history for model switches.
         promptOptimizerHistoryRef.current.push({ role: "user", parts: [{ text: composedText }] } as any);
-        promptOptimizerHistoryRef.current.push({ role: "model", parts: [{ text: reply }] } as any);
-
-        addMessage({
-          id: `chat-${Date.now()}`,
-          role: "model",
-          text: reply,
-          timestamp: Date.now(),
-        });
+        promptOptimizerHistoryRef.current.push({ role: "model", parts: [{ text: fullReply }] } as any);
       } catch (error: any) {
         addMessage({
           id: `chat-err-${Date.now()}`,
